@@ -290,6 +290,7 @@ def test_decision_log_records_each_decision_without_secrets(tmp_path, monkeypatc
     lines = [json.loads(l) for l in text.splitlines()]
     assert [l["kind"] for l in lines] == ["draft", "lineup"]
     assert lines[1]["model"] == "fake-model" and lines[1]["latency_ms"] == 7
+    assert lines[1]["provider_errors"] == []  # the first model answered; a Fable->Sonnet rescue would list Fable's error here
     assert "sk-ant-TESTKEY" not in text and "eak_live_leaked" not in text
     assert redact("key eak_live_abc123 and sk-ant-xyz") == "key [REDACTED] and [REDACTED]"
 

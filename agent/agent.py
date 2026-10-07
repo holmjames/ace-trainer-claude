@@ -243,6 +243,8 @@ class PokemonAgent:
             info["model"] = getattr(self._provider, "last_model", None) or getattr(self._provider, "model", None)
             info["latency_ms"] = getattr(self._provider, "last_latency_ms", None)
             info["usage"] = getattr(self._provider, "last_usage", None)
+            # Why earlier models in the chain failed (e.g. Fable timed out and Sonnet answered). Empty when the first model answered.
+            info["provider_errors"] = list(getattr(self._provider, "last_errors", None) or [])
             try:
                 value = choice.build(answer)
             except InvalidChoice as exc:

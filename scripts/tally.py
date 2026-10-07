@@ -117,6 +117,8 @@ def summarize(sessions: dict[str, list[dict]], results: dict[str, dict]) -> dict
                 stats["fallbacks"] += 1
             if kind == "error":
                 stats["errors"] += 1
+            if r.get("provider_errors"):
+                stats["rescues"] = stats.get("rescues", 0) + 1  # a later model in the chain answered
             model = r.get("model")
             usage = r.get("usage") or {}
             if model:
@@ -155,6 +157,8 @@ def render(per_version: dict[str, dict]) -> str:
         out.append(f"{version:28s} {len(s['matches']):7d} {wld:>9s} {s['unknown']:4d} {s['decisions']:9d} {p50:7d} {p95:7d} {s['fallbacks']:5d} {s['errors']:4d} {s['cost_usd']:7.2f}  {models}")
         if s["input_tokens"]:
             out.append(f"{'':28s} cache hit rate {100 * s['cache_read_tokens'] / s['input_tokens']:.0f}% of input tokens")
+        if s.get("rescues"):
+            out.append(f"{'':28s} {s['rescues']} decision(s) rescued by a fallback model (primary model failed first)")
     return "\n".join(out)
 
 
