@@ -190,3 +190,30 @@ def test_multihit_moves_count_every_hit():
     three_hits = battle.damage_percent(urshifu, data.move_info("Surging Strikes") | {"id": "surgingstrikes"}, flutter)
     one_hit = battle.damage_percent(urshifu, data.move_info("Aqua Jet") | {"id": "aquajet"}, flutter)
     assert three_hits[1] > 2.5 * one_hit[1]  # 3 x 25 BP (STAB) vs 1 x 40 BP (STAB)
+
+
+def test_focus_sash_and_multiscale_change_ko_math():
+    urshifu = _mon(THEIRS[1], side="theirs", position=1)
+    sash_flutter = battle.build_mon({"species": "Flutter Mane", "current_hp_fraction": 1.0}, {**MINE[3], "item": "Focus Sash"}, side="mine", position=0)
+    hurt_sash = battle.build_mon({"species": "Flutter Mane", "current_hp_fraction": 0.6}, {**MINE[3], "item": "Focus Sash"}, side="mine", position=0)
+    aqua_jet = data.move_info("Aqua Jet") | {"id": "aquajet"}
+    surging = data.move_info("Surging Strikes") | {"id": "surgingstrikes"}
+    assert battle.damage_percent(urshifu, aqua_jet, sash_flutter)[1] <= 99.0  # single hit at full HP cannot KO through the sash
+    assert battle.damage_percent(urshifu, surging, sash_flutter)[1] > 99.0  # multi-hit breaks the sash
+    assert battle.damage_percent(urshifu, aqua_jet, hurt_sash)[1] > battle.damage_percent(urshifu, aqua_jet, sash_flutter)[1] * 1.3  # sash irrelevant when hurt
+    dragonite = battle.build_mon({"species": "Dragonite", "current_hp_fraction": 1.0}, THEIRS[4], side="theirs", position=2)
+    no_scale = battle.build_mon({"species": "Dragonite", "current_hp_fraction": 1.0}, {**THEIRS[4], "ability": "Inner Focus"}, side="theirs", position=2)
+    flutter = _mon(MINE[3], side="mine", position=0)
+    moonblast = data.move_info("Moonblast") | {"id": "moonblast"}
+    assert battle.damage_percent(flutter, moonblast, dragonite)[1] == pytest.approx(battle.damage_percent(flutter, moonblast, no_scale)[1] / 2, rel=0.02)
+
+
+def test_fake_out_setup_skips_covert_cloak_holders():
+    cloak_memory = memory()
+    cloak_memory.opp_cards[species_key("Gyarados")] = {**THEIRS[0], "item": "Covert Cloak"}
+    cloak_memory.opp_cards[species_key("Urshifu-Rapid-Strike")] = {**THEIRS[1], "item": "Covert Cloak"}
+    cloak_memory.fresh_active = ["rillaboom", "garchomp"]
+    obs = {**_obs(), "turn": 1, "active_pokemon": [{"species": "Rillaboom"}, {"species": "Garchomp"}],
+           "opponent_active_pokemon": [{"species": "Gyarados"}, {"species": "Urshifu-Rapid-Strike"}]}
+    sheet = battle.build_sheet(_template(), obs, cloak_memory)
+    assert all(c["name"] != "fake_out_setup" for c in sheet.candidates)

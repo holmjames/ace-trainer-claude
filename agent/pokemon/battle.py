@@ -158,9 +158,15 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
     if move.get("will_crit"):
         mod *= 1.5  # always a critical hit (Surging Strikes, Wicked Blow, Flower Trick)
     hits = data.expected_hits(move, item=attacker.item)
+    full_hp = defender.hp_fraction >= 0.999
+    if full_hp and data.to_id(defender.ability) in ("multiscale", "shadowshield"):
+        mod *= 0.5
     current_hp = max(1.0, defender.stats["hp"] * defender.hp_fraction)
     low = base * RANDOM_MIN * mod * hits / current_hp * 100
     high = base * RANDOM_MAX * mod * hits / current_hp * 100
+    if full_hp and data.to_id(defender.item) == "focussash" and hits <= 1:
+        # The sash leaves the holder at 1 HP from a single hit at full health: no KO this turn.
+        low, high = min(low, 99.0), min(high, 99.0)
     return (round(min(low, 999.0), 1), round(min(high, 999.0), 1))  # anything past a KO is just "a KO"
 
 
@@ -633,9 +639,10 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if fake is None:
             continue
         fake_option = (slot.get("options") or [])[fake]
-        legal_targets = [t for t in fake_option.get("targets") or [] if t > 0 and t in theirs]
+        legal_targets = [t for t in fake_option.get("targets") or [] if t > 0 and t in theirs
+                         and data.to_id(theirs[t].item) != "covertcloak" and data.to_id(theirs[t].ability) not in ("innerfocus", "shielddust")]
         if not legal_targets:
-            continue
+            continue  # nothing flinchable: a Fake Out would be wasted
         # The threat whose known attacks do the most to us.
         danger = {pos: sum(_expected(h, 0, P) for t in sheet.threats if t["position"] == pos for h in t["hits"]) for pos in legal_targets}
         target = max(danger, key=danger.get)
