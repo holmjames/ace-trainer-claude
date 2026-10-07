@@ -38,9 +38,7 @@ def test_params_change_candidate_ranking():
     from tests.test_lineup_battle import _obs, _template, memory
 
     normal = battle.build_sheet(_template(), _obs(), memory())
-    # Make Fake Out worthless and Protect enormous: the top candidate must change.
-    tuned = battle.build_sheet(_template(), _obs(), memory(), tuning.merged({"fakeout_base": 0, "fakeout_setup_value": 0,
-                                                                            "fakeout_threat_bonus": 0, "protect_bonus_guaranteed": 500,
-                                                                            "protect_bonus_possible": 500}))
+    # Wood Hammer into the half-HP Urshifu is a guaranteed KO, so the KO bonus feeds the top candidate's score.
+    tuned = battle.build_sheet(_template(), _obs(), memory(), tuning.merged({"ko_bonus_guaranteed": 250}))
     assert normal.candidates and tuned.candidates
-    assert normal.candidates[0]["name"] != tuned.candidates[0]["name"] or normal.candidates[0]["score"] != tuned.candidates[0]["score"]
+    assert tuned.candidates[0]["score"] > normal.candidates[0]["score"] + 100
