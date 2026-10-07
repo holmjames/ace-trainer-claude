@@ -393,6 +393,14 @@ records the card it just took (`MatchMemory.record_pick`), and Team Preview reco
 card from the pool. Regression test added. Code brain after the fix, 300 games each: **97% vs random (was 93-94), 85% vs smoke** (unchanged). Note
 the seed-501 rerun below started before this fix and does not include it.
 
+**Warning bug found while reviewing the seed-501 losses (Oct 7).** The LETHAL check decided "we act first" using the priority of
+whatever move the code itself ranked best. In game 17 the code liked Follow Me (+2), so no warning was printed for Koraidon's
+Flare Blitz into Maushold; the model picked Population Bomb instead and lost Maushold on turn 1. Warnings now use the slot's
+ordinary speed and add "(a priority move from this slot would go first)" when that escape exists. Risk is graded three ways:
+LETHAL (guaranteed or at least 50%), HIGH RISK (20-50%: the old text called a 47% chance of losing Tornadus "usually worth playing
+through"), RISK (under 20%). Threats that are slower than us but KO us after we move are now listed as EXPOSED notes, so the
+model can see a trade before it makes one. Regression test added.
+
 **Effort sweep (Oct 7, all 18 scenarios, Opus, recheck on):** low 18/18, median 3.2 s, p95 8.1 s; medium 17/18, median 7.8 s,
 p95 14.3 s (it missed `intimidate_the_dancer`). The recheck fired 4 times at low and 2 at medium. More thinking bought nothing here
 and doubled latency, so **effort stays low**; the recheck is doing the work the extra thinking was supposed to do.

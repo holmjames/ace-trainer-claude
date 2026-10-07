@@ -134,6 +134,7 @@ def build_mon(summary: dict, card: dict | None, *, side: str, position: int | No
 # -- damage ------------------------------------------------------------------------------------
 
 
+PROTECT_LIKE = {"protect", "detect", "wideguard", "quickguard", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "kingsshield", "obstruct"}
 RUIN_ABILITIES = {"swordofruin": ("def", "Physical"), "beadsofruin": ("spd", "Special"),
                   "vesselofruin": ("spa", "Special"), "tabletsofruin": ("atk", "Physical")}
 PARADOX_BOOST = 5325 / 4096  # Hadron Engine / Orichalcum Pulse offensive boost; terrain base-power boost is 1.3 too
@@ -937,31 +938,48 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if all(answers.get(n) for n in (0, 1)):
             add("forced_switch", answers[0], answers[1], f"replace fainted slot(s) {forced} with the best matchup", 1000)
 
-    # Spell out every KO threat that moves before the slot it targets (priority ignores speed and Tailwind).
+    # Spell out every KO threat that moves before the slot it targets (priority ignores speed and Tailwind). The speed
+    # comparison uses the slot's ordinary speed, never the priority of whatever move the code happens to like: the model
+    # may pick a different move, and a warning that silently assumed Fake Out or Follow Me has cost games.
     for threat in sheet.threats:
         for hit in threat["hits"]:
             if hit["ko"] == "no":
                 continue
             number = hit["into_slot"]
             me = ours.get(number)
-            my_prio = best[number][0].get("priority", 0) if best[number][0] else 0
-            if acts_before(number, threat["position"], my_prio, hit.get("priority", 0)):
+            slot = slot_template(number) or {}
+            prio_options = sorted({(data.move_info(o.get("move_id")) or {}).get("priority", 0) for o in slot.get("options") or []
+                                   if o.get("type") == "move" and data.to_id(o.get("move_id")) not in PROTECT_LIKE} - {None})
+            best_prio = max(prio_options) if prio_options else 0
+            their_prio = hit.get("priority", 0)
+            first_normally = acts_before(number, threat["position"], 0, their_prio)
+            first_with_priority = best_prio > 0 and acts_before(number, threat["position"], best_prio, their_prio)
+            if first_normally:
+                # Slower than us: it only lands if we leave the slot in and fail to remove it. Say so (not a warning).
+                if hit["ko"] == "guaranteed" or ko_probability(hit) >= 0.5:
+                    sheet.notes.append(
+                        f"EXPOSED: slot {number} ({me.species if me else '?'}) moves before {threat['species']}, but {threat['species']}'s "
+                        f"{hit['move']} KOs it ({hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}%) afterwards unless "
+                        f"{threat['species']} is removed, flinched, redirected or this slot Protects/switches.")
                 continue
-            prio_note = f" with priority +{hit['priority']}" if hit.get("priority", 0) > 0 else ""
+            prio_note = f" with priority +{hit['priority']}" if their_prio > 0 else ""
+            escape = f" (a priority move from this slot, +{best_prio}, would go first)" if first_with_priority else ""
             chance = ko_probability(hit)
+            where = f"slot {number} ({me.species if me else '?'})"
+            dmg = f"{hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}%"
             if hit["ko"] == "guaranteed" or chance >= 0.5:
                 sheet.warnings.append(
-                    f"LETHAL: {threat['species']}'s {hit['move']}{prio_note} hits slot {number} ({me.species if me else '?'}) for "
-                    f"{hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}% BEFORE it can move"
+                    f"LETHAL: {threat['species']}'s {hit['move']}{prio_note} hits {where} for {dmg} BEFORE it can move"
                     + (f" ({int(round(chance * 100))}% KO chance)" if hit["ko"] != "guaranteed" else "")
-                    + ". Protect/switch that slot unless the game is won anyway."
-                )
+                    + f"{escape}. Protect/switch that slot unless the game is won anyway.")
+            elif chance >= 0.2:
+                sheet.warnings.append(
+                    f"HIGH RISK: {threat['species']}'s {hit['move']}{prio_note} hits {where} for {dmg} before it can move: a "
+                    f"{int(round(chance * 100))}% chance of losing it on the roll{escape}. Protect/switch unless the attack is worth that risk.")
             else:
                 sheet.warnings.append(
-                    f"RISK: {threat['species']}'s {hit['move']}{prio_note} hits slot {number} ({me.species if me else '?'}) for "
-                    f"{hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}% before it can move: only a "
-                    f"{int(round(chance * 100))}% chance of a KO on the roll. Usually worth playing through, not Protecting."
-                )
+                    f"RISK: {threat['species']}'s {hit['move']}{prio_note} hits {where} for {dmg} before it can move: only a "
+                    f"{int(round(chance * 100))}% chance of a KO on the roll{escape}. Usually worth playing through, not Protecting.")
 
     # 1. Both slots use their own best attack.
     if best[0][0] and best[1][0]:

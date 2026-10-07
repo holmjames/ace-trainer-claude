@@ -244,3 +244,32 @@ def test_choice_lock_is_flagged_against_a_remaining_immune_opponent():
     assert any("LOCKS" in n and "thunderbolt" in n and "Garchomp" in n for n in sheet.notes)
     assert "thunderbolt" in sheet.choice_locks.get(0, {})
     assert "moonblast" not in sheet.choice_locks.get(0, {})
+
+
+def test_lethal_warning_does_not_assume_our_priority_move():
+    """Koraidon (205) outspeeds Maushold (179) and KOs it; Maushold's best code move is Follow Me (+2 priority).
+    The warning must still appear, with the priority escape noted, because the model may pick Population Bomb."""
+    m = MatchMemory()
+    m.my_cards["maushold"] = {"species": "Maushold", "item": "Wide Lens", "ability": "Technician", "nature": "Jolly", "evs": {"atk": 252, "spe": 252}, "moves": ["Population Bomb", "Follow Me", "Beat Up", "Protect"]}
+    m.my_cards["sneasler"] = {"species": "Sneasler", "item": "Focus Sash", "ability": "Unburden", "nature": "Jolly", "evs": {"atk": 252, "spe": 252}, "moves": ["Close Combat", "Dire Claw", "Fake Out", "Protect"]}
+    m.opp_cards["koraidon"] = {"species": "Koraidon", "item": "Clear Amulet", "ability": "Orichalcum Pulse", "nature": "Jolly", "evs": {"atk": 252, "spe": 252}, "moves": ["Flare Blitz", "Collision Course", "Drain Punch", "Protect"]}
+    m.opp_cards["farigiraf"] = {"species": "Farigiraf", "item": "Sitrus Berry", "ability": "Armor Tail", "nature": "Quiet", "evs": {"hp": 252, "spa": 252}, "moves": ["Trick Room", "Psychic", "Foul Play", "Protect"]}
+    opp = [{"target": 1, "side": "opponent", "species": "Koraidon"}, {"target": 2, "side": "opponent", "species": "Farigiraf"}]
+    slots = [
+        {"slot": 0, "active": "Maushold", "options": [
+            {"type": "move", "move_id": "populationbomb", "targets": [1, 2], "target_options": opp},
+            {"type": "move", "move_id": "followme", "targets": []},
+            {"type": "move", "move_id": "protect", "targets": []}]},
+        {"slot": 1, "active": "Sneasler", "options": [
+            {"type": "move", "move_id": "closecombat", "targets": [1, 2], "target_options": opp},
+            {"type": "move", "move_id": "protect", "targets": []}]},
+    ]
+    obs = {"turn": 1, "weather": "sunnyday",
+           "team": {"a": {"species": "Maushold", "active": True, "current_hp_fraction": 1.0}, "b": {"species": "Sneasler", "active": True, "current_hp_fraction": 1.0}},
+           "opponent_team": {"c": {"species": "Koraidon", "active": True, "current_hp_fraction": 1.0}, "d": {"species": "Farigiraf", "active": True, "current_hp_fraction": 1.0}},
+           "active_pokemon": [{"species": "Maushold"}, {"species": "Sneasler"}], "opponent_active_pokemon": [{"species": "Koraidon"}, {"species": "Farigiraf"}]}
+    sheet = battle.build_sheet({"type": "doubles_turn", "slots": slots}, obs, m)
+    lethal = [w for w in sheet.warnings if w.startswith("LETHAL") and "slot 0 (Maushold)" in w and "flareblitz" in w]
+    assert lethal, sheet.warnings
+    assert "priority move from this slot, +2" in lethal[0]
+    assert any(c["name"] == "protect_threatened" for c in sheet.candidates)
