@@ -242,10 +242,14 @@ seats alternating:
 | Sonnet 5.5 | 5-5 | 1.9 s / 5.5 s | $2 / $10 per MTok |
 | (Fable 5.1 itself) | — | 4.3 s / 20 s | $10 / $50 per MTok |
 
-Reading: at ten games (±30 points) there is no evidence Fable judges better than Opus here, and some the other way. Once the code
-hands the model a turn sheet, the models converge; the remaining differences are cost and latency. A 30-game Opus-vs-Fable series
-is running to settle it (±17 points). Decision rule: if Opus is not clearly worse at 30 games, Opus 5.5 becomes the primary judge
-(a quarter of the cost, half the p95 latency) with Fable kept one `.env` line away.
+**30-game series: Opus 19-11.** Combined with the first ten, **Opus 26-14 over 40 games (65%)** against Fable judging the same agent.
+Hard positions (6 positions × 3 repeats, acceptance rules reviewed by hand): Fable low 12/18, Fable high 12/18, Opus 12/18, Sonnet 12/18, and
+all four made the identical choice on all 18 runs. On model-answered turns each judge takes the code's top candidate ~46–48% of the
+time with the same override rate in won and lost games. Fable had 0 real fallbacks; one 40 s timeout was rescued by Sonnet.
+
+**Decision (Oct 6 night, James): Opus 5.5 is the judge.** Not weaker in any measurement, ahead in games, half the p95 latency.
+`AGENT_MODEL=claude-opus-5-5` in `.env` and `DEFAULT_MODEL` in `agent/llm/anthropic_provider.py`; Sonnet 5.5 remains the fast fallback;
+Fable 5.1 is one `.env` line away. Re-check after the first live test matches.
 
 ## 6. Milestones (Oct 6 → Oct 13)
 

@@ -32,7 +32,7 @@ import anthropic
 
 from examples.llm.providers import LLMProvider, ProviderError
 
-DEFAULT_MODEL = "claude-fable-5-1"
+DEFAULT_MODEL = "claude-opus-5-5"  # chosen Oct 6 by self-play: not worse than Fable 5.1 over 40 games, half the p95 latency; Fable stays one .env line away
 DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
 DEFAULT_TIMEOUT_SECONDS = 40.0  # battle decisions have a 300 s clock; leave room for the fallback
 DEFAULT_FALLBACK_TIMEOUT_SECONDS = 12.0
