@@ -15,7 +15,10 @@ How the pieces fit (plain language):
 - If anything in here raises, the outer guard plays ``examples.smoke_agent``'s
   always-legal move and logs the traceback. A bug can cost a turn, never a match.
 - Every decision is written to ``logs/<session_id>.jsonl`` with what the model
-  saw, what it answered, which model answered, and how long it took.
+  saw, what it answered, which model answered, and how long it took. The first
+  line of each log is a ``config`` record: git commit, model chain, tuning
+  parameters (the Official Rules ask for records tying the submitted version
+  to competitive play).
 
 Run it (after keys are in ``.env``):
 
@@ -44,7 +47,7 @@ from examples.llm.providers import LLMProvider, ProviderError
 from agent.pokemon import battle as battle_rules
 from agent.pokemon import draft as draft_rules
 from agent.pokemon import lineup as lineup_rules
-from agent.pokemon.log import DecisionLog
+from agent.pokemon.log import DecisionLog, git_commit
 from agent.pokemon.memory import MatchMemory, observation_dict
 from agent.pokemon.prompts import LINEUP_INSTRUCTIONS, SYSTEM_PROMPT
 from agent.pokemon.tuning import DEFAULTS
@@ -318,6 +321,13 @@ class PokemonAgent:
     def _log_for(self, context: DecisionContext) -> DecisionLog:
         if self.decision_log is None:
             self.decision_log = DecisionLog(context.session_id, directory=self._log_dir, version=self._version)
+            # First line of every match log: what exactly played this match (Official Rules §9 asks for records
+            # that tie the submitted commit and configuration to competitive play). No secrets: the provider's
+            # repr names models, timeouts and effort only.
+            self.decision_log.write("config", commit=git_commit(), agent_version=self._version,
+                                    models=repr(self._provider) if self._provider is not None else "code-only",
+                                    params=self.params, python=sys.version.split()[0],
+                                    anthropic_sdk=_anthropic_sdk_version())
         return self.decision_log
 
     def _capture(self, state: GameState, context: DecisionContext) -> None:
@@ -332,6 +342,15 @@ class PokemonAgent:
             )
         except (OSError, TypeError, ValueError):
             pass
+
+
+def _anthropic_sdk_version() -> str | None:
+    try:
+        import anthropic
+
+        return getattr(anthropic, "__version__", None)
+    except ImportError:
+        return None
 
 
 def _stderr(line: str) -> None:

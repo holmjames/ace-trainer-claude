@@ -21,16 +21,12 @@ each in its own process with its own fresh agent instance. While it waits it
 uses **no AI tokens**: it only asks the platform every ~10 seconds whether a
 game is ready. Only playing a game with an LLM agent uses tokens.
 
-**The agent in `agent/agent.py` is a placeholder.** It always plays the first
-legal move. That finishes a Werewolf game, but it can't finish a Pokémon or
-Red Alert match. Replace it with your own (see
-[Writing your agent](#writing-your-agent)), or run the included LLM example,
-which plays all three games (it needs `OPENAI_API_KEY` in `.env`):
-
-```bash
-python -m agent --check-tournament --agent examples.llm_agent
-python -m agent --match --agent examples.llm_agent
-```
+**This fork is a tournament entry, not the empty starter.** `agent/agent.py`
+is a Pokémon VGC doubles-draft agent: code drafts and computes every turn,
+Claude (through the Anthropic API) picks between the computed options. It is
+described in full in [This entry: the Pokémon agent](#this-entry-the-pokémon-agent)
+below. The rest of this README is the upstream starter's documentation of the
+runtime, kept as is.
 
 Gameplay runs through the platform's generic MCP contract
 (`get_game_state`/`wait_for_update`/`play_action`/...), so the runtime is
@@ -39,6 +35,122 @@ only your `choose_action` needs to know how each game's moves look.
 
 Step-by-step guide on the tournament site:
 <https://platform.altruagent-game.com/tournament/agent-guide>
+
+## This entry: the Pokémon agent
+
+Entry for the AltruAgent AI Agent Gaming Tournament, Pokémon Showdown only
+(`pokemon_vgc_doubles_draft`: snake-draft 6 of 18 shared cards, bring 4, play a
+4v4 doubles battle). Werewolf and Red Alert are not entered. Submitted by
+James Holm (`holmjames`). This section is the disclosure the Official Rules
+(§8) ask for: how the agent runs, what it is made of, and what is not
+published.
+
+**Submitted version:** the latest commit on this repository's default branch
+at the Submission Deadline (11:59 p.m. PT, Oct 13, 2026); its full commit ID is
+entered on the tournament dashboard. Every match log starts with a `config`
+line naming the commit that played it (see *Records* below).
+
+### How it runs
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"             # installs the anthropic SDK with the rest
+cp .env.example .env                # then fill in the three secrets below
+python -m agent --check-tournament  # key, connection, agent factory all ✓
+./scripts/run_tournament.sh         # tournament day: python -m agent --tournament, auto-restart, tee'd log
+```
+
+`.env` holds (never committed): `ALTRUAGENT_OFFICIAL_AGENT_KEY` (the platform
+credential), `ANTHROPIC_API_KEY` and, for a key that spans workspaces,
+`ANTHROPIC_WORKSPACE_ID`. Without `ANTHROPIC_API_KEY` the same agent runs in
+code-only mode (no model calls). Optional overrides, all with the defaults in
+`agent/llm/anthropic_provider.py`: `AGENT_MODEL`, `AGENT_FALLBACK_MODEL`,
+`AGENT_EFFORT`, `AGENT_LLM_TIMEOUT`, `AGENT_FALLBACK_TIMEOUT`, `AGENT_LOG_DIR`,
+`AGENT_VERSION` (a label for the logs). The competition run uses the defaults.
+
+### What makes the decisions
+
+| Decision | Who decides | Where |
+|---|---|---|
+| Draft pick (15 s clock) | Code only: an opponent-aware scorer over the offered cards. No model call. | `agent/pokemon/draft.py` |
+| Team Preview (bring 4, lead 2) | Code ranks all lineups; Claude picks one; the starter's validator checks it. | `agent/pokemon/lineup.py`, `agent/agent.py` |
+| Each battle turn | Code builds a "turn sheet" (speed order, damage estimates, threats, ranked candidate turns); Claude picks the turn; the validator checks it. | `agent/pokemon/battle.py`, `agent/agent.py` |
+
+Every model answer is validated against the server's legal options
+(`examples/llm/pokemon.py`). An invalid answer is retried once with the error;
+a second failure, a model timeout, or any exception plays the best computed
+option (or, as the last resort, the starter's always-legal smoke move). The
+agent can lose a turn to a bug, never a match. A valid answer that leaves a
+Pokémon in a flagged lethal range is asked once more with the warning quoted;
+the model's second answer stands. No second model call is made once 10 s of
+the 55 s decision clock have passed.
+
+### Model services
+
+- **Anthropic Messages API** through the official `anthropic` Python SDK
+  (`agent/llm/anthropic_provider.py`). Primary model `claude-opus-5-5`, 18 s
+  timeout; fallback `claude-sonnet-5-5`, 8 s timeout; effort `low`; structured
+  JSON output (`output_config.format`); the static system prompt is marked
+  cacheable. The SDK's own retries are off; the agent owns retries and
+  fallback. If every model fails the computed move is played.
+- **What the model receives:** only this seat's game state as the server
+  delivered it (`state.observation` and the per-slot options), the drafted
+  sets that the draft phase made public to both players, and the code's
+  computed notes. Nothing else: no spectator data, no other matches, no
+  internet lookups. The agent makes no network calls other than the platform's
+  MCP runtime (upstream code in `altruagent/`) and the Anthropic API.
+- **Prompts:** the system prompt and Team Preview instructions are in
+  `agent/pokemon/prompts.py`; the per-decision user message is the JSON payload
+  built in `agent/agent.py` (`_lineup`, `_turn`). The `reasoning_summary`
+  field the model returns is sent to the server as the public one-line
+  reasoning for the move.
+
+### Fixed reference materials and parameters
+
+- `data/pokedex.json`, `data/moves.json`: species and move tables vendored
+  from Pokémon Showdown's open-source data by `scripts/build_dex.py`.
+- `agent/pokemon/tuning.py`: numeric weights for the draft scorer and turn
+  ranking, tuned by local self-play before the deadline and frozen with the
+  code.
+- No model weights, fine-tunes, or learned state of any kind.
+
+### Memory and isolation
+
+`create_agent()` is called once per match, in that match's own process. All
+match memory (`agent/pokemon/memory.py`) lives on that object and dies with
+the process. Nothing is read from earlier matches, earlier logs, or any shared
+store; concurrent matches share nothing. The only writes are the append-only
+logs below.
+
+### Records
+
+- `logs/<session_id>.jsonl`: one JSON line per decision (what the model saw,
+  what it answered, which model answered, latency, validation errors, the
+  final payload). The first line is a `config` record: git commit, agent
+  version label, model chain with timeouts and effort, tuning parameters,
+  Python and SDK versions.
+- `logs/runtime-tournament-<timestamp>.log`: the runtime's own output, from
+  `scripts/run_tournament.sh`.
+- Anything key-shaped is redacted before it is written. `logs/` is
+  gitignored and kept locally with a redacted copy of `.env` for at least 30
+  days after results, per Official Rules §8–9.
+
+### Not published, and what it does
+
+`.env` (gitignored): the Official Agent Key authenticates this agent to the
+platform; the Anthropic API key and workspace id authenticate the model calls.
+Neither carries any game information or human input. There are no other
+undisclosed components.
+
+### Development-only code (not used in competition)
+
+- `sim/`: a local Pokémon Showdown engine bridge for self-play and tuning.
+  `sim/human.py` is a terminal seat so a person can practise against the
+  agent in that local simulator; it is never loaded by `python -m agent`.
+- `agent/versions/`, `agent/arena.py`: alternative/ablation versions and a
+  seat-based arena for comparing them in test matches.
+- `scripts/`: build, check, dry-run, tally and scenario tools. `tests/` is the
+  test suite (`pytest`, no network).
 
 ## Requirements
 
@@ -87,10 +199,11 @@ cp .env.example .env             # Windows (cmd): copy .env.example .env
 
 3. **Write your agent** in `agent/agent.py` (see
    [Writing your agent](#writing-your-agent)), or start from one of the
-   `examples/`. The `agent/agent.py` you start with is a placeholder that
-   always plays the first legal move: it finishes a Werewolf game, but it
-   can't finish a Pokémon or Red Alert match. To use the LLM example instead,
-   add `--agent examples.llm_agent` to the commands in steps 2 and 4.
+   `examples/`. In this fork `agent/agent.py` is already the tournament
+   agent (see [This entry](#this-entry-the-pokémon-agent)); the upstream
+   starter ships a placeholder there that plays the first legal move. To use
+   the LLM example instead, add `--agent examples.llm_agent` to the commands
+   in steps 2 and 4.
 
 4. **Run it and leave it running:**
 

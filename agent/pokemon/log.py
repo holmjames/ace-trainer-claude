@@ -67,5 +67,31 @@ class DecisionLog:
             self._broken = True
 
 
+def git_commit(repo_root: str | os.PathLike | None = None) -> str | None:
+    """The checked-out commit, read from ``.git`` directly (no git binary needed). ``None`` outside a checkout.
+
+    The Official Rules ask for records that connect the submitted commit ID to competitive play; the first line of
+    every match log carries this value.
+    """
+    root = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[2]
+    try:
+        head = (root / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        if not head.startswith("ref:"):
+            return head or None
+        ref = head[4:].strip()
+        ref_file = root / ".git" / ref
+        if ref_file.exists():
+            return ref_file.read_text(encoding="utf-8").strip() or None
+        packed = root / ".git" / "packed-refs"
+        if packed.exists():
+            for line in packed.read_text(encoding="utf-8").splitlines():
+                parts = line.split()
+                if len(parts) == 2 and parts[1] == ref:
+                    return parts[0]
+    except OSError:
+        pass
+    return None
+
+
 def _safe(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_\-]", "_", name) or "unknown"

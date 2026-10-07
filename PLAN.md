@@ -455,7 +455,7 @@ test matches once the key arrives plus ~$15-25 for tournament day.
 | **Fri Oct 10** | **M4 Arena + tuning.** `arena.py`, `tally.py`, 10 self-play matches v-current vs v-M1 on Sonnet; prompt and heuristic fixes from the logs. Join open matches for real opponents. **Code done Oct 6: `agent/arena.py`, `scripts/tally.py`, `scripts/run_match.sh`. Remaining: the matches themselves.** | Tally shows current version ahead; p95 latency under 25 s on Fable. |
 | **Sat Oct 11** | **M5 Hardening.** Try/except wrapper around `choose_action` returning the smoke move; failure drills (§5.4); `run_tournament.sh` with `caffeinate -dims`; pull upstream if PR #5 merged and re-verify. **Done Oct 6: exception guard (tested), `scripts/run_tournament.sh` (pre-flight, caffeinate, auto-restart, tee'd log), upstream PR #5 merged in. Remaining: the live failure drills.** | All drills pass; restart mid-match resumes; no secrets in `git status`/`git log`. |
 | **Sun Oct 12** | **M6 Validation.** 10–15 matches on Fable 5.1 against the previous version and open opponents. Bug fixes only; no new features. | Win rate holds; zero bug-caused fallbacks. |
-| **Mon Oct 13** | **Freeze.** Tag `v1.0`, push to your fork, `--check-tournament` ✓, PLAN.md updated with final numbers. | Nothing changes after today except a confirmed crash fix. |
+| **Mon Oct 13** | **Freeze.** Tag `v1.0`, push, make sure the commit is the latest on the repo's **default branch** (Official Rules §8), paste that full commit ID into the dashboard, `--check-tournament` ✓, PLAN.md updated with final numbers, redacted copy of `.env` saved next to `logs/`. | **Nothing is pushed after 11:59 p.m. PT** — not even a crash fix. The Rules allow a post-deadline edit only when Organizers authorize one in writing or a leaked secret must be removed. |
 | Tue–Wed Oct 14–15 | Dry run from a cold laptop boot; register for the Pokémon tournament as soon as it appears on the dashboard. | Registered; dry run clean. |
 
 ---
@@ -473,23 +473,23 @@ test matches once the key arrives plus ~$15-25 for tournament day.
 - [ ] Plug in. Open two terminals in `altruagent-starter`, venv active in both.
 - [ ] Terminal 1: `./scripts/run_tournament.sh` (runs `caffeinate -dims python -m agent --tournament`, restarts if it exits). Wait for `Connected as official tournament agent.`
 - [ ] Terminal 2: `tail -f logs/*.jsonl` for the live decision log.
-- [ ] Dashboard open: confirm registration shows the agent as Self Hosted and ready.
+- [ ] Dashboard open: confirm registration shows the agent as Self Hosted and ready. Then **close any spectator/replay view**: Rules §6 says the person who can restart the agent must not watch its match through a spectator view.
 
 **10:00–12:00**
 - [ ] Do not edit code. Do not restart unless the process is dead.
-- [ ] If it dies: re-run the same command; the runtime re-authenticates and resumes the active game.
+- [ ] If it dies: `run_tournament.sh` restarts it by itself (preconfigured fault recovery, allowed by Rules §4). If you ever restart it by hand, write down the time and reason: that is a manual intervention and belongs in the records (Rules §9).
 - [ ] If Fable errors spike (watch `provider` field in the log): nothing to do, the chain falls to Sonnet, then code.
 - [ ] If Wi-Fi drops: switch to hotspot; restart the runtime if it did not recover within 60 s. Remember the 4-minute connect window per game.
 
 **After**
-- [ ] Copy `logs/` somewhere safe. Rotate the Official Agent Key in the dashboard if anyone saw your screen.
+- [ ] Copy `logs/` somewhere safe and keep it, with the submitted commit ID and a redacted `.env`, for at least 30 days after results (Rules §8–9). Rotate the Official Agent Key in the dashboard if anyone saw your screen.
 
 ---
 
 ## 8. Steps only you can do
 
 1. **Dashboard signup** (link posted on the tournament Discord, opens today Oct 6). Choose **Self Hosted**.
-2. **Complete event registration** on the dashboard (questionnaire, Rules, and a repository field; use `https://github.com/holmjames/altruagent-starter`). The "Register my agent" button stays disabled until this is complete.
+2. **Complete event registration** on the dashboard (questionnaire, Rules, and a repository field; use `https://github.com/holmjames/ace-trainer-claude` — renamed Oct 7, the old URL redirects). The "Register my agent" button stays disabled until this is complete.
 3. **Generate the Official Agent Key** on Agent Configuration. It is shown **once**. Paste it into `altruagent-starter/.env` as `ALTRUAGENT_OFFICIAL_AGENT_KEY=...`. Never paste it into chat with me, a commit, or a screenshot.
 4. **Anthropic API key**: ~~create one~~ **done Oct 6.** Key plus `ANTHROPIC_WORKSPACE_ID` are in `.env` and a live Fable 5.1 call succeeded (about 4.6 s per small call). Still to confirm in the Console: prepaid credits loaded, standard data retention. Lesson learned: close TextEdit after editing `.env`, a later save from an open window silently reverted lines added by scripts.
 5. **Register my agent** for the Pokémon tournament on the Tournaments page when it appears (likely Oct 14–15). Not Werewolf, not Red Alert.

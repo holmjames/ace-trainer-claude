@@ -26,7 +26,7 @@ In the Ubuntu terminal:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git
-git clone -b pokemon-agent https://github.com/holmjames/altruagent-starter.git ~/altruagent-starter
+git clone -b pokemon-agent https://github.com/holmjames/ace-trainer-claude.git ~/altruagent-starter
 cd ~/altruagent-starter
 ./scripts/setup_linux.sh
 ```

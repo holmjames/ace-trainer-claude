@@ -272,6 +272,8 @@ def test_an_internal_bug_plays_the_safe_move_and_is_logged(tmp_path, monkeypatch
     assert isinstance(decision, LegalAction) and decision.action_id.startswith("draft_pick:")
     assert agent.memory.fallbacks == 1
     lines = [json.loads(l) for l in (tmp_path / "match-1.jsonl").read_text().splitlines()]
+    assert lines[0]["kind"] == "config"
+    lines = lines[1:]
     assert [l["kind"] for l in lines] == ["error", "fallback"]
     assert "simulated bug" in lines[0]["error"]
 
@@ -288,6 +290,8 @@ def test_decision_log_records_each_decision_without_secrets(tmp_path, monkeypatc
 
     text = (tmp_path / "match-1.jsonl").read_text()
     lines = [json.loads(l) for l in text.splitlines()]
+    config, lines = lines[0], lines[1:]
+    assert config["kind"] == "config" and config["models"] == repr(provider) and "params" in config
     assert [l["kind"] for l in lines] == ["draft", "lineup"]
     assert lines[1]["model"] == "fake-model" and lines[1]["latency_ms"] == 7
     assert lines[1]["provider_errors"] == []  # the first model answered; a Fable->Sonnet rescue would list Fable's error here
