@@ -194,6 +194,31 @@ Budget approved: **$250**. Default to Fable 5.1 for testing so what we tune is w
 - **Effort sweep (Oct 6, three parallel runs of the 9 scenarios):** low 9/9, median ~3 s, max 16 s; medium 9/9, max 22 s; high 9/9, max 33 s (one call fell through to Sonnet 5.5, which also answered correctly). Decision: **stay on `low`**. It is the fastest and cheapest and lost nothing; the 300 s clock leaves huge margin either way. Revisit only if live matches show judgment errors the sheet can't fix.
 - Still to do offline: harder scenarios as live matches reveal mistakes (the current nine no longer discriminate between effort levels).
 
+## 5b. Local self-play on the real engine (added Oct 6 night)
+
+`sim/` runs full games on a local Pokémon Showdown engine (`npm install` in `sim/`, Node 20): an 18-card snake draft from
+`sim/cards.json` (41 realistic VGC sets), Team Preview, then a `gen9vgc2025regi` doubles battle. `sim/translate.py` builds the
+exact observation/template shapes the platform sends, so the agent runs its live code path; `sim/harness.py` plays N games
+between any two agent specs with seat swapping and writes decision logs to `logs/sim/<spec>/` and results to `logs/sim/results.jsonl`.
+
+    python sim/harness.py --games 200 --p1 code --p2 random        # ~10 s, free
+    python sim/harness.py --games 10 --p1 fable --p2 code           # ~1 min and ~$1 per game
+
+**Oct 6 results:**
+
+| Matchup | Games | Result |
+|---|---|---|
+| code brain vs random | 60 | 88% |
+| code brain vs smoke (first legal option) | 60 | 78% |
+| code brain mirror | 200 | 54/46 (no first-drafter or seat bias: 48% / 46%) |
+| **Fable 5.1 (full agent) vs code brain** | 14 | **71% (10-4)** |
+
+Fixes found by the simulator: the "both fainted, one reserve" case (one slot must `pass`), smart switch targets, a Fable turn
+that hit the 2,000-token output cap (now 4,000). Every engine choice our agent produced was accepted (0 rejected choices).
+
+Use it for: heuristic tuning by win rate (hundreds of free games per experiment), Fable-vs-code validation, and reviewing
+Fable's losses turn by turn against the code's top candidate.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
