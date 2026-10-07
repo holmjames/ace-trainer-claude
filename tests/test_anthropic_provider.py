@@ -153,3 +153,16 @@ def test_hard_deadline_fires_when_the_sdk_call_never_returns():
         provider.complete_structured(MESSAGES, "x", SCHEMA)
     assert _time.monotonic() - started < 10  # 0.2 s timeout + 5 s grace, not 30 s
     release.set()
+
+
+def test_credit_exhaustion_is_announced_once():
+    lines = []
+    body = {"error": {"type": "invalid_request_error", "message": "Your credit balance is too low to access the Anthropic API."}}
+    def broke():
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        return anthropic.APIStatusError("boom", response=httpx.Response(400, request=request, json=body), body=body)
+    chain = FallbackProvider([AnthropicProvider("a", client=FakeClient(broke(), broke())), AnthropicProvider("b", client=FakeClient(broke(), broke()))], log=lines.append)
+    for _ in range(2):
+        with pytest.raises(ProviderError, match="credit balance"):
+            chain.complete_structured(MESSAGES, "x", SCHEMA)
+    assert sum("CREDITS EXHAUSTED" in l for l in lines) == 1

@@ -25,6 +25,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -39,6 +40,19 @@ DEFAULT_FALLBACK_TIMEOUT_SECONDS = 12.0
 DEFAULT_EFFORT = "low"  # thinking is always on for Fable 5.1; effort controls how long it thinks
 DEFAULT_MAX_TOKENS = 4000
 HARD_TIMEOUT_GRACE_SECONDS = 5.0  # wall-clock guard on top of the SDK's own timeout  # thinking counts toward output; 2000 was cut off once in self-play
+
+
+_SECRET = re.compile(r"(sk-ant-|eak_live_|wrkspc_)[A-Za-z0-9_\-]+")
+
+
+def _api_error_detail(exc: Any) -> str:
+    """The API's own error type and message, trimmed and with anything key-shaped removed."""
+    body = getattr(exc, "body", None)
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return ""
+    text = f"{err.get('type', '')}: {str(err.get('message', ''))[:240]}"
+    return " [" + _SECRET.sub("[REDACTED]", text) + "]"
 
 
 class AnthropicProvider:
@@ -116,7 +130,7 @@ class AnthropicProvider:
         except anthropic.RateLimitError:
             raise ProviderError(f"{self.model}: rate limited (HTTP 429)") from None
         except anthropic.APIStatusError as exc:
-            raise ProviderError(f"{self.model}: request failed (HTTP {exc.status_code})") from None
+            raise ProviderError(f"{self.model}: request failed (HTTP {exc.status_code}){_api_error_detail(exc)}") from None
         except anthropic.APIConnectionError:
             raise ProviderError(f"{self.model}: connection failed") from None
         finally:
@@ -164,6 +178,7 @@ class FallbackProvider:
         self.last_latency_ms: int | None = None
         self.last_usage: dict | None = None
         self.last_errors: list[str] = []
+        self._credit_warned = False
 
     @property
     def model(self) -> str:
@@ -186,6 +201,10 @@ class FallbackProvider:
             self.last_usage = getattr(provider, "last_usage", None)
             return answer
         self.last_model = None
+        if any("credit balance" in e.lower() for e in self.last_errors) and not self._credit_warned:
+            self._credit_warned = True
+            self._log("!!! ANTHROPIC CREDITS EXHAUSTED: every model call is failing with 'credit balance is too low'. "
+                      "The agent is now playing CODE-ONLY moves. Add credits in the Anthropic Console (Plans & Billing) immediately. !!!")
         raise ProviderError("every model failed: " + " | ".join(self.last_errors))
 
 
