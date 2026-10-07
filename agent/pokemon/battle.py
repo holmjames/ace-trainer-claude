@@ -21,6 +21,7 @@ from typing import Any
 
 from . import data
 from .memory import MatchMemory, species_key
+from .tuning import DEFAULTS
 
 LEVEL = 50
 SPREAD_TARGETS = {"allAdjacentFoes", "allAdjacent"}
@@ -210,7 +211,8 @@ def _active_summaries(team: Any) -> list[dict]:
     return [s for s in items if isinstance(s, dict) and s.get("active") and not s.get("fainted")]
 
 
-def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
+def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | None = None) -> TurnSheet:
+    P = params or DEFAULTS
     sheet = TurnSheet()
     slots = sorted(template.get("slots") or [], key=lambda s: s.get("slot", 0))
     weather = obs.get("weather") if isinstance(obs.get("weather"), str) else None
@@ -327,19 +329,21 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
             threat["note"] = "has Fake Out (only works on its first turn out)"
         sheet.threats.append(threat)
 
-    sheet.candidates = rank_candidates(slots, ours, theirs, sheet, fresh=set(memory.fresh_active), memory=memory)
+    sheet.candidates = rank_candidates(slots, ours, theirs, sheet, fresh=set(memory.fresh_active), memory=memory, params=P)
     return sheet
 
 
 # -- candidates --------------------------------------------------------------------------------------
 
 
-def _expected(row: dict, priority: int) -> float:
+def _expected(row: dict, priority: int, P: dict | None = None) -> float:
+    P = P or DEFAULTS
     lo, hi = row["damage_pct_of_current_hp"]
-    return (lo + hi) / 2 + (25 if lo >= 100 else (10 if hi >= 100 else 0)) + 3 * priority
+    return (lo + hi) / 2 + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0)) + P["priority_w"] * priority
 
 
-def _best_attack(entry: dict, *, avoid_target: int | None = None) -> tuple[dict | None, dict | None, float]:
+def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None = None) -> tuple[dict | None, dict | None, float]:
+    P = P or DEFAULTS
     """Highest expected damage (option, target_row, expected%) among a slot's move options.
     A spread move (rows with target 0) counts the damage to every opposing Pokémon it hits and is
     charged for damage to our own ally."""
@@ -350,8 +354,8 @@ def _best_attack(entry: dict, *, avoid_target: int | None = None) -> tuple[dict 
         foe_rows = [r for r in rows if r["side"] == "theirs"]
         spread_rows = [r for r in foe_rows if r["target"] == 0]
         if spread_rows:
-            ally_hit = sum(_expected(r, 0) for r in rows if r["side"] == "mine")
-            expected = sum(_expected(r, priority) for r in spread_rows) - 1.5 * ally_hit
+            ally_hit = sum(_expected(r, 0, P) for r in rows if r["side"] == "mine")
+            expected = sum(_expected(r, priority, P) for r in spread_rows) - P["ally_damage_w"] * ally_hit
             if expected > best[2]:
                 summary = {"target": 0, "species": " + ".join(r["species"] for r in spread_rows), "side": "theirs",
                            "damage_pct_of_current_hp": [sum(r["damage_pct_of_current_hp"][0] for r in spread_rows),
@@ -361,7 +365,7 @@ def _best_attack(entry: dict, *, avoid_target: int | None = None) -> tuple[dict 
         for row in foe_rows:
             if row["target"] == 0:
                 continue
-            expected = _expected(row, priority)
+            expected = _expected(row, priority, P)
             if expected > best[2]:
                 best = (option, row, expected)
     return best
@@ -421,7 +425,8 @@ def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "Turn
 
 
 def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, speed_rank: dict,
-                    my_attack_row: dict | None = None) -> float:
+                    my_attack_row: dict | None = None, P: dict | None = None) -> float:
+    P = P or DEFAULTS
     """1.0 if nothing that moves before this slot can KO it; 0.5 for a possible KO; 0.0 for a guaranteed one.
     A threat we act before AND knock out with our own attack (``my_attack_row``) doesn't count."""
     factor = 1.0
@@ -436,7 +441,7 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
                     and my_attack_row.get("damage_pct_of_current_hp", [0, 0])[0] >= 100:
                 continue  # we remove it before it moves
             if not we_first:
-                factor = min(factor, 0.0 if hit["ko"] == "guaranteed" else 0.5)
+                factor = min(factor, 0.0 if hit["ko"] == "guaranteed" else P["survival_possible"])
     return factor
 
 
@@ -466,8 +471,9 @@ def best_switch(slot: dict, theirs: dict[int, "Mon"], memory: "MatchMemory", *, 
 
 
 def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int, "Mon"], sheet: TurnSheet,
-                    fresh: set[str] | None = None, memory: "MatchMemory | None" = None) -> list[dict]:
+                    fresh: set[str] | None = None, memory: "MatchMemory | None" = None, params: dict | None = None) -> list[dict]:
     """A few complete turns worth considering, best first. Each is {name, slot_0, slot_1, why, score}."""
+    P = params or DEFAULTS
     by_slot = {e["slot"]: e for e in sheet.our_options}
     fresh = fresh or set()
     speed_rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
@@ -495,14 +501,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
 
     def best_action(number: int) -> tuple[dict | None, dict | None, float]:
         """Best attack (discounted by the chance this slot dies first) or best status move, as (option, row, value)."""
-        attack = _best_attack(by_slot.get(number, {}))
+        attack = _best_attack(by_slot.get(number, {}), P=P)
         prio = attack[0].get("priority", 0) if attack[0] else 0
-        value = attack[2] * survival_factor(number, sheet, prio, speed_rank, attack[1]) if attack[0] else -1.0
+        value = attack[2] * survival_factor(number, sheet, prio, speed_rank, attack[1], P) if attack[0] else -1.0
         choice = (attack[0], attack[1], value)
         slot = slot_template(number)
         me = ours.get(number)
         if slot and me:
-            surv = survival_factor(number, sheet, 0, speed_rank)
+            surv = survival_factor(number, sheet, 0, speed_rank, None, P)
             for index, option in enumerate(slot.get("options") or []):
                 if option.get("type") != "move":
                     continue
@@ -512,7 +518,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     continue
                 prio = info.get("priority", 0) or 0
                 sv, target = status_value(move_id, me, theirs, sheet, number)
-                sv *= survival_factor(number, sheet, prio, speed_rank) if prio <= 0 else 1.0
+                sv *= survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else 1.0
                 if sv > choice[2]:
                     legal = option.get("targets") or []
                     tgt = target if target in legal else (legal[0] if legal else 0)
@@ -577,14 +583,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         rows = []
         for number in (0, 1):
             other_target = next((t for t in theirs if t != target), None)
-            opt, row, exp = _best_attack(by_slot.get(number, {}), avoid_target=other_target)
+            opt, row, exp = _best_attack(by_slot.get(number, {}), avoid_target=other_target, P=P)
             if opt and row and row["target"] == target:
                 rows.append((number, opt, row, exp))
         if len(rows) == 2:
             combined = sum(r["damage_pct_of_current_hp"][0] for _, _, r, _ in rows)
             if combined >= 100:
                 add("focus_fire", slot_answer(rows[0][1]["option"], target), slot_answer(rows[1][1]["option"], target),
-                    f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO", sum(e for *_, e in rows) + 30)
+                    f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO", sum(e for *_, e in rows) + P["focus_fire_bonus"])
 
     # 3. A slot faces a KO this turn from something that acts before it: Protect it while the other attacks.
     for threat in sheet.threats:
@@ -606,7 +612,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                                 and data.to_id(o.get("move_id")) in ("protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap")), None)
             if protect is not None and best[other][0]:
                 answers = {endangered: {"option": protect, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
-                bonus = 45 if hit["ko"] == "guaranteed" else 30
+                bonus = P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]
                 add("protect_threatened", answers[0], answers[1],
                     f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
                     best[other][2] + bonus)
@@ -615,7 +621,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if switch is not None:
                     answers = {endangered: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
                     add("switch_threatened", answers[0], answers[1],
-                        f"{threat['species']}'s {hit['move']} can KO slot {endangered}; switch it out, slot {other} attacks", best[other][2] + 15)
+                        f"{threat['species']}'s {hit['move']} can KO slot {endangered}; switch it out, slot {other} attacks", best[other][2] + P["switch_threatened_bonus"])
 
     # 4. Fake Out on a Pokémon's first turn out: flinch the biggest threat while the partner sets up or attacks.
     for number in (0, 1):
@@ -631,7 +637,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if not legal_targets:
             continue
         # The threat whose known attacks do the most to us.
-        danger = {pos: sum(_expected(h, 0) for t in sheet.threats if t["position"] == pos for h in t["hits"]) for pos in legal_targets}
+        danger = {pos: sum(_expected(h, 0, P) for t in sheet.threats if t["position"] == pos for h in t["hits"]) for pos in legal_targets}
         target = max(danger, key=danger.get)
         other = 1 - number
         other_slot = slot_template(other)
@@ -650,20 +656,20 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         answers = {number: {"option": fake, "target": target}, other: partner}
         why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (f"sets {setup_name}" if setup_name else "attacks")
         attacks_ko = any(b[1] and b[1].get("damage_pct_of_current_hp", [0, 0])[0] >= 100 for b in best.values())
-        base = 60 if not attacks_ko else 15
+        base = P["fakeout_base"] if not attacks_ko else 15
         # Flinching the Pokémon that threatens a KO on us this turn is worth extra: it can't act.
         threatens_us = any(h["ko"] != "no" for t in sheet.threats if t["position"] == target for h in t["hits"])
-        add("fake_out_setup", answers[0], answers[1], why, base + (20 if threatens_us else 0) + (best[other][2] * 0.6 if not setup_name else 50))
+        add("fake_out_setup", answers[0], answers[1], why, base + (P["fakeout_threat_bonus"] if threatens_us else 0) + (best[other][2] * 0.6 if not setup_name else P["fakeout_setup_value"]))
 
     # 5. Switch a slot that has no worthwhile attack into a bench Pokémon.
     for number in (0, 1):
         slot = slot_template(number)
-        if slot and (best[number][0] is None or best[number][2] < 20):
+        if slot and (best[number][0] is None or best[number][2] < P["switch_weak_threshold"]):
             switch = best_switch(slot, theirs, memory)[0] if memory is not None else _option_index(slot, "switch")
             other = 1 - number
             if switch is not None and best[other][0]:
                 answers = {number: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
-                add("switch_weak_slot", answers[0], answers[1], f"slot {number} has no good attack; switch out while slot {other} attacks", best[other][2] + 10)
+                add("switch_weak_slot", answers[0], answers[1], f"slot {number} has no good attack; switch out while slot {other} attacks", best[other][2] + P["switch_weak_bonus"])
 
     candidates.sort(key=lambda c: -c["score"])
     return candidates[:4]

@@ -1,0 +1,71 @@
+"""Tunable weights for the code brain, so self-play can measure them instead of us guessing.
+
+Every number here is a default. A ``PokemonAgent`` carries its own ``params`` dict (so two
+versions can play each other in one process with different weights), and the draft, lineup and
+battle modules read from whatever dict they are handed. ``agent/versions/tuned.py`` builds an
+agent from the ``AGENT_TUNE`` environment variable (a JSON object of overrides) and
+``sim/sweep.py`` runs variants against the baseline.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+
+DEFAULTS: dict[str, float] = {
+    # draft
+    "draft_offense_w": 10.0,       # x average hit quality into their drafted cards
+    "draft_defense_w": 5.0,        # x resist/weak score vs their drafted attacks
+    "draft_support_cap": 30.0,     # max support-move bonus
+    "draft_fast_bonus": 5.0,       # speed >= 120 after EVs/nature
+    "draft_veryfast_bonus": 8.0,   # speed >= 150
+    "draft_coverage_w": 3.0,       # per new offensive type (max 3)
+    "draft_shared_weakness_w": 3.0,
+    "draft_denial_margin": 3.0,    # consider denial when our top two are within this
+    "draft_denial_gap": 5.0,       # ... and the card is worth this much more to them
+    # lineup
+    "lineup_offense_w": 6.0,
+    "lineup_resist_w": 1.5,
+    "lineup_speed_w": 1.5,
+    "lineup_speed_control": 4.0,
+    "lineup_fake_out": 3.0,
+    "lineup_quad_penalty": 1.5,
+    "lead_se_penalty": 0.8,        # per 2x known move into a lead
+    "lead_quad_penalty": 3.0,      # per 4x known move into a lead
+    "lead_spread_penalty": 3.0,    # a known spread move that is 2x into both leads
+    # battle
+    "ko_bonus_guaranteed": 25.0,
+    "ko_bonus_possible": 10.0,
+    "priority_w": 3.0,
+    "survival_possible": 0.5,      # value multiplier when a faster possible-KO threatens the slot
+    "ally_damage_w": 1.5,          # charge for spread damage into our own ally
+    "protect_bonus_guaranteed": 45.0,
+    "protect_bonus_possible": 30.0,
+    "switch_threatened_bonus": 15.0,
+    "focus_fire_bonus": 30.0,
+    "fakeout_base": 60.0,
+    "fakeout_threat_bonus": 20.0,
+    "fakeout_setup_value": 50.0,
+    "switch_weak_threshold": 20.0,
+    "switch_weak_bonus": 10.0,
+}
+
+
+def merged(overrides: dict | None = None) -> dict[str, float]:
+    params = dict(DEFAULTS)
+    for key, value in (overrides or {}).items():
+        if key not in DEFAULTS:
+            raise KeyError(f"unknown tuning parameter {key!r}; known: {sorted(DEFAULTS)}")
+        params[key] = float(value)
+    return params
+
+
+def from_env(var: str = "AGENT_TUNE") -> dict[str, float]:
+    raw = os.environ.get(var, "").strip()
+    return merged(json.loads(raw) if raw else None)
+
+
+def label(params: dict[str, float]) -> str:
+    """Short name listing only what differs from the defaults."""
+    diff = {k: v for k, v in params.items() if DEFAULTS.get(k) != v}
+    return "tuned:" + ",".join(f"{k}={v:g}" for k, v in sorted(diff.items())) if diff else "tuned:defaults"

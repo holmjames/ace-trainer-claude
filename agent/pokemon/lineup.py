@@ -15,6 +15,7 @@ from itertools import combinations
 
 from . import data
 from .draft import Profile, hit_quality, profile
+from .tuning import DEFAULTS
 
 BRING = 4
 LEADS = 2
@@ -37,7 +38,8 @@ def _moves(p: Profile) -> set[str]:
     return {m["id"] for m in p.moves}
 
 
-def score_four(four: list[Profile], theirs: list[Profile]) -> tuple[float, list[str]]:
+def score_four(four: list[Profile], theirs: list[Profile], params: dict | None = None) -> tuple[float, list[str]]:
+    P = params or DEFAULTS
     notes: list[str] = []
     score = 0.0
 
@@ -46,7 +48,7 @@ def score_four(four: list[Profile], theirs: list[Profile]) -> tuple[float, list[
         hits = [max((hit_quality(me, opp) for me in four), default=0.0) for opp in theirs]
         covered = sum(1 for h in hits if h >= 1.5)
         weak_spots = [theirs[i].species for i, h in enumerate(hits) if h < 0.9]
-        score += 6 * sum(hits) / len(theirs)
+        score += P["lineup_offense_w"] * sum(hits) / len(theirs)
         notes.append(f"strong hits on {covered}/{len(theirs)}")
         if weak_spots:
             score -= 2 * len(weak_spots)
@@ -62,7 +64,7 @@ def score_four(four: list[Profile], theirs: list[Profile]) -> tuple[float, list[
             ) if any(me.types for me in four) else 1.0
             if best_mult <= 0.5:
                 resisted += 1
-        score += 1.5 * resisted
+        score += P["lineup_resist_w"] * resisted
         notes.append(f"resists {resisted}/{len(theirs)} attackers")
 
         # Speed: how many of ours outspeed the median opposing speed?
@@ -70,16 +72,16 @@ def score_four(four: list[Profile], theirs: list[Profile]) -> tuple[float, list[
         if opp_speeds:
             median = opp_speeds[len(opp_speeds) // 2]
             faster = sum(1 for me in four if me.stats.get("spe", 0) > median)
-            score += 1.5 * faster
+            score += P["lineup_speed_w"] * faster
             notes.append(f"{faster}/4 outspeed their median {median}")
 
     # Roles.
     moves_all = [_moves(p) for p in four]
     if any(mv & SPEED_CONTROL for mv in moves_all):
-        score += 4
+        score += P["lineup_speed_control"]
         notes.append("speed control")
     if any("fakeout" in mv for mv in moves_all):
-        score += 3
+        score += P["lineup_fake_out"]
         notes.append("fake out")
     if any(mv & REDIRECT for mv in moves_all):
         score += 2
@@ -101,7 +103,7 @@ def score_four(four: list[Profile], theirs: list[Profile]) -> tuple[float, list[
     if theirs:
         quad = sum(1 for me in four for opp in theirs for mv in opp.attacks if data.effectiveness(mv.get("type") or "", me.types) >= 4)
         if quad:
-            score -= 1.5 * quad
+            score -= P["lineup_quad_penalty"] * quad
             notes.append(f"{quad} known 4x hit(s) into our four")
 
     # Shared weaknesses: three or more of the four weak to one type is a liability.
@@ -114,8 +116,9 @@ def score_four(four: list[Profile], theirs: list[Profile]) -> tuple[float, list[
     return round(score, 3), notes
 
 
-def pick_leads(four: list[Profile], theirs: list[Profile]) -> tuple[list[str], str]:
+def pick_leads(four: list[Profile], theirs: list[Profile], params: dict | None = None) -> tuple[list[str], str]:
     """The best pair to start with: speed, Fake Out, Intimidate, and not both frail to their attacks."""
+    P = params or DEFAULTS
     best_pair, best_score, best_note = four[:2], float("-inf"), ""
     for a, b in combinations(four, 2):
         s = 0.0
@@ -138,11 +141,11 @@ def pick_leads(four: list[Profile], theirs: list[Profile]) -> tuple[list[str], s
                     spread = move.get("target") in ("allAdjacentFoes", "allAdjacent")
                     for m in mults:
                         if m >= 4:
-                            s -= 3
+                            s -= P["lead_quad_penalty"]
                         elif m >= 2:
-                            s -= 0.8
+                            s -= P["lead_se_penalty"]
                     if spread and all(m >= 2 for m in mults):
-                        s -= 3
+                        s -= P["lead_spread_penalty"]
                 if "fakeout" in {m["id"] for m in opp.moves}:
                     s -= 0.5  # their Fake Out costs us tempo on turn 1
             s += sum(max(hit_quality(p, opp) for p in (a, b)) for opp in theirs) / len(theirs)
@@ -154,7 +157,8 @@ def pick_leads(four: list[Profile], theirs: list[Profile]) -> tuple[list[str], s
     return [p.species for p in best_pair], best_note
 
 
-def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: list[str], *, top: int = 3) -> list[Candidate]:
+def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: list[str], *, top: int = 3,
+              params: dict | None = None) -> list[Candidate]:
     """Rank all 4-of-6 lineups. ``roster`` is the server's spelling of our species ids;
     the result uses those spellings so it can be sent as-is."""
     by_key = {data.to_id(r): r for r in roster}
@@ -176,8 +180,8 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
     candidates: list[Candidate] = []
     for four in combinations(sorted(mine, key=lambda p: p.species), BRING):
         four = list(four)
-        score, notes = score_four(four, theirs)
-        leads, lead_note = pick_leads(four, theirs)
+        score, notes = score_four(four, theirs, params)
+        leads, lead_note = pick_leads(four, theirs, params)
         candidates.append(Candidate([p.species for p in four], leads, score, notes + ([f"leads: {lead_note}"] if lead_note else [])))
     candidates.sort(key=lambda c: (-c.score, c.bring))
     return candidates[:top]

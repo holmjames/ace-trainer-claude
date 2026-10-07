@@ -47,6 +47,7 @@ from agent.pokemon import lineup as lineup_rules
 from agent.pokemon.log import DecisionLog
 from agent.pokemon.memory import MatchMemory, observation_dict
 from agent.pokemon.prompts import LINEUP_INSTRUCTIONS, SYSTEM_PROMPT
+from agent.pokemon.tuning import DEFAULTS
 
 VERSION = os.environ.get("AGENT_VERSION") or "m3"
 MAX_ATTEMPTS = 2  # first answer + one retry carrying the validation error
@@ -74,8 +75,10 @@ class PokemonAgent:
         log_dir: str | os.PathLike | None = None,
         capture_dir: str | os.PathLike | None = None,
         log=None,
+        params: dict | None = None,
     ) -> None:
         self._provider = provider  # None = code-only mode (no key, or tests)
+        self.params = dict(params) if params else dict(DEFAULTS)
         self._version = version
         self._log_dir = log_dir
         self._capture_dir = capture_dir if capture_dir is not None else os.environ.get("AGENT_CAPTURE_DIR")
@@ -133,7 +136,7 @@ class PokemonAgent:
     # -- draft: pure code ---------------------------------------------------------------
 
     def _draft(self, state: GameState, obs: dict, log: DecisionLog):
-        pick = draft_rules.choose_pick(state.legal_actions, self.memory)
+        pick = draft_rules.choose_pick(state.legal_actions, self.memory, self.params)
         log.write(
             "draft",
             state_version=state.state_version,
@@ -152,7 +155,7 @@ class PokemonAgent:
     def _lineup(self, action: LegalAction, state: GameState, obs: dict, log: DecisionLog):
         choice = pokemon_adapters.lineup_choice(action, state)
         roster = list(choice.prompt.get("roster") or [])
-        candidates = lineup_rules.shortlist(self.memory.my_cards, self.memory.opp_cards, roster)
+        candidates = lineup_rules.shortlist(self.memory.my_cards, self.memory.opp_cards, roster, params=self.params)
         # The best computed lineup is the fallback (validated like any answer); the adapter's
         # own fallback (first four of the roster) only if even that fails.
         if candidates:
@@ -186,7 +189,7 @@ class PokemonAgent:
     def _turn(self, action: LegalAction, state: GameState, obs: dict, log: DecisionLog):
         base = pokemon_adapters.doubles_choice(action, state)
         template = action.input.get("action") or {}
-        sheet = battle_rules.build_sheet(template, obs, self.memory)
+        sheet = battle_rules.build_sheet(template, obs, self.memory, self.params)
         # Fallback order: first computed candidate that validates, else the adapter's deterministic move.
         fallback = base.fallback
         for candidate in sheet.candidates:

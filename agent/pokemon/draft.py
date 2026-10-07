@@ -31,6 +31,7 @@ from altruagent import LegalAction
 
 from . import data
 from .memory import MatchMemory, species_key
+from .tuning import DEFAULTS
 
 PREFIX = "draft_pick:"
 
@@ -168,7 +169,8 @@ def new_offensive_types(candidate: Profile, team: list[Profile]) -> list[str]:
 
 
 def score_card(card: dict, memory: MatchMemory, *, my_team: list[Profile] | None = None,
-               opp_team: list[Profile] | None = None) -> tuple[float, list[str]]:
+               opp_team: list[Profile] | None = None, params: dict | None = None) -> tuple[float, list[str]]:
+    P = params or DEFAULTS
     me = profile(card)
     mine = my_team if my_team is not None else [profile(c) for c in memory.my_cards.values()]
     theirs = opp_team if opp_team is not None else [profile(c) for c in memory.opp_cards.values()]
@@ -181,19 +183,19 @@ def score_card(card: dict, memory: MatchMemory, *, my_team: list[Profile] | None
         notes.append(f"bst {me.bst}")
     speed = me.stats.get("spe", 0)
     if speed >= 150:
-        score += 8; notes.append(f"very fast {speed}")
+        score += P["draft_veryfast_bonus"]; notes.append(f"very fast {speed}")
     elif speed >= 120:
-        score += 5; notes.append(f"fast {speed}")
+        score += P["draft_fast_bonus"]; notes.append(f"fast {speed}")
     elif speed and speed <= 60 and "trickroom" not in {m["id"] for m in me.moves}:
         score -= 2; notes.append(f"slow {speed}")
 
     # 2/3. matchup against what they already have
     if theirs:
         off = offense_vs(me, theirs)
-        score += 10 * off
+        score += P["draft_offense_w"] * off
         notes.append(f"offense vs opp {off:.2f}")
         de = defense_vs(me, theirs)
-        score += 5 * de
+        score += P["draft_defense_w"] * de
         notes.append(f"defense vs opp {de:+.2f}")
     elif not me.attacks:
         score -= 4
@@ -203,16 +205,16 @@ def score_card(card: dict, memory: MatchMemory, *, my_team: list[Profile] | None
     new_types = new_offensive_types(me, mine)
     if mine:
         if new_types:
-            score += 3 * min(len(new_types), 3)
+            score += P["draft_coverage_w"] * min(len(new_types), 3)
             notes.append(f"new coverage {new_types[:3]}")
         shared = shared_weaknesses(me, mine)
         if shared:
-            score -= 3 * shared
+            score -= P["draft_shared_weakness_w"] * shared
             notes.append(f"shares weakness with {shared}")
     weight = min(len(mine), 3) / 3  # support counts once we have attackers
     have_support = any(m.support >= 15 for m in mine)
     if me.support and weight:
-        bonus = me.support * weight * (0.5 if have_support else 1.0)
+        bonus = min(me.support, P["draft_support_cap"]) * weight * (0.5 if have_support else 1.0)
         score += bonus
         notes.append(f"support +{bonus:.0f}")
     if me.ability in SUPPORT_ABILITIES:
@@ -228,7 +230,8 @@ def score_card(card: dict, memory: MatchMemory, *, my_team: list[Profile] | None
     return round(score, 3), notes
 
 
-def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory) -> ScoredCard:
+def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> ScoredCard:
+    P = params or DEFAULTS
     offered = [(a, memory.pool_cards.get(card_id_of(a), {})) for a in legal_actions
                if a.action_id.startswith(PREFIX) or "draft" in a.action_id]
     if not offered:
@@ -239,7 +242,7 @@ def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory) -> Scored
     theirs = [profile(c) for c in memory.opp_cards.values()]
     scored: list[ScoredCard] = []
     for action, card in offered:
-        score, notes = score_card(card, memory, my_team=mine, opp_team=theirs)
+        score, notes = score_card(card, memory, my_team=mine, opp_team=theirs, params=P)
         scored.append(ScoredCard(action, card_id_of(action), str(card.get("species") or card_id_of(action)), score, notes))
 
     order = sorted(scored, key=lambda s: (-s.score, legal_actions.index(s.action)))
@@ -248,12 +251,12 @@ def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory) -> Scored
     # 5. denial: when it's close, take what the opponent needs more.
     if len(order) > 1 and theirs and len(theirs) < TOTAL_PICKS:
         runner = order[1]
-        if best.score - runner.score < 3.0:
+        if best.score - runner.score < P["draft_denial_margin"]:
             def value_to_them(entry: ScoredCard) -> float:
                 card = memory.pool_cards.get(entry.card_id, {})
-                s, _ = score_card(card, memory, my_team=theirs, opp_team=mine)
+                s, _ = score_card(card, memory, my_team=theirs, opp_team=mine, params=P)
                 return s
-            if value_to_them(runner) > value_to_them(best) + 5.0:
+            if value_to_them(runner) > value_to_them(best) + P["draft_denial_gap"]:
                 runner.notes.append(f"denial over {best.species}")
                 best = runner
     return best
