@@ -62,9 +62,9 @@ def _write_decisions(dir_: Path, session: str, version: str, ts: str, *, latency
 
 def test_tally_joins_supervisor_and_claim_results_and_prices_usage(tmp_path, capsys):
     tally = _load_tally()
-    _write_decisions(tmp_path, "sess-A", "agent.agent", "2026-10-10T10:00:00+00:00", latency=4000)
-    _write_decisions(tmp_path, "sess-B", "agent.versions.v2", "2026-10-10T10:05:00+00:00", latency=9000, fallback=True, model="claude-sonnet-5-5")
-    _write_decisions(tmp_path, "sess-C", "agent.agent", "2026-10-10T11:00:00+00:00")
+    _write_decisions(tmp_path, "sess-A", "agent.agent", "2026-10-01T10:00:00+00:00", latency=4000)
+    _write_decisions(tmp_path, "sess-B", "agent.versions.v2", "2026-10-01T10:05:00+00:00", latency=9000, fallback=True, model="claude-sonnet-5-5")
+    _write_decisions(tmp_path, "sess-C", "agent.agent", "2026-10-01T11:00:00+00:00")
     (tmp_path / "runtime-match-1.log").write_text(
         "[match pokemon_vgc_doubles_draft seat=seat-1] finished termination_reason=normal score=1.0\n"
         "[agent] worker for session_id=sess-A finished\n"
@@ -78,8 +78,8 @@ def test_tally_joins_supervisor_and_claim_results_and_prices_usage(tmp_path, cap
     out = capsys.readouterr().out
     champion = next(l for l in out.splitlines() if l.startswith("agent.agent "))
     challenger = next(l for l in out.splitlines() if l.startswith("agent.versions.v2 "))
-    assert "  2-0  " in champion.replace("-0 ", "-0  ") or " 2-0" in champion  # two wins (supervisor + claim)
-    assert " 0-1" in challenger
+    assert " 2-0-0 " in champion  # two wins: one from the supervisor log, one paired from the claim-mode log
+    assert " 0-1-0 " in challenger
     assert "claude-sonnet-5-5×1" in challenger and "claude-fable-5-1×2" in champion
     # Cost: 4000 in @ $10/M + 1000 cached @ $1/M + 100 out @ $50/M = 0.046 per Fable turn.
     assert "0.09" in champion

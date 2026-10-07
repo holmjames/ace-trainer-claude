@@ -151,7 +151,8 @@ def render(per_version: dict[str, dict]) -> str:
         p50 = int(statistics.median(lat)) if lat else 0
         p95 = int(lat[min(len(lat) - 1, int(len(lat) * 0.95))]) if lat else 0
         models = ", ".join(f"{m}×{n}" for m, n in sorted(s["models"].items()))
-        out.append(f"{version:28s} {len(s['matches']):7d} {s['wins']:>3d}-{s['losses']:<3d}-{s['draws']:<1d} {s['unknown']:4d} {s['decisions']:9d} {p50:7d} {p95:7d} {s['fallbacks']:5d} {s['errors']:4d} {s['cost_usd']:7.2f}  {models}")
+        wld = f"{s['wins']}-{s['losses']}-{s['draws']}"
+        out.append(f"{version:28s} {len(s['matches']):7d} {wld:>9s} {s['unknown']:4d} {s['decisions']:9d} {p50:7d} {p95:7d} {s['fallbacks']:5d} {s['errors']:4d} {s['cost_usd']:7.2f}  {models}")
         if s["input_tokens"]:
             out.append(f"{'':28s} cache hit rate {100 * s['cache_read_tokens'] / s['input_tokens']:.0f}% of input tokens")
     return "\n".join(out)
