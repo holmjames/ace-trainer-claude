@@ -283,6 +283,31 @@ our own Protect last turn is tracked (a repeat is discounted to 1/3) and their P
 4. **Win-condition framing in the prompt.** Ask the model to name the win condition (which of theirs must die, which of ours must live) and plan two turns ahead.
 5. **More hard scenarios from real losses**, verified by hand before they are trusted (two of today's were wrong on first writing).
 
+## 5f. Fable vs Opus, same rubric, same pools (Oct 7 early)
+
+Two 30-game series vs the tuned code brain with the same seed (identical draft pools, and the draft itself is code, so both
+judges drafted the same six). **Credits ran out mid-run**: from about game 22 on, every model call failed with
+"credit balance is too low" and the code brain played those turns (the fallback chain worked; the agent never crashed; the
+provider now prints a loud one-time CREDITS EXHAUSTED warning). Only games with every decision model-played count:
+
+| Judge | Clean games | Record |
+|---|---|---|
+| Fable 5.1 | 15 | 11-4 (73%) |
+| Opus 5.5 | 18 | 16-2 (89%) |
+
+Rubric on the last five clean games of each (Fable 5-0, Opus 4-1):
+
+| Area | Fable 5.1 | Opus 5.5 | Notes |
+|---|---|---|---|
+| Team building | 6 | 6 | Draft is code and identical. Both chose sensible lineups; Opus's one loss brought Garchomp over the code's Maushold and lost the lead on turn 1. |
+| Move choices | 8 | 7 | Fable: sash-break sequencing ("Electro Drift breaks the sash, Body Press finishes"), priority Thunderclap timing, Trick Room order. Opus: Follow Me to soak Fake Out, good Protect calls, but in its loss Protected three turns in a row (now discounted by item 3). |
+| Timing / tempo | 7.5 | 7 | Both set their mode on turn 1 when available; Fable sequenced priority and speed modes slightly better. |
+| Strategy | 7 | 6.5 | Fable's lineups named a second speed mode and used it; Opus planned one turn at a time more often. |
+
+Reading: on this rubric Fable's play reads a little richer; on results Opus is ahead in every head-to-head and vs-code series run
+tonight (24-16 vs Fable directly; 16-2 vs 11-4 on identical pools). Neither gap is statistically clean. **Decision unchanged: Opus
+judges**, with the explicit plan to re-run this comparison on the live server once credits and the dashboard are available.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
