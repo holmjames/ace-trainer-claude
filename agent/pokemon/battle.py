@@ -282,6 +282,13 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         if data.to_id(opp.item) == "focussash" and opp.hp_fraction >= 0.999:
             sheet.notes.append(f"Their {opp.species} holds an intact Focus Sash: it needs two hits or a multi-hit move to KO this turn.")
 
+    for number, me in sorted(ours.items()):
+        if memory.our_protect_last_turn(me.species, number):
+            sheet.notes.append(f"Our {me.species} used Protect LAST turn: a repeat only works 1 time in 3.")
+    for key in memory.opp_protected_last_turn:
+        name = next((o.species for o in theirs.values() if species_key(o.species) == key), key)
+        sheet.notes.append(f"Their {name} probably Protected last turn (we hit it and its HP did not move): a second Protect in a row fails 2/3 of the time, so this is the turn to attack it.")
+
     # Our damage estimates per slot option.
     for slot in slots:
         number = slot.get("slot", 0)
@@ -653,6 +660,9 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if protect is not None and best[other][0]:
                 answers = {endangered: {"option": protect, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
                 bonus = P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"] * (0.5 + ko_probability(hit))
+                me_e = ours.get(endangered)
+                if me_e is not None and memory is not None and memory.our_protect_last_turn(me_e.species, endangered):
+                    bonus *= 0.33  # consecutive Protect succeeds 1/3 of the time
                 add("protect_threatened", answers[0], answers[1],
                     f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
                     best[other][2] + bonus)

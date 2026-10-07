@@ -124,6 +124,7 @@ class MatchMemory:
             turn = obs.get("turn")
             self.fresh_active = [a for a in actives if a not in self.last_active] if (self.last_active or turn not in (None, 1)) else list(actives)
             self.last_active = actives
+        self.observe_opponent_hp(obs)  # uses last turn's opp_last_active, so it runs before the update below
         opp_actives = []
         for entry in obs.get("opponent_active_pokemon") or []:
             key = species_key(entry.get("species") if isinstance(entry, dict) else entry)
@@ -141,8 +142,44 @@ class MatchMemory:
                     if key and key not in self.opp_lineup_seen:
                         self.opp_lineup_seen.append(key)
 
+    last_payload: dict | None = None
+    last_opp_hp: dict[str, float] = field(default_factory=dict)  # species_key -> hp fraction seen last turn
+    opp_protected_last_turn: list[str] = field(default_factory=list)  # inferred: we hit it, its HP did not move
+
     def record_turn(self, **fields: Any) -> None:
         self.turns.append(fields)
+        payload = fields.get("payload")
+        if isinstance(payload, dict):
+            self.last_payload = payload
+
+    def our_protect_last_turn(self, species: str, slot: int) -> bool:
+        """Did the Pokémon now in ``slot`` use a Protect-like move last turn? (Consecutive Protect fails 2/3 of the time.)"""
+        if not self.last_payload or not self.last_active or len(self.last_active) <= slot:
+            return False
+        if species_key(species) != self.last_active[slot]:
+            return False  # a different Pokémon is in the slot now
+        choice = self.last_payload.get(f"slot_{slot}") or {}
+        return choice.get("type") == "move" and species_key(choice.get("move_id")) in {"protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "wideguard"}
+
+    def observe_opponent_hp(self, obs: dict) -> None:
+        """Infer who Protected: an opponent we targeted last turn whose HP did not change."""
+        current: dict[str, float] = {}
+        for entry in obs.get("opponent_active_pokemon") or []:
+            if isinstance(entry, dict) and entry.get("species") is not None:
+                frac = entry.get("current_hp_fraction")
+                if frac is None and entry.get("max_hp"):
+                    frac = (entry.get("current_hp") or 0) / entry["max_hp"]
+                if frac is not None:
+                    current[species_key(entry["species"])] = float(frac)
+        targeted = set()
+        if self.last_payload:
+            for slot_key in ("slot_0", "slot_1"):
+                choice = self.last_payload.get(slot_key) or {}
+                tgt = choice.get("target")
+                if choice.get("type") == "move" and isinstance(tgt, int) and tgt > 0 and len(self.opp_last_active) >= tgt:
+                    targeted.add(self.opp_last_active[tgt - 1])
+        self.opp_protected_last_turn = [k for k in targeted if k in current and k in self.last_opp_hp and abs(current[k] - self.last_opp_hp[k]) < 0.005]
+        self.last_opp_hp = current
 
     # -- prompt material -------------------------------------------------------------
 

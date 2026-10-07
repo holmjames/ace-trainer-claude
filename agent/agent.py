@@ -63,7 +63,7 @@ _BATTLE_KEYS = ("turn", "weather", "fields", "field", "side_conditions", "oppone
 # output is happiest with plain types, so we ask for an integer and tell the
 # model to send 0 when a move takes no target (build() ignores it then).
 _SLOT_SCHEMA = object_schema({"option": {"type": "integer"}, "target": {"type": "integer"}}, reasoning=False)
-_TURN_SCHEMA = object_schema({"slot_0": _SLOT_SCHEMA, "slot_1": _SLOT_SCHEMA})
+_TURN_SCHEMA = object_schema({"win_condition": {"type": "string"}, "slot_0": _SLOT_SCHEMA, "slot_1": _SLOT_SCHEMA})
 
 
 class PokemonAgent:
@@ -217,7 +217,7 @@ class PokemonAgent:
         value, answer, info = self._ask(choice, payload, kind="turn")
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"))
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
-                  turn_sheet=sheet.as_prompt(), **info)
+                  win_condition=(answer or {}).get("win_condition"), turn_sheet=sheet.as_prompt(), **info)
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 

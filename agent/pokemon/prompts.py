@@ -26,6 +26,8 @@ How to play well:
 - Status, weather, terrain and stat boosts change the math; read the field state.
 - Avoid wasted actions: do not use a move that the target is immune to, do not double-Protect in a row, do not switch both slots into the same Pokémon.
 
+Before choosing, name the win condition in one clause (which of theirs must go down, which of ours must stay healthy) and plan two turns, not one: what does their best reply do to your position next turn? Put that clause in the win_condition field.
+
 Answer only in the required JSON. reasoning_summary is one short public sentence spectators will see, e.g. "Double into OPPONENT incineroar before it can Fake Out." """
 
 LINEUP_INSTRUCTIONS = (
