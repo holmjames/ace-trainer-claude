@@ -376,6 +376,13 @@ a real lesson: the sheet called an 85-101% hit (a 4% KO chance) LETHAL and Opus 
 now graded: LETHAL only when guaranteed or at least a coin flip, otherwise RISK with the KO chance spelled out, and every
 "possible" threat row carries its `ko_chance_pct`.
 
+Rerunning the two hardest ones three times each still showed the model attacking with a Pokémon the sheet had marked LETHAL
+(a priority Sucker Punch it had read as "it moves first under Tailwind", and a speed tie it read as a win). So the agent now
+does a **lethal recheck**: if a valid answer leaves a LETHAL-flagged slot attacking, the model gets that exact warning quoted back
+and answers once more; its second answer stands either way (trades can be right), and the decision log records `recheck`. With
+it: `stale_fake_out` 2/2, `sucker_punch_respect` 3/3, `break_sash_then_ko` 3/3 under the broadened rule (the recheck fired on
+3 of the 6 and flipped the answer each time). Scenario suite now 18 (10 basic + 8 hard); code-only 18/18.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |

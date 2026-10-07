@@ -66,6 +66,34 @@ _SLOT_SCHEMA = object_schema({"option": {"type": "integer"}, "target": {"type": 
 _TURN_SCHEMA = object_schema({"win_condition": {"type": "string"}, "slot_0": _SLOT_SCHEMA, "slot_1": _SLOT_SCHEMA})
 
 
+_PROTECT_MOVES = {"protect", "detect", "wideguard", "quickguard", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "kingsshield", "obstruct"}
+
+
+def _lethal_recheck(value: Any, sheet: Any) -> str | None:
+    """A valid answer that leaves a LETHAL-flagged slot attacking gets one explicit second look. The model keeps the
+    final say (trades can be right), but it has to make that call with the warning in front of it."""
+    payload = value if isinstance(value, dict) else getattr(value, "payload", None)
+    if not isinstance(payload, dict):
+        return None
+    lethal = [w for w in getattr(sheet, "warnings", []) if str(w).startswith("LETHAL:")]
+    if not lethal:
+        return None
+    problems = []
+    for number in (0, 1):
+        slot = payload.get(f"slot_{number}") or {}
+        if slot.get("type") != "move" or str(slot.get("move_id") or "").replace("-", "").replace(" ", "").lower() in _PROTECT_MOVES:
+            continue
+        hits = [w for w in lethal if f"slot {number} (" in w]
+        if hits:
+            problems.append(f"slot {number} attacks with {slot.get('move_id')} although: {hits[0]}")
+    if not problems:
+        return None
+    return ("Recheck before this is final. " + " | ".join(problems) +
+            " A Pokémon that is knocked out before it moves never gets its attack off. Keep your answer only if the other slot "
+            "removes that threat first (priority, or faster with a guaranteed KO) or the trade wins the game; otherwise Protect "
+            "or switch that slot. Answer again; reasoning_summary stays a one-sentence public description of the move itself.")
+
+
 class PokemonAgent:
     def __init__(
         self,
@@ -214,7 +242,7 @@ class PokemonAgent:
             "known_sets": {"mine": self.memory.known_sets("mine"), "opponent": self.memory.known_sets("opponent")},
             "observation": _compact(obs, _BATTLE_KEYS),
         }
-        value, answer, info = self._ask(choice, payload, kind="turn")
+        value, answer, info = self._ask(choice, payload, kind="turn", recheck=lambda v: _lethal_recheck(v, sheet))
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"))
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
                   win_condition=(answer or {}).get("win_condition"), turn_sheet=sheet.as_prompt(), **info)
@@ -223,7 +251,10 @@ class PokemonAgent:
 
     # -- the model call, with retry-once and deterministic fallback ---------------------
 
-    def _ask(self, choice: Choice, payload: dict, *, kind: str) -> tuple[Any, dict | None, dict]:
+    def _ask(self, choice: Choice, payload: dict, *, kind: str, recheck: Any = None) -> tuple[Any, dict | None, dict]:
+        """Ask the model, retry once on an invalid answer, fall back to the computed move if it still fails.
+        ``recheck(value)`` may return a message for a valid-but-suspicious first answer (e.g. attacking with a slot the
+        sheet marks LETHAL); the model is then asked once more with that message and its second answer stands."""
         info: dict[str, Any] = {"model": None, "latency_ms": None, "attempts": 0, "errors": [], "fallback": False}
         if self._provider is None:
             info["errors"].append("no provider configured (code-only mode)")
@@ -255,6 +286,13 @@ class PokemonAgent:
                 messages.append({"role": "assistant", "content": json.dumps(answer, default=str)})
                 messages.append({"role": "user", "content": f"That answer was invalid: {exc}. Answer again using only the given options."})
                 continue
+            if recheck is not None and attempt == 1:
+                message = recheck(value)
+                if message:
+                    info["recheck"] = message
+                    messages.append({"role": "assistant", "content": json.dumps(answer, default=str)})
+                    messages.append({"role": "user", "content": message})
+                    continue
             info["answer"] = answer
             return value, answer, info
 

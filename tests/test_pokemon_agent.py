@@ -325,3 +325,51 @@ def test_memory_tracks_our_protect_and_infers_theirs():
     assert memory.our_protect_last_turn("Garchomp", 0) is True
     assert memory.our_protect_last_turn("Rillaboom", 1) is False
     assert memory.opp_protected_last_turn == ["gyarados"]  # we Wood Hammered it and its HP did not move
+
+
+# -- lethal recheck -----------------------------------------------------------------------
+
+
+class _Sheet:
+    def __init__(self, warnings):
+        self.warnings = warnings
+
+
+def test_lethal_recheck_flags_only_an_attacking_slot_under_a_lethal_warning():
+    from agent.agent import _lethal_recheck
+
+    sheet = _Sheet(["LETHAL: Kingambit's suckerpunch with priority +1 hits slot 0 (Flutter Mane) for 101.2-119.1% BEFORE it can move. Protect/switch that slot unless the game is won anyway.",
+                    "RISK: Maushold's populationbomb hits slot 1 (Incineroar) for 85.5-100.6% before it can move: only a 4% chance of a KO on the roll."])
+    attacking = {"type": "doubles_turn", "slot_0": {"type": "move", "move_id": "moonblast", "target": 2}, "slot_1": {"type": "move", "move_id": "knockoff", "target": 1}}
+    message = _lethal_recheck(attacking, sheet)
+    assert message and "slot 0 attacks with moonblast" in message and "slot 1" not in message.split("|")[0]
+    protecting = {"type": "doubles_turn", "slot_0": {"type": "move", "move_id": "protect"}, "slot_1": {"type": "move", "move_id": "knockoff", "target": 1}}
+    assert _lethal_recheck(protecting, sheet) is None
+    switching = {"type": "doubles_turn", "slot_0": {"type": "switch", "species": "rillaboom"}, "slot_1": {"type": "move", "move_id": "knockoff", "target": 1}}
+    assert _lethal_recheck(switching, sheet) is None
+    assert _lethal_recheck(attacking, _Sheet([])) is None
+
+
+def test_ask_rechecks_once_and_keeps_the_second_answer(tmp_path):
+    from examples.llm.base import Choice
+
+    first = {"slot_0": {"option": 0, "target": 2}, "reasoning_summary": "attack"}
+    second = {"slot_0": {"option": 1, "target": 0}, "reasoning_summary": "protect"}
+    provider = FakeProvider(first, second)
+    agent = _agent(provider, tmp_path)
+    choice = Choice(kind="doubles_turn", prompt={}, schema={"type": "object"}, build=lambda answer: dict(answer), fallback=lambda: {"fallback": True})
+
+    value, answer, info = agent._ask(choice, {"decision": "doubles_turn"}, kind="turn",
+                                     recheck=lambda v: "Recheck: slot 0 is LETHAL." if v["slot_0"]["option"] == 0 else None)
+
+    assert value == second and answer == second
+    assert len(provider.calls) == 2 and info["attempts"] == 2 and info["recheck"].startswith("Recheck")
+    assert provider.calls[1]["messages"][-1]["content"].startswith("Recheck")
+    assert provider.calls[1]["messages"][-2] == {"role": "assistant", "content": json.dumps(first)}
+    assert info["fallback"] is False and agent.memory.fallbacks == 0
+
+    # A second answer that is itself suspicious is still accepted: the model has the final say.
+    provider = FakeProvider(first, first)
+    agent = _agent(provider, tmp_path)
+    value, answer, info = agent._ask(choice, {"decision": "doubles_turn"}, kind="turn", recheck=lambda v: "Recheck.")
+    assert value == first and len(provider.calls) == 2 and info["fallback"] is False
