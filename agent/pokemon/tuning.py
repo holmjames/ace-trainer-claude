@@ -26,6 +26,9 @@ DEFAULTS: dict[str, float] = {
     "draft_shared_weakness_w": 3.0,
     "draft_denial_margin": 3.0,    # consider denial when our top two are within this
     "draft_denial_gap": 5.0,       # ... and the card is worth this much more to them
+    "draft_mode_w": 0.0,           # item 2: value cards that fit the mode we have started (Trick Room / Tailwind / rain / sun) (0 = off)
+    "draft_role_w": 0.0,           # item 2: by pick 4+, value missing roles (speed control, Fake Out/redirect, a resist to their best attacker) (0 = off)
+    "draft_deny_mode_w": 0.0,      # item 2: deny the card that completes THEIR mode (0 = off)
     # lineup
     "lineup_offense_w": 6.0,
     "lineup_resist_w": 1.5,

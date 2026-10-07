@@ -167,6 +167,78 @@ def new_offensive_types(candidate: Profile, team: list[Profile]) -> list[str]:
     return sorted({data.to_id(m.get("type")) for m in candidate.attacks if m.get("type")} - have)
 
 
+# -- modes and roles (item 2) --------------------------------------------------------------------
+
+MODE_SETTERS = {"trickroom": "trickroom", "tailwind": "tailwind", "raindance": "rain", "sunnyday": "sun"}
+MODE_ABILITIES = {"drizzle": "rain", "drought": "sun", "orichalcumpulse": "sun", "hadronengine": "electricterrain"}
+
+
+def team_modes(team: list[Profile]) -> set[str]:
+    modes: set[str] = set()
+    for p in team:
+        for m in p.moves:
+            if m["id"] in MODE_SETTERS:
+                modes.add(MODE_SETTERS[m["id"]])
+        if p.ability in MODE_ABILITIES:
+            modes.add(MODE_ABILITIES[p.ability])
+    return modes
+
+
+def mode_fit(me: Profile, modes: set[str]) -> tuple[float, str]:
+    """How well a card rides a mode the team already has (0..1) and why."""
+    speed = me.stats.get("spe", 0)
+    best, why = 0.0, ""
+    if "trickroom" in modes and speed and speed <= 80:
+        v = 1.0 if speed <= 60 else 0.6
+        if v > best: best, why = v, f"Trick Room partner (speed {speed})"
+    if "tailwind" in modes and speed >= 100 and me.attacks:
+        v = 0.8
+        if v > best: best, why = v, "Tailwind attacker"
+    if "rain" in modes and ("water" in {data.to_id(m.get("type")) for m in me.attacks} or me.ability == "swiftswim"):
+        v = 1.0 if me.ability == "swiftswim" else 0.7
+        if v > best: best, why = v, "rain abuser"
+    if "sun" in modes and ("fire" in {data.to_id(m.get("type")) for m in me.attacks} or me.ability in ("chlorophyll", "protosynthesis")):
+        v = 1.0 if me.ability in ("chlorophyll", "protosynthesis") else 0.7
+        if v > best: best, why = v, "sun abuser"
+    return best, why
+
+
+def missing_roles(team: list[Profile], theirs: list[Profile]) -> set[str]:
+    roles = {"speed_control", "disruption", "answer"}
+    ids = {m["id"] for p in team for m in p.moves}
+    if ids & {"tailwind", "trickroom", "icywind", "electroweb", "thunderwave"}:
+        roles.discard("speed_control")
+    if ids & {"fakeout", "followme", "ragepowder", "spore"}:
+        roles.discard("disruption")
+    if theirs:
+        best_opp = max(theirs, key=lambda o: max((hit_quality(o, p) for p in team), default=0.0) if team else o.bst)
+        stabs = [m for m in best_opp.attacks if data.to_id(m.get("type")) in best_opp.types] or best_opp.attacks
+        if stabs:
+            stab = max(stabs, key=lambda m: m.get("base_power") or 0)
+            if any(data.effectiveness(stab.get("type") or "", p.types) <= 0.5 for p in team if p.types):
+                roles.discard("answer")
+    else:
+        roles.discard("answer")
+    return roles
+
+
+def fills_role(me: Profile, roles: set[str], theirs: list[Profile]) -> list[str]:
+    ids = {m["id"] for m in me.moves}
+    filled = []
+    if "speed_control" in roles and ids & {"tailwind", "trickroom", "icywind", "electroweb", "thunderwave"}:
+        filled.append("speed_control")
+    if "disruption" in roles and ids & {"fakeout", "followme", "ragepowder", "spore"}:
+        filled.append("disruption")
+    if "answer" in roles and theirs:
+        best_opp = max(theirs, key=lambda o: o.bst)
+        stabs = [m for m in best_opp.attacks if data.to_id(m.get("type")) in best_opp.types] or best_opp.attacks
+        if stabs and me.types:
+            stab = max(stabs, key=lambda m: m.get("base_power") or 0)
+            if data.effectiveness(stab.get("type") or "", me.types) <= 0.5:
+                filled.append(f"answer to {best_opp.species}")
+    return filled
+
+
 # -- the score -----------------------------------------------------------------------------
 
 
@@ -213,6 +285,23 @@ def score_card(card: dict, memory: MatchMemory, *, my_team: list[Profile] | None
         if shared:
             score -= P["draft_shared_weakness_w"] * shared
             notes.append(f"shares weakness with {shared}")
+    # item 2: ride our mode, fill missing roles, deny their mode piece
+    if P.get("draft_mode_w", 0) and mine:
+        fit, why = mode_fit(me, team_modes(mine))
+        if fit:
+            score += P["draft_mode_w"] * fit
+            notes.append(why)
+    if P.get("draft_role_w", 0) and len(mine) >= 3:
+        filled = fills_role(me, missing_roles(mine, theirs), theirs)
+        if filled:
+            score += P["draft_role_w"] * len(filled)
+            notes.append(f"fills {filled}")
+    if P.get("draft_deny_mode_w", 0) and theirs:
+        their_fit, their_why = mode_fit(me, team_modes(theirs))
+        if their_fit >= 0.7:
+            score += P["draft_deny_mode_w"] * their_fit
+            notes.append(f"denies their {their_why}")
+
     weight = min(len(mine), 3) / 3  # support counts once we have attackers
     have_support = any(m.support >= 15 for m in mine)
     if me.support and weight:
