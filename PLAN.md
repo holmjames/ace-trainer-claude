@@ -306,6 +306,17 @@ Rubric on the last five clean games of each (Fable 5-0, Opus 4-1):
 
 **Rerun after credits were added (seed 501, 30 games each, zero fallbacks, drafts identical in all 30 games): Opus 21-9, Fable 20-10.** The two judges differed on only 7 of 30 games (4 Opus-only wins, 3 Fable-only wins): a statistical tie.
 
+Rubric on the last five games of the clean seed-501 series (identical drafts; lineups identical in 4 of 5; Fable 3-2, Opus 4-1):
+
+| Area | Fable 5.1 | Opus 5.5 | Notes |
+|---|---|---|---|
+| Team building | 6.5 | 6.5 | Draft is code; lineups near-identical. Both lost game 26 with the code's top lineup into an Iron Hands / Maushold / Farigiraf Trick Room team: a lineup-scorer blind spot (Population Bomb multi-hit, Follow Me), not a judge difference. |
+| Move choices | 7.5 | 7.5 | Both: sash-break sequencing, Protect reads, Armor Tail awareness, Wide Guard vs Earthquake. Both locked Miraidon into Electro Drift with a Ground type still standing (game 25); Fable overcommitted Flutter Mane into Lunala's lethal range after naming it as the piece to keep (game 29, lost). |
+| Timing / tempo | 7.5 | 7 | Fable timed Tailwind and priority slightly better; Opus's game 25 dragged to 11 turns on the Choice lock. |
+| Strategy | 7 | 7.5 | Opus's game-29 sequencing (Iron Bundle first, Flutter Mane as the closer) preserved resources; Fable's win_condition statements were explicit but not always obeyed. |
+
+Overall ~7.1 each: the judges are interchangeable at this level. The differences that decided games were shared code-side gaps.
+
 Reading: on this rubric Fable's play reads a little richer; on results Opus is ahead in every head-to-head and vs-code series run
 tonight (24-16 vs Fable directly; 16-2 vs 11-4 on identical pools). Neither gap is statistically clean. **Decision unchanged: Opus
 judges**, with the explicit plan to re-run this comparison on the live server once credits and the dashboard are available.
