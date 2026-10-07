@@ -304,6 +304,8 @@ Rubric on the last five clean games of each (Fable 5-0, Opus 4-1):
 | Timing / tempo | 7.5 | 7 | Both set their mode on turn 1 when available; Fable sequenced priority and speed modes slightly better. |
 | Strategy | 7 | 6.5 | Fable's lineups named a second speed mode and used it; Opus planned one turn at a time more often. |
 
+**Rerun after credits were added (seed 501, 30 games each, zero fallbacks, drafts identical in all 30 games): Opus 21-9, Fable 20-10.** The two judges differed on only 7 of 30 games (4 Opus-only wins, 3 Fable-only wins): a statistical tie.
+
 Reading: on this rubric Fable's play reads a little richer; on results Opus is ahead in every head-to-head and vs-code series run
 tonight (24-16 vs Fable directly; 16-2 vs 11-4 on identical pools). Neither gap is statistically clean. **Decision unchanged: Opus
 judges**, with the explicit plan to re-run this comparison on the live server once credits and the dashboard are available.
