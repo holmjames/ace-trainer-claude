@@ -33,3 +33,7 @@ htmlcov/
 # Decision logs and captured match states (local only)
 logs/
 tests/fixtures/captured/
+
+# Local Showdown engine for self-play (npm install in sim/)
+sim/node_modules/
+sim/package-lock.json
