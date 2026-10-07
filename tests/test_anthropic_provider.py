@@ -131,3 +131,25 @@ def test_workspace_id_becomes_a_default_header_on_the_real_client(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", " wrkspc_env456 ")
     chain = provider_from_env()
     assert all(p.workspace_id == "wrkspc_env456" for p in chain._providers)
+
+
+def test_hard_deadline_fires_when_the_sdk_call_never_returns():
+    import threading
+    import time as _time
+
+    release = threading.Event()
+
+    class HangingClient:
+        def __init__(self):
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, **request):
+            release.wait(timeout=30)  # simulate a socket that never answers
+            return _response()
+
+    provider = AnthropicProvider("claude-fable-5-1", client=HangingClient(), timeout=0.2)
+    started = _time.monotonic()
+    with pytest.raises(ProviderError, match="timed out"):
+        provider.complete_structured(MESSAGES, "x", SCHEMA)
+    assert _time.monotonic() - started < 10  # 0.2 s timeout + 5 s grace, not 30 s
+    release.set()

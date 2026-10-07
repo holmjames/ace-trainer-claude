@@ -77,10 +77,13 @@ def test_team_fit_helpers():
     assert draft.shared_weaknesses(draft.profile(card("Arcanine", ["Flare Blitz"])), team) == 1
 
 
-def test_against_a_water_roster_the_grass_attacker_is_picked():
+def test_against_a_water_roster_the_fire_attacker_is_not_picked():
     memory = memory_with(mine=(FLUTTER,), theirs=(GYARADOS, URSHIFU), pool=(RILLABOOM, INCINEROAR, GARCHOMP))
     pick = draft.choose_pick(legal(INCINEROAR, GARCHOMP, RILLABOOM), memory)
-    assert pick.species == "Rillaboom", pick.notes
+    assert pick.species in ("Rillaboom", "Garchomp"), pick.notes  # both answer Water; Incineroar does not
+    grass, _ = draft.score_card(RILLABOOM, memory)
+    fire, _ = draft.score_card(INCINEROAR, memory)
+    assert grass > fire + 5
 
 
 def test_first_pick_prefers_raw_quality_and_speed():

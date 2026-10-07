@@ -176,12 +176,32 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
             p.species = spelling
             mine.append(p)
     theirs = [profile(c) for c in opp_cards.values()]
+    P = params or DEFAULTS
+
+    # Mirror-model the opponent: which four would THEY bring against our six, and which two lead?
+    # Their drafted sets are public, so we can run our own lineup scorer from their side.
+    predicted: list[Profile] = []
+    predicted_leads: list[Profile] = []
+    if P.get("lineup_predict_opp", 0) and len(theirs) >= BRING and mine:
+        best_score, best_four = float("-inf"), None
+        for four in combinations(sorted(theirs, key=lambda p: p.species), BRING):
+            s, _ = score_four(list(four), mine, params)
+            if s > best_score:
+                best_score, best_four = s, list(four)
+        if best_four:
+            predicted = best_four
+            lead_names, _ = pick_leads(best_four, mine, params)
+            predicted_leads = [p for p in best_four if p.species in lead_names]
 
     candidates: list[Candidate] = []
     for four in combinations(sorted(mine, key=lambda p: p.species), BRING):
         four = list(four)
         score, notes = score_four(four, theirs, params)
-        leads, lead_note = pick_leads(four, theirs, params)
+        if predicted:
+            focused, _ = score_four(four, predicted, params)
+            score = (score + P["lineup_predict_opp"] * focused) / (1 + P["lineup_predict_opp"])
+            notes.append(f"vs predicted {[p.species for p in predicted]}")
+        leads, lead_note = pick_leads(four, predicted_leads or theirs, params) if predicted_leads else pick_leads(four, theirs, params)
         candidates.append(Candidate([p.species for p in four], leads, score, notes + ([f"leads: {lead_note}"] if lead_note else [])))
     candidates.sort(key=lambda c: (-c.score, c.bring))
     return candidates[:top]

@@ -170,7 +170,10 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
             state = translate.battle_state(game_id, snap, side, versions[side])
             if state is None:
                 continue
+            t_dec = time.monotonic()
             decision = unwrap(players[side].choose_action(state, ctx[side]))
+            if time.monotonic() - t_dec > 60:
+                print(f"   [{game_id}] SLOW decision by {side}: {int(time.monotonic() - t_dec)} s", file=sys.stderr, flush=True)
             choice = translate.to_choice(decision)
             reply = bridge.call(cmd="choose", id=game_id, side=side, choice=choice)
             if not reply.get("ok"):

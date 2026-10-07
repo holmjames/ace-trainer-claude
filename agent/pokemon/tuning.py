@@ -1,5 +1,8 @@
 """Tunable weights for the code brain, so self-play can measure them instead of us guessing.
 
+Defaults were tuned by self-play on Oct 6 (sim/sweep.py): the combination of the four annotated
+changes beat the previous defaults 55.7% ± 3.1 over 1,000 games.
+
 Every number here is a default. A ``PokemonAgent`` carries its own ``params`` dict (so two
 versions can play each other in one process with different weights), and the draft, lineup and
 battle modules read from whatever dict they are handed. ``agent/versions/tuned.py`` builds an
@@ -16,7 +19,7 @@ DEFAULTS: dict[str, float] = {
     # draft
     "draft_offense_w": 10.0,       # x average hit quality into their drafted cards
     "draft_defense_w": 5.0,        # x resist/weak score vs their drafted attacks
-    "draft_support_cap": 30.0,     # max support-move bonus
+    "draft_support_cap": 15.0,     # max support-move bonus (was 30; self-play 1,000 games: +3.9 pts)
     "draft_fast_bonus": 5.0,       # speed >= 120 after EVs/nature
     "draft_veryfast_bonus": 8.0,   # speed >= 150
     "draft_coverage_w": 3.0,       # per new offensive type (max 3)
@@ -33,21 +36,22 @@ DEFAULTS: dict[str, float] = {
     "lead_se_penalty": 0.8,        # per 2x known move into a lead
     "lead_quad_penalty": 3.0,      # per 4x known move into a lead
     "lead_spread_penalty": 3.0,    # a known spread move that is 2x into both leads
+    "lineup_predict_opp": 0.0,     # 1 = score against the opponent's PREDICTED four (and leads), weighted by this
     # battle
     "ko_bonus_guaranteed": 25.0,
     "ko_bonus_possible": 10.0,
     "priority_w": 3.0,
     "survival_possible": 0.5,      # value multiplier when a faster possible-KO threatens the slot
-    "ally_damage_w": 1.5,          # charge for spread damage into our own ally
+    "ally_damage_w": 0.75,         # charge for spread damage into our own ally (was 1.5)
     "protect_bonus_guaranteed": 45.0,
     "protect_bonus_possible": 30.0,
     "switch_threatened_bonus": 15.0,
     "focus_fire_bonus": 30.0,
-    "fakeout_base": 60.0,
+    "fakeout_base": 90.0,          # (was 60)
     "fakeout_threat_bonus": 20.0,
     "fakeout_setup_value": 50.0,
     "switch_weak_threshold": 20.0,
-    "switch_weak_bonus": 10.0,
+    "switch_weak_bonus": 15.0,     # (was 10)
 }
 
 

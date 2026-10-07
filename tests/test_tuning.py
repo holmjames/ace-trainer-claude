@@ -30,7 +30,7 @@ def test_two_agents_keep_separate_params():
     a = PokemonAgent(None, params=tuning.merged({"fakeout_base": 1}))
     b = PokemonAgent(None)
     assert a.params["fakeout_base"] == 1 and b.params["fakeout_base"] == tuning.DEFAULTS["fakeout_base"]
-    assert tuning.DEFAULTS["fakeout_base"] == 60.0  # defaults untouched
+    assert tuning.DEFAULTS["fakeout_base"] == 90.0  # defaults untouched
 
 
 def test_params_change_candidate_ranking():

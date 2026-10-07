@@ -22,6 +22,7 @@ error messages (only HTTP status codes and exception class names are kept).
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 import time
@@ -36,7 +37,8 @@ DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
 DEFAULT_TIMEOUT_SECONDS = 40.0  # battle decisions have a 300 s clock; leave room for the fallback
 DEFAULT_FALLBACK_TIMEOUT_SECONDS = 12.0
 DEFAULT_EFFORT = "low"  # thinking is always on for Fable 5.1; effort controls how long it thinks
-DEFAULT_MAX_TOKENS = 4000  # thinking counts toward output; 2000 was cut off once in self-play
+DEFAULT_MAX_TOKENS = 4000
+HARD_TIMEOUT_GRACE_SECONDS = 5.0  # wall-clock guard on top of the SDK's own timeout  # thinking counts toward output; 2000 was cut off once in self-play
 
 
 class AnthropicProvider:
@@ -72,6 +74,23 @@ class AnthropicProvider:
     def __repr__(self) -> str:
         return f"AnthropicProvider(model={self.model!r}, timeout={self.timeout}, effort={self.effort!r})"
 
+    def _call_with_deadline(self, request: dict):
+        """Run the SDK call in a worker thread and give up at timeout + grace.
+
+        The SDK has its own timeout, but a socket that stops answering mid-read has been seen
+        to hang far past it. The game clock does not care why. If the worker has not returned
+        by the deadline we raise APITimeoutError and the caller falls back; the worker thread
+        is left to finish or die on its own.
+        """
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="anthropic-call")
+        future = executor.submit(self._client.messages.create, **request)
+        try:
+            return future.result(timeout=self.timeout + HARD_TIMEOUT_GRACE_SECONDS)
+        except concurrent.futures.TimeoutError:
+            raise anthropic.APITimeoutError(request=None) from None  # type: ignore[arg-type]
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
     def complete_structured(self, messages: list[dict], schema_name: str, schema: dict) -> dict:
         system_text = "\n\n".join(str(m.get("content", "")) for m in messages if m.get("role") == "system")
         chat = [m for m in messages if m.get("role") != "system"]
@@ -91,7 +110,7 @@ class AnthropicProvider:
 
         started = time.monotonic()
         try:
-            response = self._client.messages.create(**request)
+            response = self._call_with_deadline(request)
         except anthropic.APITimeoutError:
             raise ProviderError(f"{self.model}: timed out after {self.timeout:.0f}s") from None
         except anthropic.RateLimitError:
