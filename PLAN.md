@@ -53,7 +53,7 @@ Your entire job is one file, `agent/agent.py`, exposing one function: `create_ag
 - `choose_message` exists for chat games. Pokémon has messaging disabled, so **we do not implement it**.
 - If `choose_action` raises or returns something illegal, the runtime raises `DecisionError` and that
   match's process exits (it is retried after a cooldown, and the server auto-plays a random move for
-  you after 300 s). Our design makes this unreachable: every return value passes the validators in
+  you when the clock runs out). Our design makes this unreachable: every return value passes the validators in
   `examples/llm/pokemon.py` before it leaves our code.
 
 ---
@@ -63,7 +63,7 @@ Your entire job is one file, `agent/agent.py`, exposing one function: `create_ag
 | Topic | Fact | Consequence |
 |---|---|---|
 | Draft clock | **15 s per pick**, measured from when it becomes your turn and *including* any model call. Timeout = server picks a random card; late picks are rejected `STALE_STATE`. | **Draft is pure code.** No LLM call in the draft, ever. Fable 5.1 always thinks and can take 5–20 s. |
-| Battle clock | **300 s** per Team Preview or turn decision; timeout = random legal move. | LLM is fine here. Hard client timeout 40 s on Fable, 12 s on Sonnet, then code. |
+| Battle clock | ~~300 s~~ **Corrected Oct 7 (upstream GAMES.md):** Showdown's VGC timer. **90 s** Team Preview, **55 s** per battle decision, **420 s total bank** per battle; an empty bank is a forfeit. | Model chain capped at 18 s primary + 8 s fallback (+2 s grace each), worst case 30 s; a retry/recheck is only made if under 10 s have passed, so no decision exceeds ~40 s. Median Opus call is ~3 s. |
 | Draft info | Pool cards are **complete sets**: species, item, ability, nature, EVs, 4 moves. `rosters` and `picks` are public to both players. | We know the opponent's **exact** 6 builds before the battle starts. Most LLM-only agents only use what the battle "reveals". This is our biggest edge: store every drafted card in match memory. |
 | Item Clause | Your six must hold six different items; clashing cards are simply not offered. | Nothing to enforce; `legal_actions` already filters. |
 | Team Preview | You see both full rosters with `types` and `base_stats`; bring 4, lead 2. | Lineup is chosen against the opponent's known 6 (and their known moves from the draft). |
@@ -82,7 +82,7 @@ Your entire job is one file, `agent/agent.py`, exposing one function: `create_ag
 
 Short record of why that is also the right call:
 - Pokémon's draft and battle have **perfect information about builds** and well-defined math, so code can carry most of the weight and the LLM adds judgment on top. Werewolf's edge was almost entirely prompting, under a 120 s shared chat window with 7 agents.
-- Pokémon's 300 s turn clock is forgiving of a slow, careful model. Only the 15 s draft is tight, and code handles it.
+- Pokémon's 55 s turn clock (420 s bank) still leaves room for a low-effort model call (median ~3 s, p95 ~8 s). The 15 s draft is pure code.
 - Pokémon has the bigger, deeper bracket (6 Swiss rounds + top 32 best-of-3), so a consistent agent gets rewarded.
 
 ---
@@ -100,7 +100,7 @@ altruagent-starter/
       log.py              # DecisionLog: one JSON line per decision -> logs/<session_id>.jsonl
       data.py             # TYPE_CHART (18x18), species/move lookups from data/*.json
       draft.py            # PURE CODE: score_pool(...) -> best card_id in < 50 ms
-      lineup.py           # code shortlist of lineups + one LLM pick (300 s clock)
+      lineup.py           # code shortlist of lineups + one LLM pick (90 s clock)
       battle.py           # code: damage/speed/threat table + candidate ranking; LLM picks; validated
       prompts.py          # system prompt + the JSON schemas the model must answer in
     arena.py              # self-play helper: picks agent version by seat (see §6)
@@ -133,10 +133,10 @@ Score every offered card with `score_pool(card, my_roster, opp_roster, picks_lef
 - a deterministic tiebreak so the same pool always drafts the same way (reproducible tests).
 Store the **full card** of every pick, ours and theirs, in `MatchMemory`.
 
-**Team Preview (code shortlist, LLM chooses, 300 s)**
+**Team Preview (code shortlist, LLM chooses, 90 s)**
 Code enumerates the 15 four-Pokémon subsets, scores each against the opponent's 6 (coverage, speed, known threats from their drafted moves), proposes leads (fastest/Fake Out/weather setter pairs), and keeps the top 3. The LLM sees the 3 options with the computed numbers and the opponent's exact sets, and picks one. Answer goes through `lineup_choice.build()`. Timeout or error -> code's #1.
 
-**Battle turn (code computes, LLM judges, 300 s)**
+**Battle turn (code computes, LLM judges, 55 s from a 420 s bank)**
 Code builds a compact **turn sheet** every turn:
 - speed order of the 4 active Pokémon (base stats + known EVs/nature, boosts, Tailwind/Trick Room/paralysis);
 - for each of our legal moves vs each target: type multiplier, STAB, rough damage as a % of the target's current HP (Gen 9 formula, level 50, using the opponent's known EVs/nature/item from the draft);
@@ -412,6 +412,37 @@ model can see a trade before it makes one. Regression test added.
 **Effort sweep (Oct 7, all 18 scenarios, Opus, recheck on):** low 18/18, median 3.2 s, p95 8.1 s; medium 17/18, median 7.8 s,
 p95 14.3 s (it missed `intimidate_the_dancer`). The recheck fired 4 times at low and 2 at medium. More thinking bought nothing here
 and doubled latency, so **effort stays low**; the recheck is doing the work the extra thinking was supposed to do.
+
+### 5h. Oct 7 afternoon: upstream merge, the real battle clock, reliability drills, readiness
+
+**Upstream merged** (`git merge upstream/main`, one trivial conflict in the placeholder docstring of `agent/agent.py`,
+ours kept): PR #5 (`--match` plays Testing seats, `--tournament` plays tournament games, `--claim` is gone) and PR #7
+(runtime resilience: retries inside a game, 40 s MCP timeouts, a hiccup never becomes a no-show). One upstream test
+(`test_realtime.py::...red_alert...`) asserts the *placeholder* agent's message; skipped in the fork with a reason. 845 pass, 1 skipped.
+
+**Clock correction.** Upstream GAMES.md now states the battle runs **Showdown's VGC timer: 90 s Team Preview, 55 s per
+battle decision, 420 s total bank per player per battle**; an empty bank is a forfeit. §2 had 300 s. Changes:
+`DEFAULT_TIMEOUT_SECONDS` 40 -> 18, `DEFAULT_FALLBACK_TIMEOUT_SECONDS` 12 -> 8, grace 5 -> 2 (chain worst case 30 s);
+`_ask` makes a second model call (retry on an invalid answer, or the lethal recheck) only while under
+`SECOND_CALL_CUTOFF_SECONDS` = 10 s have passed, else the first valid answer stands / the computed move plays (2 tests).
+Worst-case decision ~40 s; measured median 3.1 s, p95 ~8 s. Bank math: 12 turns x 5 s = 60 s of a 420 s bank.
+
+**Reliability drills (§5.4), all passed, no credits used:**
+- A. Bogus model names (`AGENT_MODEL=claude-bogus-model AGENT_FALLBACK_MODEL=...`): both failed (the 400 was the credit
+  error, which arrives before the model-name check), code move in 823 ms / 484 ms, CREDITS EXHAUSTED banner printed.
+- B. Unreachable API (`ANTHROPIC_BASE_URL=http://127.0.0.1:9`): "connection failed" on both models, code move in 17 ms / 1 ms.
+- C. Restart mid-battle: new `sim/harness.py` spec `code@restart3` throws the agent away at battle turn 3 and builds a fresh
+  one with no draft/preview memory (what the runtime does when a game process dies). 6 games, 0 rejected choices, 3-3 vs code.
+  The drill against the real runtime (kill the process, let it resume the seat) still needs the Official Agent Key.
+
+**Readiness, honest (asked by James after $150 of credits):** engine ~8/10, tournament entry ~5/10. Done and proven: legal
+play end to end in the sim, 845 tests, validators on every payload, fallback chain under real failure (twice), damage
+model within 4% of @smogon/calc, draft < 50 ms, code 97% vs random / 85% vs smoke, 19/19 scenarios, Opus+code 18-12 vs code
+(60%, not statistically settled). Not done, by risk: (1) never connected to the real platform; observation format, card pool
+and field names are from docs + the example code; blocked on the sign-up link / Official Agent Key; (2) the 42-card pool is
+our guess; (3) real-runtime restart drill; (4) cold-boot dry run of `run_tournament.sh`; (5) registration. Credit plan:
+stop running 30-game Opus series (they measure, they don't improve; ~$0.15-0.20 per decision); hold ~$40 for real platform
+test matches once the key arrives plus ~$15-25 for tournament day.
 
 ## 6. Milestones (Oct 6 → Oct 13)
 

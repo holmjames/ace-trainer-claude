@@ -93,7 +93,35 @@ class RandomPlayer:
         return smoke_agent.choose_action(state, context)
 
 
+class RestartingPlayer:
+    """Reliability drill: ``<spec>@restartN`` throws the agent away at battle turn N and builds a fresh one from
+    ``create_agent()``, the way the runtime does when a game's process dies and is started again. The fresh agent has
+    no draft or Team Preview memory and must recover everything from the battle observation."""
+
+    def __init__(self, spec: str, restart_turn: int, rng: random.Random):
+        self.spec, self.restart_turn, self.rng = spec, restart_turn, rng
+        self.inner, self.name = make_player(spec, rng)
+        self.restarted = False
+
+    @property
+    def _version(self):
+        return getattr(self.inner, "_version", self.name)
+
+    def choose_action(self, state, context):
+        from agent.pokemon.memory import observation_dict
+
+        obs = observation_dict(state)
+        if not self.restarted and obs.get("phase") == "moving" and int(obs.get("turn") or 0) >= self.restart_turn:
+            self.inner, _ = make_player(self.spec, self.rng)
+            self.restarted = True
+            print(f"   [restart drill] fresh agent at turn {obs.get('turn')} (no draft/preview memory)", file=sys.stderr, flush=True)
+        return self.inner.choose_action(state, context)
+
+
 def make_player(spec: str, rng: random.Random):
+    if "@restart" in spec:
+        base, _, n = spec.partition("@restart")
+        return RestartingPlayer(base, int(n), rng), f"{base}@restart{n}"
     if spec == "random":
         return RandomPlayer(rng), "random"
     if spec == "human":

@@ -8,11 +8,10 @@ only then builds the real agent for that seat:
 
     AGENT_SEAT0=agent.agent            # champion plays seat 0
     AGENT_SEAT1=agent.versions.v2      # challenger plays seat 1
-    python -m agent --claim <token for seat 0> --agent agent.arena
-    python -m agent --claim <token for seat 1> --agent agent.arena
+    python -m agent --match --agent agent.arena   # one runtime plays both seats of your test match
 
-(With one process per seat today, you could also pass ``--agent`` directly;
-the arena matters once ``--match`` plays every seat from a single runtime.)
+(Upstream PR #5, merged Oct 7 2026: ``--match`` plays every Testing seat you hold from a
+single runtime; the old ``--claim <token>`` per-seat flow is gone.)
 
 Each decision log line carries the version label, so ``scripts/tally.py`` can
 report per-version win rates, latency and fallbacks. Swap the seats between

@@ -393,3 +393,40 @@ def test_our_own_final_pick_is_a_full_card_at_team_preview(tmp_path):
         memory.pool_cards[c["card_id"]] = c
     memory.observe_team_preview({"your_roster": [{"species": "dragapult", "types": ["DRAGON", "GHOST"]}], "opponent_roster": [{"species": "pikachu"}]})
     assert memory.my_cards["dragapult"]["item"] == "Choice Band" and memory.opp_cards["pikachu"]["moves"] == cards[2]["moves"]
+
+
+def test_ask_skips_the_recheck_when_the_clock_is_short(tmp_path, monkeypatch):
+    """Showdown gives 55 s per decision: a recheck past the cutoff is skipped and the first valid answer stands."""
+    import agent.agent as agent_mod
+    from examples.llm.base import Choice
+
+    monkeypatch.setattr(agent_mod, "SECOND_CALL_CUTOFF_SECONDS", -1.0)  # any elapsed time is "too late"
+    first = {"slot_0": {"option": 0, "target": 2}, "reasoning_summary": "attack"}
+    provider = FakeProvider(first, {"slot_0": {"option": 1, "target": 0}, "reasoning_summary": "protect"})
+    agent = _agent(provider, tmp_path)
+    choice = Choice(kind="doubles_turn", prompt={}, schema={"type": "object"}, build=lambda answer: dict(answer), fallback=lambda: {"fallback": True})
+
+    value, answer, info = agent._ask(choice, {"decision": "doubles_turn"}, kind="turn", recheck=lambda v: "Recheck: slot 0 is LETHAL.")
+
+    assert value == first and len(provider.calls) == 1 and info["attempts"] == 1
+    assert "recheck" not in info and info["recheck_skipped"].startswith("no time left")
+
+
+def test_ask_plays_the_computed_move_instead_of_a_late_retry(tmp_path, monkeypatch):
+    import agent.agent as agent_mod
+    from examples.llm.base import Choice, InvalidChoice
+
+    monkeypatch.setattr(agent_mod, "SECOND_CALL_CUTOFF_SECONDS", -1.0)
+    provider = FakeProvider({"slot_0": {"option": 9}}, {"slot_0": {"option": 0}})
+    agent = _agent(provider, tmp_path)
+
+    def build(answer):
+        if answer["slot_0"]["option"] == 9:
+            raise InvalidChoice("option 9 does not exist")
+        return dict(answer)
+
+    choice = Choice(kind="doubles_turn", prompt={}, schema={"type": "object"}, build=build, fallback=lambda: {"fallback": True})
+    value, answer, info = agent._ask(choice, {"decision": "doubles_turn"}, kind="turn")
+
+    assert value == {"fallback": True} and answer is None and info["fallback"] is True
+    assert len(provider.calls) == 1 and any("no time left" in e for e in info["errors"])

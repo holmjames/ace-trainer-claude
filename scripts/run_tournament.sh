@@ -3,7 +3,7 @@
 # ever exits, and tees everything to a timestamped log in logs/ for the results tally.
 #
 #   ./scripts/run_tournament.sh              # tournament games only (what we want on Oct 16)
-#   ./scripts/run_tournament.sh --match      # also play Testing matches (after upstream PR #5 lands)
+#   ./scripts/run_tournament.sh --match      # also play Testing matches (upstream PR #5 merged Oct 7)
 #
 # Stop with Ctrl+C (twice if the runtime is mid-restart).
 set -u

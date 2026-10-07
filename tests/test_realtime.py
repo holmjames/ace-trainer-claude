@@ -237,6 +237,7 @@ def test_other_agent_errors_in_a_real_time_game_keep_the_usual_message():
         run_game(game, RED_ALERT, broken, sleep=lambda s: None)
 
 
+@pytest.mark.skip(reason="fork: agent/agent.py is the Pokémon agent, not the upstream placeholder; we never register for Red Alert")
 def test_the_real_placeholder_module_in_red_alert_says_plainly_it_cant_play_it():
     from agent.agent import create_agent
 

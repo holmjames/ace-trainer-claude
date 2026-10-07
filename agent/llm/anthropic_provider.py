@@ -35,11 +35,11 @@ from examples.llm.providers import LLMProvider, ProviderError
 
 DEFAULT_MODEL = "claude-opus-5-5"  # chosen Oct 6 by self-play: not worse than Fable 5.1 over 40 games, half the p95 latency; Fable stays one .env line away
 DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
-DEFAULT_TIMEOUT_SECONDS = 40.0  # battle decisions have a 300 s clock; leave room for the fallback
-DEFAULT_FALLBACK_TIMEOUT_SECONDS = 12.0
+DEFAULT_TIMEOUT_SECONDS = 18.0  # Showdown VGC timer: 55 s per battle decision, 420 s bank; p95 Opus latency is ~8 s at low effort
+DEFAULT_FALLBACK_TIMEOUT_SECONDS = 8.0  # whole chain worst case: 18+2 + 8+2 = 30 s
 DEFAULT_EFFORT = "low"  # thinking is always on for Fable 5.1; effort controls how long it thinks
 DEFAULT_MAX_TOKENS = 4000
-HARD_TIMEOUT_GRACE_SECONDS = 5.0  # wall-clock guard on top of the SDK's own timeout  # thinking counts toward output; 2000 was cut off once in self-play
+HARD_TIMEOUT_GRACE_SECONDS = 2.0  # wall-clock guard on top of the SDK's own timeout  # thinking counts toward output; 2000 was cut off once in self-play
 
 
 _SECRET = re.compile(r"(sk-ant-|eak_live_|wrkspc_)[A-Za-z0-9_\-]+")

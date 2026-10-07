@@ -51,6 +51,7 @@ from agent.pokemon.tuning import DEFAULTS
 
 VERSION = os.environ.get("AGENT_VERSION") or "m3"
 MAX_ATTEMPTS = 2  # first answer + one retry carrying the validation error
+SECOND_CALL_CUTOFF_SECONDS = 10.0  # a retry/recheck after this many seconds could push a decision past Showdown's 55 s clock
 OBSERVATION_CHAR_LIMIT = 12_000
 REASONING_CHAR_LIMIT = 280
 
@@ -255,8 +256,12 @@ class PokemonAgent:
     def _ask(self, choice: Choice, payload: dict, *, kind: str, recheck: Any = None) -> tuple[Any, dict | None, dict]:
         """Ask the model, retry once on an invalid answer, fall back to the computed move if it still fails.
         ``recheck(value)`` may return a message for a valid-but-suspicious first answer (e.g. attacking with a slot the
-        sheet marks LETHAL); the model is then asked once more with that message and its second answer stands."""
+        sheet marks LETHAL); the model is then asked once more with that message and its second answer stands.
+        Clock: Showdown gives 55 s per battle decision from a 420 s bank, so a second model call (retry or recheck) is
+        only made while fewer than SECOND_CALL_CUTOFF_SECONDS have passed; past that the first valid answer stands or
+        the computed move is played."""
         info: dict[str, Any] = {"model": None, "latency_ms": None, "attempts": 0, "errors": [], "fallback": False}
+        started = time.monotonic()
         if self._provider is None:
             info["errors"].append("no provider configured (code-only mode)")
             info["fallback"] = True
@@ -284,11 +289,17 @@ class PokemonAgent:
                 value = choice.build(answer)
             except InvalidChoice as exc:
                 info["errors"].append(f"invalid answer: {exc}")
+                if time.monotonic() - started > SECOND_CALL_CUTOFF_SECONDS:
+                    info["errors"].append("no time left for a second model call; playing the computed move")
+                    break
                 messages.append({"role": "assistant", "content": json.dumps(answer, default=str)})
                 messages.append({"role": "user", "content": f"That answer was invalid: {exc}. Answer again using only the given options."})
                 continue
             if recheck is not None and attempt == 1:
                 message = recheck(value)
+                if message and time.monotonic() - started > SECOND_CALL_CUTOFF_SECONDS:
+                    info["recheck_skipped"] = "no time left for a second model call; first answer stands"
+                    message = None
                 if message:
                     info["recheck"] = message
                     messages.append({"role": "assistant", "content": json.dumps(answer, default=str)})
