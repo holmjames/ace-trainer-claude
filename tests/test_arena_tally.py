@@ -90,3 +90,17 @@ def test_tally_handles_an_empty_directory(tmp_path, capsys):
     tally = _load_tally()
     assert tally.main(["--logs", str(tmp_path)]) == 0
     assert "no decision logs" in capsys.readouterr().out
+
+
+def test_code_only_version_builds_fast_and_plays_without_a_model(monkeypatch, tmp_path):
+    import time
+
+    from agent.versions import code_only
+
+    monkeypatch.setenv("AGENT_LOG_DIR", str(tmp_path))
+    started = time.perf_counter()
+    agent = code_only.create_agent()
+    assert time.perf_counter() - started < 2.0  # create_agent() must never eat into the 4-minute connect window
+    assert agent._provider is None and agent._version == "code-only"
+    decision = agent.choose_action(_state(), DecisionContext("s", None, "pokemon_vgc_doubles_draft", "a", seat_position=0))
+    assert decision.action.action_id == "draft_pick:c1"
