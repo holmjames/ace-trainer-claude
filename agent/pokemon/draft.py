@@ -59,6 +59,7 @@ class Profile:
     spread: bool = False
     protect: bool = False
     ability: str = ""
+    card_item: str = ""
 
     @property
     def attacks(self) -> list[dict]:
@@ -102,6 +103,7 @@ def profile(card: dict) -> Profile:
         spread=any(m.get("target") in ("allAdjacentFoes", "allAdjacent") for m in moves),
         protect="protect" in ids or "wideguard" in ids,
         ability=data.to_id(card.get("ability")),
+        card_item=data.to_id(card.get("item")),
     )
 
 

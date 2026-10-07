@@ -75,6 +75,24 @@ def score_four(four: list[Profile], theirs: list[Profile], params: dict | None =
             score += P["lineup_speed_w"] * faster
             notes.append(f"{faster}/4 outspeed their median {median}")
 
+    # Defensive answers (item 1): for each of their two most dangerous attackers, do we bring something that
+    # resists or is immune to its strongest STAB attack? If not, that attacker runs through our four.
+    if theirs and P.get("lineup_answer_w", 0):
+        def threat_level(opp: Profile) -> float:
+            return max((hit_quality(opp, me) for me in four), default=0.0) * (1 + opp.stats.get("spe", 0) / 300.0)
+        top = sorted(theirs, key=threat_level, reverse=True)[:2]
+        unanswered = []
+        for opp in top:
+            stabs = [m for m in opp.attacks if data.to_id(m.get("type")) in opp.types] or opp.attacks
+            if not stabs:
+                continue
+            best_stab = max(stabs, key=lambda m: (m.get("base_power") or 0) * data.expected_hits(m))
+            if not any(data.effectiveness(best_stab.get("type") or "", me.types) <= 0.5 for me in four if me.types):
+                unanswered.append(opp.species)
+        if unanswered:
+            score -= P["lineup_answer_w"] * len(unanswered)
+            notes.append(f"no resist/immunity for {unanswered}")
+
     # Roles.
     moves_all = [_moves(p) for p in four]
     if any(mv & SPEED_CONTROL for mv in moves_all):
@@ -148,6 +166,18 @@ def pick_leads(four: list[Profile], theirs: list[Profile], params: dict | None =
                         s -= P["lead_spread_penalty"]
                 if "fakeout" in {m["id"] for m in opp.moves}:
                     s -= 0.5  # their Fake Out costs us tempo on turn 1
+                if P.get("lead_priority_multihit_w", 0):
+                    # A priority move or a multi-hit (sash-breaking) move that is super-effective into one of our leads
+                    # is the classic turn-1 disaster; Focus Sash does not help against multi-hit.
+                    for move in opp.attacks:
+                        prio = (move.get("priority") or 0) > 0
+                        multi = data.expected_hits(move) > 1
+                        if not (prio or multi):
+                            continue
+                        for lead in (a, b):
+                            mult = data.effectiveness(move.get("type") or "", lead.types)
+                            if mult >= 2 or (multi and data.to_id(lead.card_item) == "focussash"):
+                                s -= P["lead_priority_multihit_w"]
             s += sum(max(hit_quality(p, opp) for p in (a, b)) for opp in theirs) / len(theirs)
             # Our leads should threaten their likely leads back: reward a lead pair that outspeeds and hits hard.
             fastest_opp = max((o.stats.get("spe", 0) for o in theirs), default=0)

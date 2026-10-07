@@ -36,7 +36,9 @@ DEFAULTS: dict[str, float] = {
     "lead_se_penalty": 0.8,        # per 2x known move into a lead
     "lead_quad_penalty": 3.0,      # per 4x known move into a lead
     "lead_spread_penalty": 3.0,    # a known spread move that is 2x into both leads
-    "lineup_predict_opp": 0.0,     # 1 = score against the opponent's PREDICTED four (and leads), weighted by this
+    "lineup_predict_opp": 0.0,
+    "lineup_answer_w": 0.0,        # item 1: penalty per top-2 opposing attacker we bring no resist/immunity for (0 = off)
+    "lead_priority_multihit_w": 0.0,  # item 1: penalty per lead that a likely opposing lead can KO with priority or multi-hit (0 = off)     # 1 = score against the opponent's PREDICTED four (and leads), weighted by this
     # battle
     "ko_bonus_guaranteed": 25.0,
     "ko_bonus_possible": 10.0,
