@@ -324,7 +324,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
             threat["note"] = "has Fake Out (only works on its first turn out)"
         sheet.threats.append(threat)
 
-    sheet.candidates = rank_candidates(slots, ours, theirs, sheet, fresh=set(memory.fresh_active))
+    sheet.candidates = rank_candidates(slots, ours, theirs, sheet, fresh=set(memory.fresh_active), memory=memory)
     return sheet
 
 
@@ -437,8 +437,33 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
     return factor
 
 
+def switch_value(species: str, theirs: dict[int, "Mon"], memory: "MatchMemory") -> float:
+    """How good a bench Pokémon is to bring in against their current actives (offense + resists)."""
+    from .draft import defense_vs, hit_quality, profile  # local import: draft imports nothing from here
+
+    card = memory.my_cards.get(species_key(species)) or {"species": species}
+    me = profile(card)
+    foes = [profile(memory.opp_cards.get(species_key(opp.species)) or {"species": opp.species}) for opp in theirs.values()]
+    if not foes:
+        return me.bst / 100.0
+    offense = sum(hit_quality(me, foe) for foe in foes) / len(foes)
+    return 10 * offense + 5 * defense_vs(me, foes) + me.bst / 200.0
+
+
+def best_switch(slot: dict, theirs: dict[int, "Mon"], memory: "MatchMemory", *, exclude: str | None = None) -> tuple[int | None, str | None]:
+    """(option index, species) of the best switch option in this slot, skipping ``exclude``."""
+    best: tuple[int | None, str | None, float] = (None, None, float("-inf"))
+    for index, option in enumerate(slot.get("options") or []):
+        if option.get("type") != "switch" or option.get("species") == exclude:
+            continue
+        value = switch_value(option["species"], theirs, memory)
+        if value > best[2]:
+            best = (index, option["species"], value)
+    return best[0], best[1]
+
+
 def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int, "Mon"], sheet: TurnSheet,
-                    fresh: set[str] | None = None) -> list[dict]:
+                    fresh: set[str] | None = None, memory: "MatchMemory | None" = None) -> list[dict]:
     """A few complete turns worth considering, best first. Each is {name, slot_0, slot_1, why, score}."""
     by_slot = {e["slot"]: e for e in sheet.our_options}
     fresh = fresh or set()
@@ -494,6 +519,31 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         return choice
 
     best = {n: best_action(n) for n in (0, 1)}
+
+    # 0. Forced switches (a Pokémon fainted): bring in the best matchup; the other slot keeps its best action or passes.
+    forced = [n for n in (0, 1) if (slot_template(n) or {}).get("force_switch")]
+    if forced and memory is not None:
+        answers: dict[int, dict] = {}
+        used: str | None = None
+        for n in forced:
+            idx, species = best_switch(slot_template(n), theirs, memory, exclude=used)
+            if idx is None:
+                pass_idx = _option_index(slot_template(n), "pass")
+                answers[n] = {"option": pass_idx, "target": 0} if pass_idx is not None else None
+            else:
+                answers[n] = {"option": idx, "target": 0}
+                used = species
+        for n in (0, 1):
+            if n in answers:
+                continue
+            slot = slot_template(n)
+            pass_idx = _option_index(slot, "pass")
+            if best[n][0] is not None and best[n][1] is not None and pass_idx is None:
+                answers[n] = slot_answer(best[n][0]["option"], best[n][1]["target"])
+            elif pass_idx is not None:
+                answers[n] = {"option": pass_idx, "target": 0}
+        if all(answers.get(n) for n in (0, 1)):
+            add("forced_switch", answers[0], answers[1], f"replace fainted slot(s) {forced} with the best matchup", 1000)
 
     # Spell out every KO threat that moves before the slot it targets (priority ignores speed and Tailwind).
     for threat in sheet.threats:
@@ -558,7 +608,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
                     best[other][2] + bonus)
             elif slot and best[other][0]:
-                switch = _option_index(slot, "switch")
+                switch = best_switch(slot, theirs, memory)[0] if memory is not None else _option_index(slot, "switch")
                 if switch is not None:
                     answers = {endangered: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
                     add("switch_threatened", answers[0], answers[1],
@@ -606,7 +656,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
     for number in (0, 1):
         slot = slot_template(number)
         if slot and (best[number][0] is None or best[number][2] < 20):
-            switch = _option_index(slot, "switch")
+            switch = best_switch(slot, theirs, memory)[0] if memory is not None else _option_index(slot, "switch")
             other = 1 - number
             if switch is not None and best[other][0]:
                 answers = {number: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}

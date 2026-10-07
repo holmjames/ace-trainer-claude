@@ -101,6 +101,14 @@ def make_player(spec: str, rng: random.Random):
     elif spec == "fable":
         spec = "agent.agent"
     agent = load_agent_factory(spec)()
+    if not hasattr(agent, "choose_action"):  # a bare decision function (e.g. examples.smoke_agent)
+        fn = agent
+
+        class _Fn:
+            def choose_action(self, state, context):
+                return fn(state, context)
+
+        agent = _Fn()
     return agent, spec
 
 

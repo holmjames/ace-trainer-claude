@@ -105,13 +105,15 @@ def battle_state(session_id: str, snap: dict, side: str, version: int) -> GameSt
     force = request.get("forceSwitch") or [False, False]
     active_reqs = request.get("active") or []
 
+    reserves = [m for m in mine["pokemon"] if not m["active"] and not m["fainted"]]
+    short_handed = sum(1 for f in force if f) > len(reserves)  # e.g. both fainted, one reserve: one switches, one passes
     slots = []
     for slot in range(2):
         mon = by_pos.get(slot)
         options: list[dict] = []
         if force[slot]:
             options += _switch_options(mine, slot)
-            if not options:
+            if not options or short_handed:
                 options.append({"type": "pass"})
         elif any(force):
             options.append({"type": "pass"})  # the other slot is replacing a fainted Pokémon
@@ -129,6 +131,7 @@ def battle_state(session_id: str, snap: dict, side: str, version: int) -> GameSt
                       "force_switch": bool(force[slot]), "options": options})
 
     template = {"type": "doubles_turn", "slots": slots, "instructions": "Pick one option per slot.",
+                **({"notice": "Fewer reserves than fainted slots: send switch for exactly one slot and pass for the other."} if short_handed else {}),
                 "target_legend": {"1": "opponent position A", "2": "opponent position B", "-1": "your position A (slot 0)",
                                   "-2": "your position B (slot 1)", "0": "no target"}}
     team = {f"{side}: {m['name']}": _mon_summary(m, full=True) for m in mine["pokemon"]}

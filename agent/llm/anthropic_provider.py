@@ -36,7 +36,7 @@ DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
 DEFAULT_TIMEOUT_SECONDS = 40.0  # battle decisions have a 300 s clock; leave room for the fallback
 DEFAULT_FALLBACK_TIMEOUT_SECONDS = 12.0
 DEFAULT_EFFORT = "low"  # thinking is always on for Fable 5.1; effort controls how long it thinks
-DEFAULT_MAX_TOKENS = 2000
+DEFAULT_MAX_TOKENS = 4000  # thinking counts toward output; 2000 was cut off once in self-play
 
 
 class AnthropicProvider:
