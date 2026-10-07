@@ -231,6 +231,22 @@ defaults are not badly mis-set anywhere. Four knobs moved consistently in one di
 
 **Hardening from the simulator (Oct 6 night):** a Fable call once hung for 18+ minutes with the socket open despite the SDK's 40 s timeout. Every model call now runs under a hard wall-clock deadline (timeout + 5 s) in a worker thread; past it, the agent treats the call as failed and falls back. The 300 s turn clock can no longer be eaten by a stuck connection.
 
+## 5d. Which model should judge? (Oct 6 night, local self-play)
+
+Same agent, same code brain, same prompts; only the judging model differs (`agent/versions/model_variant.py`). Ten games each,
+seats alternating:
+
+| Judge vs Fable 5.1 | Result | Latency p50 / p95 | Price |
+|---|---|---|---|
+| Opus 5.5 | **7-3** | 3.4 s / 8.4 s | $4 / $20 per MTok |
+| Sonnet 5.5 | 5-5 | 1.9 s / 5.5 s | $2 / $10 per MTok |
+| (Fable 5.1 itself) | — | 4.3 s / 20 s | $10 / $50 per MTok |
+
+Reading: at ten games (±30 points) there is no evidence Fable judges better than Opus here, and some the other way. Once the code
+hands the model a turn sheet, the models converge; the remaining differences are cost and latency. A 30-game Opus-vs-Fable series
+is running to settle it (±17 points). Decision rule: if Opus is not clearly worse at 30 games, Opus 5.5 becomes the primary judge
+(a quarter of the cost, half the p95 latency) with Fable kept one `.env` line away.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |

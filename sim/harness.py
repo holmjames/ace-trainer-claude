@@ -200,6 +200,7 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
         winner_side = "p1" if snap["winner"] == names["p1"] else "p2"
     return {"game": game_id, "turns": snap["turn"], "winner_side": winner_side, "winner": names.get(winner_side) if winner_side else None,
             "first_drafter": first, "rejected": rejected,
+            "versions": {s: getattr(players[s], "_version", getattr(players[s], "name", names[s])) for s in ("p1", "p2")},
             "teams": {s: [c["species"] for c in lineups[s]] for s in ("p1", "p2")},
             "rosters": {s: [c["species"] for c in rosters[s]] for s in ("p1", "p2")}}
 
