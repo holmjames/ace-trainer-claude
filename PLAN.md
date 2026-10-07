@@ -211,7 +211,7 @@ between any two agent specs with seat swapping and writes decision logs to `logs
 | code brain vs random | 60 | 88% |
 | code brain vs smoke (first legal option) | 60 | 78% |
 | code brain mirror | 200 | 54/46 (no first-drafter or seat bias: 48% / 46%) |
-| **Fable 5.1 (full agent) vs code brain** | 34 | **76% (26-8)**; the 20-game series after the lineup fix went 16-4 |
+| **Fable 5.1 (full agent) vs code brain** | 44 | **82% (36-8)**; the 20-game series after the lineup fix went 16-4; the 10-game series against the *tuned* code brain, with the hard deadline in place, went **10-0** (no fallbacks, no slow decisions, ~48 s per game) |
 | code brain vs random-draft ablation | 200 | 68% (the draft scorer is worth ~18 points) |
 | code brain vs naive-battle ablation | 200 | 70% (the turn sheet + ranking is worth ~20 points) |
 
