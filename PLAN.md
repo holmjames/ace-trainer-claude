@@ -221,6 +221,15 @@ that hit the 2,000-token output cap (now 4,000). Every engine choice our agent p
 Use it for: heuristic tuning by win rate (hundreds of free games per experiment), Fable-vs-code validation, and reviewing
 Fable's losses turn by turn against the code's top candidate.
 
+## 5c. Heuristic tuning by self-play (Oct 6 night)
+
+`agent/pokemon/tuning.py` holds ~30 weights with defaults; each agent carries its own copy, and `sim/sweep.py` plays
+variants against the baseline. First sweep: every knob at 0.5x and 1.5x, 300 games each (58 variants, 17,400 games,
+~15 min). **Result: everything landed within ±6 points of 50%**, i.e. at the noise floor for 300 games, so the current
+defaults are not badly mis-set anywhere. Four knobs moved consistently in one direction at both ends (lower
+`draft_support_cap`, higher `switch_weak_bonus`, lower `ally_damage_w`, higher `fakeout_base`) and are being confirmed at
+1,000 games each before any default changes. Rule: adopt a change only when its 95% interval clears 50% at 1,000 games.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
