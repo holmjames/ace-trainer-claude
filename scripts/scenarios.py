@@ -192,8 +192,9 @@ HARD: list[Scenario] = [
         "deny_trick_room", "Farigiraf (Armor Tail: no Fake Out) wants Trick Room beside Hatterene; our Incineroar + Garchomp outspeed it this turn only.",
         ("incineroar", "garchomp"), ("farigiraf", "hatterene"), hard=True,
         mine=["incineroar", "garchomp", "fluttermane", "rillaboom", "amoonguss", "whimsicott"], theirs=["farigiraf", "hatterene", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
-        accept=lambda p: move_of(p, "slot_0") != "fakeout" and all(p[s].get("type") == "move" and p[s].get("target") == 1 for s in ("slot_0", "slot_1")),
-        accept_text="Both attacks into Farigiraf to KO it before Trick Room; Fake Out is blocked by Armor Tail.",
+        accept=lambda p: move_of(p, "slot_0") not in ("fakeout", None) and p["slot_0"].get("target") == 1
+        and (p["slot_1"].get("type") == "switch" or move_of(p, "slot_1") == "protect" or (p["slot_1"].get("type") == "move" and p["slot_1"].get("target") == 1)),
+        accept_text="Incineroar attacks Farigiraf (no Fake Out: Armor Tail). Garchomp either joins in to deny Trick Room, or Protects/switches from Hatterene's 96-113% Dazzling Gleam. Both are defensible.",
     ),
     Scenario(
         "endgame_immunities", "1v1 endgame: our Specs Flutter Mane alone vs Dragonite (Extreme Speed, Scale Shot, Fire Punch). Both immune moves are irrelevant.",
