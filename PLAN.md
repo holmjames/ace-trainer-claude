@@ -383,6 +383,12 @@ and answers once more; its second answer stands either way (trades can be right)
 it: `stale_fake_out` 2/2, `sucker_punch_respect` 3/3, `break_sash_then_ko` 3/3 under the broadened rule (the recheck fired on
 3 of the 6 and flipped the answer each time). Scenario suite now 18 (10 basic + 8 hard); code-only 18/18.
 
+**Seed-501 rerun on the v2 damage model (Oct 7, before the draft-memory and warning fixes): Opus 18-12 (60%)**, 266 model
+decisions, zero fallbacks, 26 rechecks, latency median 3.1 s / p95 7.7 s. Down from 21-9 on the old numbers, but the code
+opponent received the same corrected numbers, so this measures the judge's edge over the code brain, not the fix; 30 games is
+also only ±17 points. Seven of the twelve losses had a lead fainting on turn 1 to a faster attacker the sheet either flagged as
+"RISK" at 47% or (game 17) failed to flag at all; both are fixed below. A second rerun with every fix is in progress.
+
 **Human seat (Oct 7).** `python sim/harness.py --games 1 --p1 human --p2 fable --verbose` lets James play the agent from the
 terminal: numbered draft picks with full sets, Team Preview, and per-turn options with targets; `h` on a battle turn prints the
 code brain's warnings and top candidates. Building it exposed a real bug: **the agent's own last draft pick never reached
