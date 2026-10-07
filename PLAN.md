@@ -321,6 +321,61 @@ Reading: on this rubric Fable's play reads a little richer; on results Opus is a
 tonight (24-16 vs Fable directly; 16-2 vs 11-4 on identical pools). Neither gap is statistically clean. **Decision unchanged: Opus
 judges**, with the explicit plan to re-run this comparison on the live server once credits and the dashboard are available.
 
+## 5g. What game 26 really was: the damage model was blind to abilities (Oct 7)
+
+Replaying the game both judges lost (Hatterene + Incineroar into Iron Hands + Maushold) against Smogon's calculator showed
+the turn sheet's numbers were wrong in a way the judges could not see: Maushold's Population Bomb was computed without
+**Technician** (a third too low), so the sheet never warned that it one-shots Hatterene at full HP. Twice I hand-checked a
+number, called the code wrong, and was wrong myself (forgot STAB, then forgot Technician). Rule from here: **damage is never
+hand-checked; it is checked against @smogon/calc** (now a dev dependency of `sim/`).
+
+Audit of the 42-card pool found everything the old model ignored, all knowable from the drafted sets:
+
+| Missing before | Cards it mattered for |
+|---|---|
+| Technician | Maushold (Population Bomb 20 → 30 per hit, ×10) |
+| Sword / Beads / Vessel of Ruin (−25% to everyone else's Def / SpD / SpA while on the field) | Chien-Pao, Chi-Yu, Ting-Lu |
+| Guts + burn (Atk ×1.5, no burn penalty), Facade ×2 when statused | Ursaluna (Flame Orb) |
+| Booster Energy / Protosynthesis / Quark Drive (highest stat ×1.3, speed ×1.5) | Iron Bundle, Raging Bolt, Flutter Mane in sun, Iron Hands in Electric Terrain, Gouging Fire |
+| Hadron Engine / Orichalcum Pulse (SpA / Atk ×1.33 in their terrain / weather) | Miraidon, Koraidon |
+| Terrain (×1.3 same-type grounded moves; Earthquake halved in Grassy; Expanding Force 120 BP spread in Psychic; priority blocked in Psychic) | Rillaboom, Indeedee-F, Miraidon, Hatterene |
+| Reflect / Light Screen (×2/3 in doubles) | Grimmsnarl |
+| Stamina on multi-hit (every hit lands on +1 more Def) | Archaludon |
+| Body Press (uses Def), Foul Play (target's Atk), Weather Ball (type/power in weather), Eruption (HP-scaled), Heavy Slam (weight), Mind's Eye (hits Ghosts), Meteor Beam / Electro Shot (+1 SpA before the hit), Sacred Sword (ignores stages), Knock Off vs unremovable items / popped seeds, Ruination (half HP) | Zamazenta, Archaludon, Farigiraf, Pelipper, Torkoal, Iron Hands, Ursaluna-Bloodmoon, Glimmora, Lunala, Chien-Pao, Ting-Lu |
+
+All of it is in `agent/pokemon/battle.py` now (`FieldState`, `effective_move`, `damage_percent(field=...)`), read from the
+observation by `field_from_obs`. Ground truth: `scripts/gen_smogon_fixture.js` writes 1,314 calculator cases with abilities and
+field effects on; `tests/test_damage_vs_smogon_full.py` requires median error < 1% of max HP, 90th percentile < 2.5%, worst < 6%
+and one close case per mechanic. Result: **median 0.3%, p90 0.9%, worst 4.0%.**
+
+Two more things the replay showed, both fixed:
+- **Stale Fake Out.** Both judges picked Fake Out on a Pokémon's third turn out (it fails), once into Armor Tail as well. The sheet
+  now lists such options as `FAILS` / `BLOCKED` with no targets, the opponent's Fake Out note says `FRESH` only when it is live, and
+  a priming field in the scenario runner makes turn > 1 scenarios honest about who just switched in. New basic scenario
+  `stale_fake_out`.
+- **Overkill.** The code's top candidate doubled into a 30% Gyarados that Rock Slide already KOs, instead of finishing the sash
+  Whimsicott (the one hard scenario that had been failing code-only). New candidate `finish_the_other`: when one slot's attack
+  guarantees a KO, the other slot takes the remaining foe, and if the first slot's spread hit breaks that foe's sash first, the
+  second hit is recomputed against the HP that will actually be left.
+
+Also added: a real-damage lead check at Team Preview (`lead_ohko_w`, which opposing set OHKOs a lead before it moves, Intimidate
+applied), a knob around the Choice-lock re-ranking so the sweep can A/B it, and the prompt now says FAILS/BLOCKED options are
+off-limits and that the numbers include abilities, terrain and screens.
+
+After the change: tests 675 green; scenarios **18/18 code-only** (was 17/18); code vs random 94%, vs smoke 85% (93/82 before).
+Sweeps (1,000 games each vs the tuned defaults, seed 11): `lead_ohko_w=3` 50.3% ± 3.1, `lead_ohko_w=6` 50.6% ± 3.1,
+`choice_lock_rerank=0` 50.1% ± 3.1. None clears the adoption bar, so the lead check stays off (an Intimidate lead makes true
+turn-1 OHKOs rare in this pool) and the Choice-lock re-ranking stays on (it is logically right, free, and only matters with a
+Choice holder on the field).
+
+Opus on all 18 scenarios after the change: 15/18 on the first pass. Two of the three "failures" were acceptance rules written
+under the old, too-low numbers: with Sword of Ruin modelled, Kingambit's Sucker Punch and Chien-Pao's Icicle Crash are both lethal
+to Flutter Mane in `break_sash_then_ko`, so pivoting it out is right, and in `sucker_punch_respect` switching the Sucker Punch target
+out (the move fails against a switching target) is as good as Protect. Both rules were broadened. The third, `stale_fake_out`, was
+a real lesson: the sheet called an 85-101% hit (a 4% KO chance) LETHAL and Opus burned a second Protect in a row on it. Warnings are
+now graded: LETHAL only when guaranteed or at least a coin flip, otherwise RISK with the KO chance spelled out, and every
+"possible" threat row carries its `ko_chance_pct`.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |

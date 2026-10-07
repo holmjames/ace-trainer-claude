@@ -42,6 +42,7 @@ DEFAULTS: dict[str, float] = {
     "lineup_predict_opp": 0.0,
     "lineup_answer_w": 0.0,        # item 1: penalty per top-2 opposing attacker we bring no resist/immunity for (0 = off)
     "lead_priority_multihit_w": 0.0,  # item 1: penalty per lead that a likely opposing lead can KO with priority or multi-hit (0 = off)     # 1 = score against the opponent's PREDICTED four (and leads), weighted by this
+    "lead_ohko_w": 0.0,            # penalty per lead a faster opposing set OHKOs at full HP (real damage model, Intimidate applied); 0 = off
     # battle
     "ko_bonus_guaranteed": 25.0,
     "ko_bonus_possible": 10.0,
@@ -57,6 +58,7 @@ DEFAULTS: dict[str, float] = {
     "fakeout_setup_value": 50.0,
     "switch_weak_threshold": 20.0,
     "switch_weak_bonus": 15.0,     # (was 10)
+    "choice_lock_rerank": 1.0,     # steer a Choice holder away from locking into a move that is dead against a remaining opponent (0 = off)
 }
 
 

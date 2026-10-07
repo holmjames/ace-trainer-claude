@@ -66,6 +66,12 @@ CARDS = {
     "chienpao": card("Chien-Pao", ["Icicle Crash", "Sucker Punch", "Sacred Sword", "Protect"], ability="Sword of Ruin", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Focus Sash"),
     "farigiraf": card("Farigiraf", ["Trick Room", "Psychic", "Foul Play", "Protect"], ability="Armor Tail", nature="Quiet", evs={"hp": 252, "spa": 252}, item="Sitrus Berry"),
     "hatterene": card("Hatterene", ["Trick Room", "Dazzling Gleam", "Expanding Force", "Protect"], ability="Magic Bounce", nature="Quiet", evs={"hp": 252, "spa": 252}, item="Life Orb"),
+    "ironhands": card("Iron Hands", ["Fake Out", "Drain Punch", "Wild Charge", "Heavy Slam"], ability="Quark Drive", nature="Adamant", evs={"hp": 252, "atk": 252}, item="Assault Vest"),
+    "maushold": card("Maushold", ["Population Bomb", "Follow Me", "Beat Up", "Protect"], ability="Technician", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Wide Lens"),
+    "kommoo": card("Kommo-o", ["Clanging Scales", "Aura Sphere", "Flamethrower", "Protect"], ability="Overcoat", nature="Timid", evs={"spa": 252, "spe": 252}, item="Throat Spray"),
+    "chiyu": card("Chi-Yu", ["Heat Wave", "Dark Pulse", "Overheat", "Snarl"], ability="Beads of Ruin", nature="Timid", evs={"spa": 252, "spe": 252}, item="Choice Scarf"),
+    "arcaninehisui": card("Arcanine-Hisui", ["Rock Slide", "Flare Blitz", "Extreme Speed", "Protect"], ability="Intimidate", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Clear Amulet"),
+    "urshifu": card("Urshifu", ["Wicked Blow", "Close Combat", "Sucker Punch", "Detect"], ability="Unseen Fist", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Focus Sash"),
 }
 MINE_DEFAULT = ["rillaboom", "incineroar", "garchomp", "fluttermane", "amoonguss", "whimsicott"]
 THEIRS_DEFAULT = ["gyarados", "urshifurapidstrike", "kingambit", "pelipper", "dragonite", "gholdengo"]
@@ -93,6 +99,9 @@ class Scenario:
     their_boosts: dict[str, dict] = field(default_factory=dict)  # species -> {"atk": 1}
     slot1_fainted: bool = False  # our second slot is empty (1v2 endgame): it can only pass
     hard: bool = False
+    # Who just switched in this turn (Fake Out live). On turn 1 everyone is fresh; after that, nobody unless listed.
+    my_fresh: tuple[str, ...] = ()
+    their_fresh: tuple[str, ...] = ()
 
 
 def move_of(payload: dict, slot: str) -> str | None:
@@ -156,8 +165,8 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         "sucker_punch_respect", "Our Tailwind is up, but Kingambit's priority Sucker Punch OHKOs Flutter Mane (155 vs 130 HP). Garchomp beside it.",
         ("fluttermane", "garchomp"), ("kingambit", "urshifurapidstrike"), my_side=["Tailwind"],
-        accept=lambda p: move_of(p, "slot_0") == "protect" and move_of(p, "slot_1") in ("earthquake", "dragonclaw", "rockslide"),
-        accept_text="Flutter Mane Protects (Sucker Punch would KO it first); Garchomp attacks.",
+        accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and move_of(p, "slot_1") in ("earthquake", "dragonclaw", "rockslide"),
+        accept_text="Flutter Mane Protects or switches out (Sucker Punch would KO it first, and fails against a switching target); Garchomp attacks.",
     ),
     Scenario(
         "tailwind_up_go_aggressive", "Our Tailwind is up; Flutter Mane + Garchomp vs Gyarados + Pelipper, nothing with priority threatens a KO.",
@@ -168,13 +177,21 @@ SCENARIOS: list[Scenario] = [
 ]
 
 
+SCENARIOS.append(Scenario(
+    "stale_fake_out", "Turn 3: Hatterene + Incineroar have been out since turn 1 vs Iron Hands and a 6% Maushold. Fake Out is still listed but fails now; Hatterene Protected last turn.",
+    ("hatterene", "incineroar"), ("ironhands", "maushold"), turn=3, their_hp={"maushold": 0.06}, their_boosts={"maushold": {"atk": -1}, "ironhands": {"atk": -1}},
+    mine=["hatterene", "incineroar", "basculegion", "urshifurapidstrike", "archaludon", "urshifu"], theirs=["ironhands", "maushold", "farigiraf", "kommoo", "arcaninehisui", "chiyu"],
+    accept=lambda p: move_of(p, "slot_1") != "fakeout" and move_of(p, "slot_0") != "protect",
+    accept_text="No Fake Out from Incineroar (not its first turn out: it fails) and no second Protect in a row from Hatterene. Attack: Maushold at 6% dies to anything, Expanding Force / Dazzling Gleam pressure Iron Hands.",
+))
+
 HARD: list[Scenario] = [
     Scenario(
         "break_sash_then_ko", "Chien-Pao at full HP behind a Focus Sash beside Kingambit; our Garchomp + Flutter Mane. One hit can't KO it.",
         ("garchomp", "fluttermane"), ("chienpao", "kingambit"), hard=True,
         mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
-        accept=lambda p: move_of(p, "slot_0") == "protect" and move_of(p, "slot_1") in ("dazzlinggleam", "moonblast", "shadowball", "protect"),
-        accept_text="Garchomp must Protect (Chien-Pao outspeeds it and Icicle Crash is 4x); Flutter Mane breaks the sash with Dazzling Gleam or chips. Attacking with Garchomp just loses it.",
+        accept=lambda p: move_of(p, "slot_0") == "protect" and (move_of(p, "slot_1") in ("dazzlinggleam", "moonblast", "shadowball", "protect") or p["slot_1"].get("type") == "switch"),
+        accept_text="Garchomp must Protect (Chien-Pao speed-ties/outspeeds it and Icicle Crash is 4x). Flutter Mane either breaks the sash with Dazzling Gleam, or, since Sword of Ruin makes Kingambit's Sucker Punch and Chien-Pao's Icicle Crash both lethal to it, Protects or pivots out. Attacking with Garchomp just loses it.",
     ),
     Scenario(
         "intimidate_the_dancer", "Gyarados sits at +1 Attack after Dragon Dance beside Pelipper; our Amoonguss + Whimsicott, Incineroar (Intimidate) on the bench.",
@@ -295,6 +312,9 @@ def run(sc: Scenario, *, code_only: bool, log_dir: Path) -> dict:
     mine_bring = list(sc.my_active) + [b for b in (sc.my_bench or ()) if b not in sc.my_active]
     if len(mine_bring) < 4:
         mine_bring += [s for s in sc.mine if s not in mine_bring][: 4 - len(mine_bring)]
+    if sc.turn and sc.turn > 1:
+        agent.memory.last_active = [species_key(CARDS[s]["species"]) for s in sc.my_active if s not in sc.my_fresh]
+        agent.memory.opp_last_active = [species_key(CARDS[s]["species"]) for s in sc.their_active if s not in sc.their_fresh]
     template = build_template(sc, mine_bring)
     obs = build_observation(sc, mine_bring)
     state = GameState.from_mcp_state({

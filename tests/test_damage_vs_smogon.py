@@ -32,6 +32,8 @@ def _errors() -> list[tuple[float, dict]]:
         move = {**(data.move_info(case["move"]) or {}), "id": data.to_id(case["move"])}
         if isinstance(move.get("multihit"), list):
             continue
+        if move.get("id") == "ruination":
+            continue  # fixed damage (half the target's HP): we report 50%, the calculator reports 0
         if data.to_id(case["defender"]["item"]) == "focussash" and case["defender_hp_fraction"] >= 0.999:
             continue  # we deliberately cap a single hit at 99% through a full-HP Focus Sash; the calculator reports raw damage
         attacker = _mon(case["attacker"], side="mine", position=0, hp=1.0)

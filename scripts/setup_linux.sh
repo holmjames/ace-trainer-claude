@@ -36,7 +36,7 @@ echo "== data tables"
 echo "== .env"
 if [ ! -f .env ]; then
   cp .env.example .env
-  printf '\n# Added for our agent (see PLAN.md and docs/GAMING-PC-SETUP.md). Fill in, never commit.\nANTHROPIC_API_KEY=\nANTHROPIC_WORKSPACE_ID=\nAGENT_MODEL=claude-fable-5-1\nAGENT_FALLBACK_MODEL=claude-sonnet-5-5\n' >> .env
+  printf '\n# Added for our agent (see PLAN.md and docs/GAMING-PC-SETUP.md). Fill in, never commit.\nANTHROPIC_API_KEY=\nANTHROPIC_WORKSPACE_ID=\nAGENT_MODEL=claude-opus-5-5\nAGENT_FALLBACK_MODEL=claude-sonnet-5-5\n' >> .env
   echo "created .env from the template: paste the keys from the laptop into it (nano .env)"
 else
   echo ".env already present (left untouched)"

@@ -60,6 +60,7 @@ class Profile:
     protect: bool = False
     ability: str = ""
     card_item: str = ""
+    card: dict = field(default_factory=dict)  # the full drafted set, for damage math at Team Preview
 
     @property
     def attacks(self) -> list[dict]:
@@ -104,6 +105,7 @@ def profile(card: dict) -> Profile:
         protect="protect" in ids or "wideguard" in ids,
         ability=data.to_id(card.get("ability")),
         card_item=data.to_id(card.get("item")),
+        card=dict(card),
     )
 
 

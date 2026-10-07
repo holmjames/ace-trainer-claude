@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 
 from . import data
+from .battle import FieldState, build_mon, damage_percent
 from .draft import Profile, hit_quality, profile
 from .tuning import DEFAULTS
 
@@ -134,6 +135,43 @@ def score_four(four: list[Profile], theirs: list[Profile], params: dict | None =
     return round(score, 3), notes
 
 
+INTIMIDATE_IMMUNE = {"innerfocus", "owntempo", "oblivious", "scrappy", "guarddog", "clearbody", "whitesmoke", "fullmetalbody"}
+
+
+def lead_ohkos(pair: list[Profile], theirs: list[Profile]) -> list[str]:
+    """Which opposing sets can knock out one of our leads at full HP before it moves (faster, or a priority move),
+    using the real damage model with both leads' Intimidate applied. Returns notes like 'Maushold OHKOs Hatterene'."""
+    out: list[str] = []
+    leads = [build_mon({"species": p.species, "current_hp_fraction": 1.0}, p.card, side="mine", position=i) for i, p in enumerate(pair)]
+    leads = [m for m in leads if m]
+    if len(leads) < 2:
+        return out
+    intimidate = any(p.ability == "intimidate" for p in pair)
+    for opp in theirs:
+        boosts = {}
+        if intimidate and opp.ability not in INTIMIDATE_IMMUNE and opp.card_item != "clearamulet":
+            boosts = {"atk": -1}
+        mon = build_mon({"species": opp.species, "current_hp_fraction": 1.0, "boosts": boosts}, opp.card, side="theirs", position=1)
+        if not mon:
+            continue
+        fs = FieldState(actives=leads + [mon])
+        for lead in leads:
+            faster = mon.stat("spe") > lead.stat("spe")
+            for move in mon.moves:
+                if (move.get("base_power") or 0) <= 0:
+                    continue
+                if not (faster or (move.get("priority") or 0) > 0):
+                    continue
+                if move["id"] in ("fakeout", "firstimpression"):
+                    continue
+                spread = move.get("target") in ("allAdjacentFoes", "allAdjacent")
+                est = damage_percent(mon, move, lead, field=fs, spread=spread)
+                if est and est[0] >= 100:
+                    out.append(f"{opp.species} OHKOs {lead.species} with {move['id']} before it moves")
+                    break
+    return out
+
+
 def pick_leads(four: list[Profile], theirs: list[Profile], params: dict | None = None) -> tuple[list[str], str]:
     """The best pair to start with: speed, Fake Out, Intimidate, and not both frail to their attacks."""
     P = params or DEFAULTS
@@ -141,6 +179,15 @@ def pick_leads(four: list[Profile], theirs: list[Profile], params: dict | None =
     for a, b in combinations(four, 2):
         s = 0.0
         notes = []
+        if theirs and P.get("lead_ohko_w", 0):
+            ohkos = lead_ohkos([a, b], theirs)
+            if ohkos:
+                # Two leads lost to the same opponent is the turn-1 disaster; charge extra for it.
+                by_opp: dict[str, int] = {}
+                for line in ohkos:
+                    by_opp[line.split(" OHKOs ")[0]] = by_opp.get(line.split(" OHKOs ")[0], 0) + 1
+                s -= P["lead_ohko_w"] * (len(ohkos) + sum(1 for n in by_opp.values() if n >= 2))
+                notes.append("; ".join(ohkos[:2]))
         mv = _moves(a) | _moves(b)
         if "fakeout" in mv:
             s += 4; notes.append("fake out")

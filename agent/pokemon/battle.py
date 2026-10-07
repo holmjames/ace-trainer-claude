@@ -61,10 +61,18 @@ class Mon:
     fainted: bool = False
 
     tailwind: bool = False
+    boosted_stat: str | None = None  # Protosynthesis / Quark Drive: the stat the paradox boost raises (set by the sheet)
 
-    def stat(self, name: str) -> float:
+    def stat(self, name: str, *, min_stage: int | None = None, max_stage: int | None = None) -> float:
+        """One stat with stages, status, item and paradox boosts applied. ``min_stage``/``max_stage`` clamp the
+        stage (a critical hit ignores the attacker's drops and the defender's raises)."""
         base = self.stats.get(name, 0)
-        value = base * stage_multiplier(self.boosts.get(name, 0))
+        stage = self.boosts.get(name, 0)
+        if min_stage is not None:
+            stage = max(stage, min_stage)
+        if max_stage is not None:
+            stage = min(stage, max_stage)
+        value = base * stage_multiplier(stage)
         if name == "spe":
             if self.status == "par":
                 value *= 0.5
@@ -80,7 +88,15 @@ class Mon:
             value *= 1.5
         if name in ("def", "spd") and data.to_id(self.item) == "eviolite":
             value *= 1.5
+        if name == "atk" and data.to_id(self.ability) == "guts" and self.status:
+            value *= 1.5
+        if self.boosted_stat == name:
+            value *= 1.5 if name == "spe" else 1.3
         return value
+
+    @property
+    def grounded(self) -> bool:
+        return "flying" not in self.types and data.to_id(self.ability) != "levitate" and data.to_id(self.item) != "airballoon"
 
 
 def build_mon(summary: dict, card: dict | None, *, side: str, position: int | None) -> Mon | None:
@@ -97,7 +113,7 @@ def build_mon(summary: dict, card: dict | None, *, side: str, position: int | No
     frac = summary.get("current_hp_fraction") if isinstance(summary, dict) else None
     if frac is None and isinstance(summary, dict) and summary.get("max_hp"):
         frac = (summary.get("current_hp") or 0) / summary["max_hp"]
-    return Mon(
+    mon = Mon(
         species=str(species),
         side=side,
         position=position,
@@ -111,40 +127,222 @@ def build_mon(summary: dict, card: dict | None, *, side: str, position: int | No
         moves=moves,
         fainted=bool((summary or {}).get("fainted")),
     )
+    mon.boosted_stat = paradox_boosted_stat(mon, None)
+    return mon
 
 
 # -- damage ------------------------------------------------------------------------------------
 
 
-def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | None = None, spread: bool = False) -> tuple[float, float] | None:
-    """(min%, max%) of the defender's CURRENT HP, or None when the move does no damage / is immune."""
+RUIN_ABILITIES = {"swordofruin": ("def", "Physical"), "beadsofruin": ("spd", "Special"),
+                  "vesselofruin": ("spa", "Special"), "tabletsofruin": ("atk", "Physical")}
+PARADOX_BOOST = 5325 / 4096  # Hadron Engine / Orichalcum Pulse offensive boost; terrain base-power boost is 1.3 too
+
+
+@dataclass
+class FieldState:
+    """What is on the field that changes damage: weather, terrain, screens, who is active (Ruin abilities),
+    and how many of each side have fainted (Last Respects). Built once per turn by ``field_from_obs``."""
+
+    weather: str | None = None            # "rain" | "sun" | "sand" | "snow" | None
+    terrain: str | None = None            # "electric" | "psychic" | "grassy" | "misty" | None
+    trick_room: bool = False
+    my_side: set[str] = field(default_factory=set)      # ids: reflect, lightscreen, auroraveil, tailwind, ...
+    their_side: set[str] = field(default_factory=set)
+    actives: list["Mon"] = field(default_factory=list)   # everyone on the field
+    fainted: dict[str, int] = field(default_factory=dict)  # "mine"/"theirs" -> fainted count
+    party_base_atk: dict[str, list[int]] = field(default_factory=dict)  # healthy party members' base Atk (Beat Up)
+
+    def side_conditions(self, side: str) -> set[str]:
+        return self.my_side if side == "mine" else self.their_side
+
+
+def normalize_weather(text: object) -> str | None:
+    w = data.to_id(text)
+    if not w or w == "none":
+        return None
+    if "rain" in w:
+        return "rain"
+    if "sun" in w or "drought" in w or "harsh" in w:
+        return "sun"
+    if "sand" in w:
+        return "sand"
+    if "snow" in w or "hail" in w:
+        return "snow"
+    return None
+
+
+def normalize_terrain(text: object) -> str | None:
+    t = data.to_id(text)
+    for name in ("electric", "psychic", "grassy", "misty"):
+        if name in t and "terrain" in t or t == name:
+            return name
+    return None
+
+
+def paradox_boosted_stat(mon: "Mon", fs: "FieldState | None") -> str | None:
+    """Protosynthesis (sun or Booster Energy) / Quark Drive (Electric Terrain or Booster Energy) raise the holder's
+    highest stat: 1.3x, or 1.5x speed. Booster Energy is consumed on entry, so a holder is always boosted."""
+    ability = data.to_id(mon.ability)
+    if ability not in ("protosynthesis", "quarkdrive"):
+        return None
+    active = data.to_id(mon.item) == "boosterenergy"
+    if fs is not None:
+        active = active or (ability == "protosynthesis" and fs.weather == "sun") or (ability == "quarkdrive" and fs.terrain == "electric")
+    if not active:
+        return None
+    stats = {k: mon.stats.get(k, 0) * stage_multiplier(mon.boosts.get(k, 0)) for k in ("atk", "def", "spa", "spd", "spe")}
+    return max(stats, key=lambda k: (stats[k], ["atk", "def", "spa", "spd", "spe"].index(k) * -1)) if any(stats.values()) else None
+
+
+def _weight(mon: "Mon") -> float:
+    info = data.species_info(mon.species) or {}
+    try:
+        return float(info.get("weightkg") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def effective_move(attacker: "Mon", move: dict, defender: "Mon", fs: "FieldState | None") -> dict:
+    """The move as it will actually resolve: type/power/category changes from weather, terrain, HP, status, weight."""
+    mid = move.get("id")
+    out = dict(move)
+    weather = fs.weather if fs else None
+    terrain = fs.terrain if fs else None
+    if mid == "weatherball" and weather:
+        out["type"] = {"rain": "Water", "sun": "Fire", "sand": "Rock", "snow": "Ice"}[weather]
+        out["base_power"] = 100
+    elif mid in ("eruption", "waterspout"):
+        out["base_power"] = max(1, math.floor(150 * attacker.hp_fraction))
+    elif mid == "lastrespects" and fs is not None:
+        out["base_power"] = 50 + 50 * fs.fainted.get(attacker.side, 0)
+    elif mid == "facade" and attacker.status in ("brn", "psn", "tox", "par"):
+        out["base_power"] = 140
+    elif mid in ("heavyslam", "heatcrash"):
+        wa, wd = _weight(attacker), _weight(defender)
+        ratio = wa / wd if wa and wd else 0
+        out["base_power"] = 120 if ratio >= 5 else 100 if ratio >= 4 else 80 if ratio >= 3 else 60 if ratio >= 2 else 40
+    elif mid == "expandingforce" and terrain == "psychic" and attacker.grounded:
+        out["base_power"] = 120
+    elif mid == "beatup" and fs is not None:
+        hits = fs.party_base_atk.get(attacker.side) or []
+        if hits:
+            out["beatup_hits"] = [math.floor(b / 10) + 5 for b in hits]
+    if mid == "grassyglide" and terrain == "grassy" and attacker.grounded:
+        out["priority"] = 1
+    return out
+
+
+def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | None = None, spread: bool = False,
+                   field: FieldState | None = None) -> tuple[float, float] | None:
+    """(min%, max%) of the defender's CURRENT HP, or None when the move does no damage / is immune.
+
+    Models what the drafted sets make knowable: stats, stages, STAB, type chart, items, weather, terrain, screens,
+    Technician, the Ruin abilities, Guts, Protosynthesis/Quark Drive, Hadron Engine/Orichalcum Pulse, always-crit
+    moves, multi-hit, Multiscale, Focus Sash, and the variable-power moves in the pool. Checked against
+    @smogon/calc in tests/test_damage_vs_smogon*.py."""
+    fs = field or FieldState(weather=normalize_weather(weather))
+    if field is None and weather is None:
+        fs = None
+    move = effective_move(attacker, move, defender, fs)
+    mid = move.get("id")
+    if mid == "ruination":
+        return (0.0, 0.0) if data.effectiveness("dark", defender.types) == 0 else (50.0, 50.0)
     power = move.get("base_power") or 0
-    if power <= 0:
+    hits_list = move.get("beatup_hits")
+    if power <= 0 and not hits_list:
         return None
     category = move.get("category")
     if category not in ("Physical", "Special"):
         return None
-    type_mult = data.effectiveness(move.get("type") or "", defender.types)
+    move_type = data.to_id(move.get("type"))
+    attacker_ability = data.to_id(attacker.ability)
+    defender_ability = data.to_id(defender.ability)
+    defender_types = defender.types
+    if attacker_ability in ("scrappy", "mindseye") and move_type in ("normal", "fighting"):
+        defender_types = [t for t in defender.types if t != "ghost"]  # these abilities hit Ghosts with Normal/Fighting moves
+    type_mult = data.effectiveness(move.get("type") or "", defender_types)
     if type_mult == 0:
         return (0.0, 0.0)
+    crit = bool(move.get("will_crit"))
+    weather_now = fs.weather if fs else None
+    terrain = fs.terrain if fs else None
+    if (move.get("priority") or 0) > 0 and (defender_ability in ("armortail", "dazzling", "queenlymajesty")
+                                             or (terrain == "psychic" and defender.grounded)):
+        return (0.0, 0.0)  # priority attacks cannot target this Pokémon
+
+    # Base power modifiers (Technician, terrain).
+    def powered(bp: float) -> float:
+        if attacker_ability == "technician" and bp <= 60:
+            bp *= 1.5
+        if terrain == "electric" and move_type == "electric" and attacker.grounded:
+            bp *= 1.3
+        if terrain == "psychic" and move_type == "psychic" and attacker.grounded:
+            bp *= 1.3
+        if terrain == "grassy" and move_type == "grass" and attacker.grounded:
+            bp *= 1.3
+        if terrain == "grassy" and mid in ("earthquake", "bulldoze", "magnitude") and defender.grounded:
+            bp *= 0.5
+        if terrain == "misty" and move_type == "dragon" and defender.grounded:
+            bp *= 0.5
+        if mid in ("collisioncourse", "electrodrift") and type_mult > 1:
+            bp *= PARADOX_BOOST
+        return bp
+
+    # Stats: crits ignore the attacker's drops and the defender's raises; Body Press / Foul Play borrow stats.
     atk_stat, def_stat = ("atk", "def") if category == "Physical" else ("spa", "spd")
-    a, d = attacker.stat(atk_stat), defender.stat(def_stat)
+    if mid == "bodypress":
+        a = attacker.stat("def", min_stage=0 if crit else None)
+    elif mid == "foulplay":
+        a = defender.stat("atk", min_stage=0 if crit else None)
+    elif mid in ("meteorbeam", "electroshot"):
+        # The charge turn raises Special Attack by one stage before the hit lands (Power Herb / rain: same turn).
+        boosted = Mon(**{**attacker.__dict__, "boosts": {**attacker.boosts, "spa": min(6, attacker.boosts.get("spa", 0) + 1)}})
+        a = boosted.stat("spa", min_stage=0 if crit else None)
+    else:
+        a = attacker.stat(atk_stat, min_stage=0 if crit else None)
+    if mid in ("sacredsword", "chipaway", "darkestlariat"):
+        d = defender.stat(def_stat, min_stage=0, max_stage=0)  # ignores the target's stat stages
+    else:
+        d = defender.stat(def_stat, max_stage=0 if crit else None)
     if not a or not d or not defender.stats.get("hp"):
         return None
-    base = math.floor(math.floor(math.floor(2 * LEVEL / 5 + 2) * power * a / d) / 50) + 2
+    if fs is not None:
+        applied: set[str] = set()  # the Ruin abilities do not stack: two Sword of Ruin holders still lower Def once
+        for other in fs.actives:
+            ability = data.to_id(other.ability)
+            ruin = RUIN_ABILITIES.get(ability)
+            if not ruin or ruin[1] != category or ability in applied:
+                continue
+            stat_name, _ = ruin
+            if stat_name in ("def", "spd") and other is not defender and defender_ability != ability:
+                d *= 0.75
+                applied.add(ability)
+            if stat_name in ("atk", "spa") and other is not attacker and attacker_ability != ability:
+                a *= 0.75
+                applied.add(ability)
+    if attacker_ability == "hadronengine" and terrain == "electric" and category == "Special":
+        a *= PARADOX_BOOST
+    if attacker_ability == "orichalcumpulse" and weather_now == "sun" and category == "Physical":
+        a *= PARADOX_BOOST
+    if weather_now == "sand" and "rock" in defender.types and category == "Special":
+        d *= 1.5
+    if weather_now == "snow" and "ice" in defender.types and category == "Physical":
+        d *= 1.5
+
     mod = 1.0
     if spread:
         mod *= 0.75
-    w = data.to_id(weather)
-    move_type = data.to_id(move.get("type"))
-    if w in ("rain", "raindance") and move_type == "water" or w in ("sun", "sunnyday") and move_type == "fire":
+    if weather_now == "rain" and move_type == "water" or weather_now == "sun" and move_type == "fire":
         mod *= 1.5
-    if w in ("rain", "raindance") and move_type == "fire" or w in ("sun", "sunnyday") and move_type == "water":
+    if weather_now == "rain" and move_type == "fire" or weather_now == "sun" and move_type == "water":
         mod *= 0.5
+    if crit:
+        mod *= 1.5  # always a critical hit (Surging Strikes, Wicked Blow, Flower Trick)
     if move_type in attacker.types:
         mod *= 1.5
     mod *= type_mult
-    if attacker.status == "brn" and category == "Physical":
+    if attacker.status == "brn" and category == "Physical" and attacker_ability != "guts" and mid != "facade":
         mod *= 0.5
     item = data.to_id(attacker.item)
     if item == "lifeorb":
@@ -153,21 +351,86 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
         mod *= 1.2
     if item == "expertbelt" and type_mult > 1:
         mod *= 1.2
-    if move.get("id") == "knockoff" and defender.item:
-        mod *= 1.5  # Knock Off hits harder when the target holds an item
-    if move.get("will_crit"):
-        mod *= 1.5  # always a critical hit (Surging Strikes, Wicked Blow, Flower Trick)
-    hits = data.expected_hits(move, item=attacker.item)
+    defender_item = data.to_id(defender.item)
+    seed_used = defender_item.endswith("seed") and terrain and defender_item.startswith(terrain) and defender.grounded
+    if mid == "knockoff" and defender_item and defender_item not in ("rustedshield", "rustedsword", "boosterenergy") and not seed_used:
+        mod *= 1.5  # Knock Off hits harder when the target holds an item it can lose
+    if not crit:
+        screens = fs.side_conditions(defender.side) if fs else set()
+        if "auroraveil" in screens or (category == "Physical" and "reflect" in screens) or (category == "Special" and "lightscreen" in screens):
+            mod *= 2 / 3  # doubles
     full_hp = defender.hp_fraction >= 0.999
-    if full_hp and data.to_id(defender.ability) in ("multiscale", "shadowshield"):
+    if full_hp and defender_ability in ("multiscale", "shadowshield"):
         mod *= 0.5
     current_hp = max(1.0, defender.stats["hp"] * defender.hp_fraction)
-    low = base * RANDOM_MIN * mod * hits / current_hp * 100
-    high = base * RANDOM_MAX * mod * hits / current_hp * 100
-    if full_hp and data.to_id(defender.item) == "focussash" and hits <= 1:
+
+    def base_damage(bp: float) -> int:
+        return math.floor(math.floor(math.floor(2 * LEVEL / 5 + 2) * math.floor(powered(bp)) * a / d) / 50) + 2
+
+    if hits_list:
+        total = sum(base_damage(bp) for bp in hits_list)
+        hits = 1.0
+    else:
+        total = base_damage(power)
+        hits = data.expected_hits(move, item=attacker.item)
+    if hits > 1 and defender_ability == "stamina" and category == "Physical" and not crit:
+        # Stamina raises Defense after every hit, so hits 2..n land on +1, +2, ...: scale the hit count down.
+        stage = defender.boosts.get("def", 0)
+        hits = sum(stage_multiplier(stage) / stage_multiplier(min(6, stage + k)) for k in range(int(round(hits))))
+    low = total * RANDOM_MIN * mod * hits / current_hp * 100
+    high = total * RANDOM_MAX * mod * hits / current_hp * 100
+    if full_hp and defender_item == "focussash" and hits <= 1 and not hits_list:
         # The sash leaves the holder at 1 HP from a single hit at full health: no KO this turn.
         low, high = min(low, 99.0), min(high, 99.0)
     return (round(min(low, 999.0), 1), round(min(high, 999.0), 1))  # anything past a KO is just "a KO"
+
+
+def field_from_obs(obs: dict, ours: dict[int, "Mon"], theirs: dict[int, "Mon"], memory: "MatchMemory | None" = None) -> FieldState:
+    """Read weather, terrain, screens and fainted counts out of the server's observation."""
+    fs = FieldState()
+    fs.weather = normalize_weather(obs.get("weather")) if isinstance(obs.get("weather"), str) else None
+    field_blob = json.dumps([obs.get("fields"), obs.get("field")], default=str)
+    fs.terrain = normalize_terrain(field_blob)
+    fs.trick_room = "trickroom" in data.to_id(field_blob)
+
+    def conditions(raw: Any) -> set[str]:
+        out: set[str] = set()
+        if isinstance(raw, dict):
+            raw = [k for k, v in raw.items() if v] or list(raw)
+        if isinstance(raw, (list, tuple, set)):
+            for item in raw:
+                out.add(data.to_id(item if not isinstance(item, dict) else (item.get("id") or item.get("name") or json.dumps(item))))
+        elif isinstance(raw, str):
+            out.add(data.to_id(raw))
+        return out
+
+    fs.my_side = conditions(obs.get("side_conditions"))
+    fs.their_side = conditions(obs.get("opponent_side_conditions"))
+    fs.actives = list(ours.values()) + list(theirs.values())
+
+    def fainted_count(team: Any) -> int:
+        items = team.values() if isinstance(team, dict) else (team if isinstance(team, list) else [])
+        return sum(1 for s in items if isinstance(s, dict) and s.get("fainted"))
+
+    fs.fainted = {"mine": fainted_count(obs.get("team")), "theirs": fainted_count(obs.get("opponent_team"))}
+
+    def party_atk(team: Any, cards: dict) -> list[int]:
+        items = team.values() if isinstance(team, dict) else (team if isinstance(team, list) else [])
+        out = []
+        for s in items:
+            if not isinstance(s, dict) or s.get("fainted") or s.get("status"):
+                continue
+            card = cards.get(species_key(s.get("species"))) if cards else None
+            base = data.resolve_base_stats({**(card or {}), **{k: v for k, v in s.items() if v not in (None, "", [], {})}}) or {}
+            if base.get("atk"):
+                out.append(int(base["atk"]))
+        return out
+
+    fs.party_base_atk = {"mine": party_atk(obs.get("team"), memory.my_cards if memory else {}),
+                         "theirs": party_atk(obs.get("opponent_team"), memory.opp_cards if memory else {})}
+    for mon in fs.actives:
+        mon.boosted_stat = paradox_boosted_stat(mon, fs)
+    return fs
 
 
 # -- the sheet -----------------------------------------------------------------------------------
@@ -183,6 +446,7 @@ class TurnSheet:
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)  # lethal threats that act before our slot can
     choice_locks: dict = field(default_factory=dict)  # slot -> {move_id: [opponents it does nothing to]}
+    field: "FieldState | None" = None
 
     def as_prompt(self) -> dict:
         return {
@@ -233,9 +497,6 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         sheet.notes.append("Our Tailwind is up (speed doubled).")
     if their_tailwind:
         sheet.notes.append("Opponent's Tailwind is up (their speed doubled).")
-    if weather:
-        sheet.notes.append(f"Weather: {weather}.")
-
     # Our active Pokémon, one per slot.
     ours: dict[int, Mon] = {}
     for slot in slots:
@@ -267,6 +528,25 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             if mon:
                 mon.tailwind = their_tailwind
                 theirs[index] = mon
+
+    fs = field_from_obs(obs, ours, theirs, memory)
+    sheet.field = fs
+    if fs.weather:
+        sheet.notes.append(f"Weather: {fs.weather}" + (" (Water moves x1.5, Fire x0.5)." if fs.weather == "rain" else " (Fire moves x1.5, Water x0.5)." if fs.weather == "sun" else "."))
+    if fs.terrain:
+        sheet.notes.append(f"{fs.terrain.capitalize()} Terrain is up" + {
+            "electric": " (grounded Electric moves x1.3; Hadron Engine users hit harder).",
+            "psychic": " (grounded Psychic moves x1.3; Expanding Force becomes a 120-power spread move; priority moves cannot target grounded Pokémon).",
+            "grassy": " (grounded Grass moves x1.3, Earthquake/Bulldoze halved, Grassy Glide gets +1 priority).",
+            "misty": " (Dragon moves into grounded targets halved; no new status).",
+        }.get(fs.terrain, "."))
+    for side_name, conds in (("Our", fs.my_side), ("Their", fs.their_side)):
+        screens = [c for c in ("reflect", "lightscreen", "auroraveil") if c in conds]
+        if screens:
+            sheet.notes.append(f"{side_name} side has {', '.join(screens)} up (damage into that side x2/3; the numbers below include it).")
+    for mon in fs.actives:
+        if mon.boosted_stat:
+            sheet.notes.append(f"{'Our' if mon.side == 'mine' else 'Their'} {mon.species}'s {data.to_id(mon.ability)} is boosting its {mon.boosted_stat} (included in the numbers).")
 
     # Speed order.
     everyone = list(ours.values()) + list(theirs.values())
@@ -331,17 +611,32 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                     "category": move.get("category") or str(option.get("category") or "").capitalize() or None,
                     "base_power": move.get("base_power") or option.get("base_power") or 0}
             spread = move.get("target") in SPREAD_TARGETS and len(theirs) > 1
+            eff = effective_move(me, move, me, fs)
+            psychic_spread = move["id"] == "expandingforce" and fs.terrain == "psychic" and me.grounded and len(theirs) > 1
             per_target = []
+            note = None
             targets = option.get("targets") or []
+            fresh_now = species_key(me.species) in set(memory.fresh_active) or obs.get("turn") in (None, 1)
+            priority_blocked = (eff.get("priority") or 0) > 0 and (move.get("base_power") or 0) > 0 and (
+                any(data.to_id(o.ability) in ("armortail", "dazzling", "queenlymajesty") for o in theirs.values())
+                or (fs.terrain == "psychic" and any(o.grounded for o in theirs.values())))
+            if move["id"] in ("fakeout", "firstimpression") and not fresh_now:
+                note = f"{move['id']} FAILS: {me.species} is not on its first turn out."
+                targets = []
+            elif priority_blocked:
+                note = f"{move['id']} is BLOCKED: their Armor Tail/Dazzling/Queenly Majesty (or Psychic Terrain) stops priority moves aimed at them."
+                targets = []
             if targets:
                 for target in targets:
                     defender = theirs.get(target) if target > 0 else (ours.get(-target - 1) if target < 0 else None)
                     if defender is None:
                         continue
-                    est = damage_percent(me, move, defender, weather=weather, spread=spread)
+                    est = damage_percent(me, move, defender, field=fs, spread=spread or psychic_spread)
                     if est is None:
                         continue
                     per_target.append(_row(target, defender, est))
+                if psychic_spread:
+                    note = "Expanding Force in Psychic Terrain hits BOTH opponents (120 power, spread): the numbers are per target."
             elif (move.get("base_power") or 0) > 0:
                 # No target to choose: a spread move (or a fixed-target move). It hits every
                 # opposing active (and, for allAdjacent moves like Earthquake, our own ally too).
@@ -349,13 +644,16 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 if move.get("target") == "allAdjacent":
                     victims += [ally for n, ally in ours.items() if n != number]
                 for defender in victims:
-                    est = damage_percent(me, move, defender, weather=weather, spread=spread)
+                    est = damage_percent(me, move, defender, field=fs, spread=spread)
                     if est is not None:
                         per_target.append({**_row(0, defender, est), "spread": True})
                         if defender.side == "mine" and est[1] > 0:
                             sheet.notes.append(f"{move['id']} from slot {number} also hits our own {defender.species} for {est[0]}-{est[1]}%.")
             if per_target or move.get("base_power"):
-                entry["options"].append({"option": index, "move": move["id"], "priority": move.get("priority", 0), "spread": spread, "targets": per_target})
+                row = {"option": index, "move": move["id"], "priority": eff.get("priority", 0), "spread": spread or psychic_spread, "targets": per_target}
+                if note:
+                    row["note"] = note
+                entry["options"].append(row)
         sheet.our_options.append(entry)
 
     # Opponent threats from their KNOWN sets.
@@ -363,24 +661,36 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         threat = {"position": position, "species": opp.species, "hp_pct": round(opp.hp_fraction * 100), "status": opp.status,
                   "item": opp.item, "ability": opp.ability, "known_moves": [m["id"] for m in opp.moves], "hits": []}
         opp_fresh = species_key(opp.species) in set(memory.opp_fresh_active) or obs.get("turn") in (None, 1)
+        our_priority_block = any(data.to_id(m.ability) in ("armortail", "dazzling", "queenlymajesty") for m in ours.values()) \
+            or (fs.terrain == "psychic" and any(m.grounded for m in ours.values()))
         for move in opp.moves:
-            if (move.get("base_power") or 0) <= 0:
+            if (move.get("base_power") or 0) <= 0 and move["id"] not in ("ruination", "beatup", "heavyslam", "heatcrash"):
                 continue
             if move["id"] in ("fakeout", "firstimpression") and not opp_fresh:
                 continue  # only works on the user's first turn out
+            eff = effective_move(opp, move, opp, fs)
+            if (eff.get("priority") or 0) > 0 and our_priority_block:
+                continue  # our Armor Tail (or Psychic Terrain) blocks their priority attacks
             for number, me in sorted(ours.items()):
-                est = damage_percent(opp, move, me, weather=weather, spread=move.get("target") in SPREAD_TARGETS and len(ours) > 1)
+                est = damage_percent(opp, move, me, field=fs, spread=move.get("target") in SPREAD_TARGETS and len(ours) > 1)
                 if est is None:
                     continue
                 if me.fainted or me.hp_fraction <= 0:
                     continue
                 hit = {"move": move["id"], "into_slot": number, "species": me.species, "damage_pct_of_current_hp": list(est),
-                       "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no"), "priority": move.get("priority", 0)}
+                       "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no"), "priority": eff.get("priority", 0)}
+                if hit["ko"] == "possible":
+                    hit["ko_chance_pct"] = int(round(100 * ko_probability(hit)))  # how often the damage roll actually reaches a KO
                 if data.expected_hits(move, item=opp.item) > 1:
                     hit["multi_hit"] = True  # breaks Focus Sash
                 threat["hits"].append(hit)
         if "fakeout" in threat["known_moves"]:
-            threat["note"] = "has Fake Out (only works on its first turn out)"
+            if opp_fresh and not our_priority_block:
+                threat["note"] = "FRESH: its Fake Out works THIS turn (priority +3): expect a flinch on one of our slots, so a setup move (Trick Room/Tailwind) from the slot it targets fails."
+            elif opp_fresh:
+                threat["note"] = "has Fake Out but our Armor Tail / Psychic Terrain blocks it."
+            else:
+                threat["note"] = "has Fake Out but is past its first turn out: Fake Out fails now."
         sheet.threats.append(threat)
 
     sheet.candidates = rank_candidates(slots, ours, theirs, sheet, fresh=set(memory.fresh_active), memory=memory, params=P)
@@ -596,7 +906,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
     best = {n: best_action(n) for n in (0, 1)}
     for n in (0, 1):
         opt = best[n][0]
-        if opt and sheet.choice_locks.get(n, {}).get(opt.get("move")):
+        if opt and P.get("choice_lock_rerank", 1) and sheet.choice_locks.get(n, {}).get(opt.get("move")):
             # A Choice-locked move with a dead target left: prefer the best option that stays useful, if it is close.
             usable = _best_attack({"options": [o for o in by_slot.get(n, {}).get("options") or [] if o.get("move") not in sheet.choice_locks[n]]}, P=P)
             if usable[0] and usable[2] >= 0.6 * max(best[n][2], 1e-6):
@@ -638,11 +948,20 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if acts_before(number, threat["position"], my_prio, hit.get("priority", 0)):
                 continue
             prio_note = f" with priority +{hit['priority']}" if hit.get("priority", 0) > 0 else ""
-            sheet.warnings.append(
-                f"LETHAL: {threat['species']}'s {hit['move']}{prio_note} hits slot {number} ({me.species if me else '?'}) for "
-                f"{hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}% BEFORE it can move. "
-                f"Protect/switch that slot unless the game is won anyway."
-            )
+            chance = ko_probability(hit)
+            if hit["ko"] == "guaranteed" or chance >= 0.5:
+                sheet.warnings.append(
+                    f"LETHAL: {threat['species']}'s {hit['move']}{prio_note} hits slot {number} ({me.species if me else '?'}) for "
+                    f"{hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}% BEFORE it can move"
+                    + (f" ({int(round(chance * 100))}% KO chance)" if hit["ko"] != "guaranteed" else "")
+                    + ". Protect/switch that slot unless the game is won anyway."
+                )
+            else:
+                sheet.warnings.append(
+                    f"RISK: {threat['species']}'s {hit['move']}{prio_note} hits slot {number} ({me.species if me else '?'}) for "
+                    f"{hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}% before it can move: only a "
+                    f"{int(round(chance * 100))}% chance of a KO on the roll. Usually worth playing through, not Protecting."
+                )
 
     # 1. Both slots use their own best attack.
     if best[0][0] and best[1][0]:
@@ -666,6 +985,50 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if combined >= 100:
                 add("focus_fire", slot_answer(rows[0][1]["option"], target), slot_answer(rows[1][1]["option"], target),
                     f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO", sum(e for *_, e in rows) + P["focus_fire_bonus"])
+
+    # 2b. Don't overkill: when one slot's best attack already guarantees a KO on a target, point the other slot at the
+    # remaining foe. If that foe's Focus Sash gets broken by the first slot's spread hit (and it moves first), the second
+    # hit is a full one, so recompute it against the HP that will actually be left.
+    for killer, other in ((0, 1), (1, 0)):
+        k_opt, k_row, k_val = best[killer]
+        if not k_opt or not k_row or k_val <= 0:
+            continue
+        pos_by_species = {species_key(m.species): pos for pos, m in theirs.items()}
+        killer_rows = []
+        for r in k_opt.get("targets") or []:
+            if r.get("side") != "theirs":
+                continue
+            pos = r["target"] if r["target"] > 0 else pos_by_species.get(species_key(r["species"]))
+            if pos in theirs and (k_row.get("target", 0) <= 0 or pos == k_row["target"]):
+                killer_rows.append({**r, "pos": pos})
+        kos = [r["pos"] for r in killer_rows if r["damage_pct_of_current_hp"][0] >= 100]
+        if not kos:
+            continue
+        remaining = [t for t in theirs if t not in kos]
+        if not remaining or not slot_template(other) or not ours.get(other):
+            continue
+        victim, survivor = kos[0], remaining[0]
+        alt_opt, alt_row, alt_val = _best_attack(by_slot.get(other, {}), avoid_target=victim, P=P)
+        if not alt_opt or not alt_row or alt_row.get("target") != survivor:
+            continue
+        why_extra = ""
+        chip = next((r for r in killer_rows if r["pos"] == survivor), None)
+        foe = theirs[survivor]
+        k_prio, o_prio = k_opt.get("priority", 0) or 0, alt_opt.get("priority", 0) or 0
+        killer_first = k_prio > o_prio or (k_prio == o_prio and speed_rank.get(("mine", killer), 99) < speed_rank.get(("mine", other), 99))
+        if chip and chip["damage_pct_of_current_hp"][0] > 0 and killer_first and data.to_id(foe.item) == "focussash" and foe.hp_fraction >= 0.999:
+            after = Mon(**{**foe.__dict__, "hp_fraction": max(0.01, foe.hp_fraction * (1 - chip["damage_pct_of_current_hp"][0] / 100))})
+            info = data.move_info(alt_opt["move"]) or {}
+            est = damage_percent(ours[other], {**info, "id": alt_opt["move"]}, after, field=sheet.field, spread=bool(alt_opt.get("spread")))
+            if est:
+                alt_row = {**alt_row, "damage_pct_of_current_hp": [est[0], est[1]], "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no")}
+                alt_val = _expected(alt_row, alt_opt.get("priority", 0) or 0, P)
+                why_extra = f" (its Focus Sash is broken by slot {killer}'s {k_opt['move']} first, so this hit is a full {est[0]}-{est[1]}%)"
+        alt_val *= survival_factor(other, sheet, alt_opt.get("priority", 0) or 0, speed_rank, alt_row, P)
+        answers = {killer: slot_answer(k_opt["option"], k_row["target"]), other: slot_answer(alt_opt["option"], survivor)}
+        add("finish_the_other", answers[0], answers[1],
+            f"slot {killer} {k_opt['move']} already KOs {theirs[victim].species}; slot {other} {alt_opt['move']} goes into {foe.species} ({alt_row['damage_pct_of_current_hp']}%){why_extra}",
+            k_val + alt_val + P["focus_fire_bonus"] * 0.5)
 
     # 3. A slot faces a KO this turn from something that acts before it: Protect it while the other attacks.
     for threat in sheet.threats:
