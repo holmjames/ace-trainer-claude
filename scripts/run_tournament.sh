@@ -14,6 +14,9 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 LOG="logs/runtime-tournament-${STAMP}.log"
 PY=".venv/bin/python"
 [ -x "$PY" ] || PY="python3"
+# caffeinate keeps a Mac awake; on Linux/WSL it does not exist and Windows power settings do the job.
+KEEPAWAKE=""
+command -v caffeinate >/dev/null 2>&1 && KEEPAWAKE="caffeinate -dims"
 
 echo "Logging to $LOG"
 echo "Pre-flight check:"
@@ -25,7 +28,7 @@ while true; do
   attempt=$((attempt + 1))
   echo "[$(date +%H:%M:%S)] starting runtime (attempt $attempt)" | tee -a "$LOG"
   # caffeinate -dims: no display sleep, no idle sleep, no disk sleep, no system sleep while it runs.
-  caffeinate -dims "$PY" -m agent --tournament "$@" 2>&1 | tee -a "$LOG"
+  $KEEPAWAKE "$PY" -m agent --tournament "$@" 2>&1 | tee -a "$LOG"
   echo "[$(date +%H:%M:%S)] runtime exited; restarting in 5 s (Ctrl+C to stop)" | tee -a "$LOG"
   sleep 5
 done
