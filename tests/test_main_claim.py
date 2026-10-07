@@ -123,7 +123,7 @@ def test_claim_flag_claims_seat_and_runs_game_with_default_agent(monkeypatch, ca
     assert context.game_type == "pokemon_vgc_doubles_draft"
     assert context.seat_position == 1
     assert context.tournament_id is None
-    assert contestant is default_agent_module.choose_action  # the normal create_agent()
+    assert isinstance(contestant, default_agent_module.PokemonAgent)  # the normal create_agent()
 
     out = capsys.readouterr().out
     assert "Claimed seat 2/2" in out

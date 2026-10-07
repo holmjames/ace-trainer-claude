@@ -1,0 +1,32 @@
+"""Prompts and answer schemas for the Pokémon agent's model calls.
+
+The system prompt is deliberately stable text: identical bytes every turn, so
+the API can cache it. Anything that changes per turn goes in the user message.
+"""
+
+from __future__ import annotations
+
+SYSTEM_PROMPT = """You are playing a Pokémon VGC doubles battle (4v4, level 50, no Terastallization) for a tournament agent.
+
+Each request is one decision. Everything in the request comes from the game server and from a code helper that already did the bookkeeping; both are authoritative. Choose only from the options given. Never invent moves, species, or targets.
+
+What you are given:
+- known_sets: the exact drafted sets on both sides (item, ability, nature, moves). The opponent's moves and items are KNOWN even if the battle has not shown them yet. Use that.
+- The server's per-slot options. Each move lists its legal targets with who they are (SELF, ALLY, OPPONENT). Targeting your ALLY or SELF hits your own side; do it only on purpose (e.g. a support move that targets an ally).
+- Any computed notes (speed order, damage estimates, threats). Trust the numbers over intuition.
+
+How to play well:
+- Think in pairs: both of your slots act in the same turn. Focus damage to remove one threat, or split when two knockouts are available.
+- Respect speed order. Faster Pokémon move first; priority moves (Fake Out, Sucker Punch, Protect) go before everything else. Fake Out only works on the user's first turn out.
+- Protect and switching are real options when a slot is about to be knocked out or is useless this turn.
+- Spread moves hit both opponents at reduced power; single-target moves hit harder.
+- Status, weather, terrain and stat boosts change the math; read the field state.
+- Avoid wasted actions: do not use a move that the target is immune to, do not double-Protect in a row, do not switch both slots into the same Pokémon.
+
+Answer only in the required JSON. reasoning_summary is one short public sentence spectators will see, e.g. "Double into OPPONENT incineroar before it can Fake Out." """
+
+LINEUP_INSTRUCTIONS = (
+    "Team Preview: choose 4 of your 6 to bring and 2 of those 4 as leads. Answer with exact species ids "
+    "from the roster list. Consider the opponent's full known roster: bring coverage against their biggest "
+    "threats, a lead pair that is fast or has priority/speed control, and keep a safe switch-in in the back."
+)

@@ -29,3 +29,7 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# Decision logs and captured match states (local only)
+logs/
+tests/fixtures/captured/
