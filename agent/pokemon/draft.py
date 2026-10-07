@@ -116,7 +116,8 @@ def hit_quality(attacker: Profile, defender: Profile) -> float:
         if mult == 0:
             continue
         stab = 1.5 if data.to_id(move.get("type")) in attacker.types else 1.0
-        best = max(best, mult * stab * (move.get("base_power") or 0) / 120.0)
+        power = (move.get("base_power") or 0) * data.expected_hits(move)
+        best = max(best, mult * stab * power / 120.0)
     return best
 
 

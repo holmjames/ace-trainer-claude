@@ -58,12 +58,15 @@ class MatchMemory:
 
     # -- draft -----------------------------------------------------------------------
 
-    def observe_draft(self, obs: dict, *, my_turn: bool) -> None:
+    def observe_draft(self, obs: dict, *, my_turn: bool, agent_id: str | None = None) -> None:
         for card in obs.get("available_cards") or []:
             if isinstance(card, dict) and card.get("card_id"):
                 self.pool_cards[card["card_id"]] = card
         if self.first_drafter is None and obs.get("first_drafter") is not None:
             self.first_drafter = str(obs.get("first_drafter"))
+        rosters = obs.get("rosters")
+        if self.my_seat_key is None and agent_id and isinstance(rosters, dict) and agent_id in rosters:
+            self.my_seat_key = agent_id  # rosters and current_seat are keyed by agent id
         if my_turn and obs.get("current_seat") is not None:
             self.my_seat_key = str(obs.get("current_seat"))
         self._sync_rosters(obs)

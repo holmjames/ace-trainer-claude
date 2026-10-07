@@ -52,6 +52,8 @@ class Mon:
     moves: list[dict]  # known moves (move_info dicts with "id")
     fainted: bool = False
 
+    tailwind: bool = False
+
     def stat(self, name: str) -> float:
         base = self.stats.get(name, 0)
         value = base * stage_multiplier(self.boosts.get(name, 0))
@@ -60,6 +62,8 @@ class Mon:
                 value *= 0.5
             if data.to_id(self.item) == "choicescarf":
                 value *= 1.5
+            if self.tailwind:
+                value *= 2
         if name == "atk" and data.to_id(self.item) == "choiceband":
             value *= 1.5
         if name == "spa" and data.to_id(self.item) == "choicespecs":
@@ -136,9 +140,10 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
         mod *= 0.5
     if data.to_id(attacker.item) == "lifeorb":
         mod *= 1.3
+    hits = data.expected_hits(move, item=attacker.item)
     current_hp = max(1.0, defender.stats["hp"] * defender.hp_fraction)
-    low = base * RANDOM_MIN * mod / current_hp * 100
-    high = base * RANDOM_MAX * mod / current_hp * 100
+    low = base * RANDOM_MIN * mod * hits / current_hp * 100
+    high = base * RANDOM_MAX * mod * hits / current_hp * 100
     return (round(low, 1), round(high, 1))
 
 
@@ -191,9 +196,18 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
     sheet = TurnSheet()
     slots = sorted(template.get("slots") or [], key=lambda s: s.get("slot", 0))
     weather = obs.get("weather") if isinstance(obs.get("weather"), str) else None
-    sheet.trick_room = "trickroom" in data.to_id(json.dumps(obs.get("field") or {}, default=str))
+    field_text = data.to_id(json.dumps([obs.get("fields"), obs.get("field")], default=str))
+    sheet.trick_room = "trickroom" in field_text
     if sheet.trick_room:
         sheet.notes.append("Trick Room is up: slower Pokémon move first.")
+    my_tailwind = "tailwind" in data.to_id(json.dumps(obs.get("side_conditions"), default=str))
+    their_tailwind = "tailwind" in data.to_id(json.dumps(obs.get("opponent_side_conditions"), default=str))
+    if my_tailwind:
+        sheet.notes.append("Our Tailwind is up (speed doubled).")
+    if their_tailwind:
+        sheet.notes.append("Opponent's Tailwind is up (their speed doubled).")
+    if weather:
+        sheet.notes.append(f"Weather: {weather}.")
 
     # Our active Pokémon, one per slot.
     ours: dict[int, Mon] = {}
@@ -206,6 +220,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
         key = species_key(species)
         mon = build_mon(_find_summary(obs.get("team"), species), memory.my_cards.get(key), side="mine", position=slot.get("slot"))
         if mon:
+            mon.tailwind = my_tailwind
             ours[slot.get("slot", 0)] = mon
 
     # Their active Pokémon by board position (from target_options when present).
@@ -217,11 +232,13 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
                     key = species_key(t["species"])
                     mon = build_mon(_find_summary(obs.get("opponent_team"), t["species"]), memory.opp_cards.get(key), side="theirs", position=t.get("target"))
                     if mon:
+                        mon.tailwind = their_tailwind
                         theirs[int(t["target"])] = mon
     if not theirs:
         for index, summary in enumerate(_active_summaries(obs.get("opponent_team"))[:2], start=1):
             mon = build_mon(summary, memory.opp_cards.get(species_key(summary.get("species"))), side="theirs", position=index)
             if mon:
+                mon.tailwind = their_tailwind
                 theirs[index] = mon
 
     # Speed order.

@@ -116,6 +116,24 @@ def move_info(name: object) -> dict | None:
     return moves().get(to_id(name))
 
 
+def expected_hits(move: dict | None, *, item: object = None) -> float:
+    """How many times a move strikes: 1 for most, a fixed count (Surging Strikes 3, Dragon Darts 2),
+    or the average of a range (2–5 hit moves average 3.1; 4–5 with Loaded Dice)."""
+    multihit = (move or {}).get("multihit")
+    if not multihit:
+        return 1.0
+    if isinstance(multihit, (int, float)):
+        return float(multihit)
+    if isinstance(multihit, list) and len(multihit) == 2:
+        lo, hi = multihit
+        if to_id(item) == "loadeddice" and lo <= 4 <= hi:
+            return 4.5
+        if (lo, hi) == (2, 5):
+            return 3.1  # 2,3 at 35% each; 4,5 at 15% each
+        return (lo + hi) / 2
+    return 1.0
+
+
 # -- stats -------------------------------------------------------------------------------
 
 

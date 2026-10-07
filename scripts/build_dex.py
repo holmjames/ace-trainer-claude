@@ -6,7 +6,7 @@ two we need, keeps only the fields the agent uses, and writes small files the
 agent loads at startup with no network call:
 
     data/pokedex.json   {species_id: {name, types, base_stats, abilities, weightkg}}
-    data/moves.json     {move_id: {name, type, category, base_power, accuracy, priority, target, flags}}
+    data/moves.json     {move_id: {name, type, category, base_power, accuracy, priority, target, flags, multihit}}
 
 Ids are Showdown ids (lowercase, letters and digits only), the same
 normalization the game server uses for species, so lookups are direct.
@@ -69,6 +69,7 @@ def trim_moves(raw: dict) -> dict:
             "priority": entry.get("priority", 0),
             "target": entry.get("target"),
             "flags": [flag for flag in MOVE_FLAGS if flags.get(flag)],
+            "multihit": entry.get("multihit"),  # int, [min, max], or absent
         }
     return out
 

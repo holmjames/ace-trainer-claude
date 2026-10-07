@@ -55,7 +55,8 @@ REASONING_CHAR_LIMIT = 280
 
 # Battle observation keys worth showing the model (the per-slot options are
 # passed separately, already annotated with who each target is).
-_BATTLE_KEYS = ("turn", "weather", "field", "team", "opponent_team", "active_pokemon", "force_switch")
+_BATTLE_KEYS = ("turn", "weather", "fields", "field", "side_conditions", "opponent_side_conditions", "active_pokemon",
+                "opponent_active_pokemon", "force_switch", "team", "opponent_team")
 
 # The adapter's own slot schema uses a nullable target; Claude's structured
 # output is happiest with plain types, so we ask for an integer and tell the
@@ -117,7 +118,7 @@ class PokemonAgent:
         first = state.legal_actions[0]
 
         if first.action_id.startswith(draft_rules.PREFIX):
-            self.memory.observe_draft(obs, my_turn=True)
+            self.memory.observe_draft(obs, my_turn=True, agent_id=context.agent_id)
             return self._draft(state, obs, log)
         if first.action_id == "select_lineup":
             self.memory.observe_team_preview(obs)
