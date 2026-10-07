@@ -180,7 +180,7 @@ class PokemonAgent:
         if isinstance(value, dict):
             self.memory.my_lineup = list(value.get("bring") or [])
         log.write("lineup", state_version=state.state_version, payload=_payload(value),
-                  candidates=payload["computed_candidates"], **info)
+                  candidates=payload["computed_candidates"], known_sets=payload["known_sets"], **info)
         summary = (answer or {}).get("reasoning_summary") or f"Bringing {value.get('bring')}, leading {value.get('leads')}."
         return value, str(summary)
 
