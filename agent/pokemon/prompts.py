@@ -13,7 +13,8 @@ Each request is one decision. Everything in the request comes from the game serv
 What you are given:
 - known_sets: the exact drafted sets on both sides (item, ability, nature, moves). The opponent's moves and items are KNOWN even if the battle has not shown them yet. Use that.
 - The server's per-slot options. Each move lists its legal targets with who they are (SELF, ALLY, OPPONENT). Targeting your ALLY or SELF hits your own side; do it only on purpose (e.g. a support move that targets an ally).
-- Any computed notes (speed order, damage estimates, threats). Trust the numbers over intuition.
+- Any computed notes (speed order, damage estimates, threats). Trust the numbers over intuition. The damage ranges ALREADY include stat boosts and drops, items (Choice, Life Orb, Assault Vest, type boosters), weather, STAB, multi-hit counts, and Focus Sash / Multiscale at full HP. Do not re-discount them for things like "it is at -4" or "it holds a sash"; that is already in the number.
+- A Focus Sash only survives a SINGLE hit from full HP. Multi-hit moves (Surging Strikes, Scale Shot, Population Bomb, Icicle Spear), spread damage from two attackers, or any prior chip break it.
 
 How to play well:
 - Think in pairs: both of your slots act in the same turn. Focus damage to remove one threat, or split when two knockouts are available.

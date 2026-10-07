@@ -242,7 +242,7 @@ seats alternating:
 | Sonnet 5.5 | 5-5 | 1.9 s / 5.5 s | $2 / $10 per MTok |
 | (Fable 5.1 itself) | — | 4.3 s / 20 s | $10 / $50 per MTok |
 
-**30-game series: Opus 19-11.** Combined with the first ten, **Opus 26-14 over 40 games (65%)** against Fable judging the same agent.
+**30-game series: 26 decided (4 games errored), Opus 16-10.** Combined with the first ten, **Opus 23-13 over 36 decided games (64%, roughly ±16)** against Fable judging the same agent.
 Hard positions (6 positions × 3 repeats, acceptance rules reviewed by hand): Fable low 12/18, Fable high 12/18, Opus 12/18, Sonnet 12/18, and
 all four made the identical choice on all 18 runs. On model-answered turns each judge takes the code's top candidate ~46–48% of the
 time with the same override rate in won and lost games. Fable had 0 real fallbacks; one 40 s timeout was rescued by Sonnet.

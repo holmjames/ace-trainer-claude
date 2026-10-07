@@ -275,6 +275,13 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         {"species": m.species, "side": m.side, "position": m.position, "speed": int(s)} for m, s in speeds
     ]
 
+    for number, me in sorted(ours.items()):
+        if data.to_id(me.item) == "focussash":
+            sheet.notes.append(f"Our {me.species} holds Focus Sash" + (" (intact at full HP: survives ONE single hit, not multi-hit or two hits)." if me.hp_fraction >= 0.999 else " but is not at full HP: the sash will not save it."))
+    for pos, opp in sorted(theirs.items()):
+        if data.to_id(opp.item) == "focussash" and opp.hp_fraction >= 0.999:
+            sheet.notes.append(f"Their {opp.species} holds an intact Focus Sash: it needs two hits or a multi-hit move to KO this turn.")
+
     # Our damage estimates per slot option.
     for slot in slots:
         number = slot.get("slot", 0)
@@ -329,8 +336,13 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 est = damage_percent(opp, move, me, weather=weather, spread=move.get("target") in SPREAD_TARGETS and len(ours) > 1)
                 if est is None:
                     continue
-                threat["hits"].append({"move": move["id"], "into_slot": number, "species": me.species, "damage_pct_of_current_hp": list(est),
-                                       "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no"), "priority": move.get("priority", 0)})
+                if me.fainted or me.hp_fraction <= 0:
+                    continue
+                hit = {"move": move["id"], "into_slot": number, "species": me.species, "damage_pct_of_current_hp": list(est),
+                       "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no"), "priority": move.get("priority", 0)}
+                if data.expected_hits(move, item=opp.item) > 1:
+                    hit["multi_hit"] = True  # breaks Focus Sash
+                threat["hits"].append(hit)
         if "fakeout" in threat["known_moves"]:
             threat["note"] = "has Fake Out (only works on its first turn out)"
         sheet.threats.append(threat)
@@ -430,11 +442,22 @@ def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "Turn
     return (0.0, 0)
 
 
+def ko_probability(hit: dict) -> float:
+    """Chance a hit KOs, treating the damage roll as uniform between its min and max."""
+    lo, hi = hit["damage_pct_of_current_hp"]
+    if lo >= 100:
+        return 1.0
+    if hi < 100:
+        return 0.0
+    return (hi - 100.0) / max(hi - lo, 0.1)
+
+
 def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, speed_rank: dict,
                     my_attack_row: dict | None = None, P: dict | None = None) -> float:
+    """Chance this slot gets to act: 1.0 if nothing faster can KO it, 0.0 for a guaranteed KO, and in between by
+    the KO roll probability (scaled by ``survival_possible``). A threat we act before AND knock out with our own
+    attack (``my_attack_row``) doesn't count."""
     P = P or DEFAULTS
-    """1.0 if nothing that moves before this slot can KO it; 0.5 for a possible KO; 0.0 for a guaranteed one.
-    A threat we act before AND knock out with our own attack (``my_attack_row``) doesn't count."""
     factor = 1.0
     for threat in sheet.threats:
         for hit in threat["hits"]:
@@ -447,8 +470,9 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
                     and my_attack_row.get("damage_pct_of_current_hp", [0, 0])[0] >= 100:
                 continue  # we remove it before it moves
             if not we_first:
-                factor = min(factor, 0.0 if hit["ko"] == "guaranteed" else P["survival_possible"])
-    return factor
+                p_ko = ko_probability(hit)
+                factor = min(factor, 1.0 - p_ko * (1.0 if hit["ko"] == "guaranteed" else 2 * P["survival_possible"]))
+    return max(0.0, factor)
 
 
 def switch_value(species: str, theirs: dict[int, "Mon"], memory: "MatchMemory") -> float:
@@ -613,12 +637,20 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 continue
             slot = slot_template(endangered)
             protect = None
-            if slot:
+            attacker = theirs.get(threat["position"])
+            move_info = data.move_info(hit["move"]) or {}
+            pierces_protect = (attacker is not None and data.to_id(attacker.ability) == "unseenfist" and "contact" in (move_info.get("flags") or [])) \
+                or hit["move"] in ("feint", "hyperspacefury", "hyperspacehole", "phantomforce", "shadowforce")
+            if slot and not pierces_protect:
                 protect = next((i for i, o in enumerate(slot.get("options") or []) if o.get("type") == "move"
                                 and data.to_id(o.get("move_id")) in ("protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap")), None)
+            if pierces_protect:
+                note = f"{threat['species']}'s {hit['move']} goes THROUGH Protect (Unseen Fist / Protect-piercing move): switch slot {endangered} out instead of protecting."
+                if note not in sheet.warnings:
+                    sheet.warnings.append(note)
             if protect is not None and best[other][0]:
                 answers = {endangered: {"option": protect, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
-                bonus = P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]
+                bonus = P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"] * (0.5 + ko_probability(hit))
                 add("protect_threatened", answers[0], answers[1],
                     f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
                     best[other][2] + bonus)
@@ -627,7 +659,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if switch is not None:
                     answers = {endangered: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
                     add("switch_threatened", answers[0], answers[1],
-                        f"{threat['species']}'s {hit['move']} can KO slot {endangered}; switch it out, slot {other} attacks", best[other][2] + P["switch_threatened_bonus"])
+                        f"{threat['species']}'s {hit['move']} can KO slot {endangered}" + (" and pierces Protect" if pierces_protect else "") + f"; switch it out, slot {other} attacks",
+                        best[other][2] + P["switch_threatened_bonus"] + (P["protect_bonus_guaranteed"] if pierces_protect else 0) * ko_probability(hit))
 
     # 4. Fake Out on a Pokémon's first turn out: flinch the biggest threat while the partner sets up or attacks.
     for number in (0, 1):
