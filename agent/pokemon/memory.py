@@ -109,7 +109,19 @@ class MatchMemory:
 
     # -- battle ----------------------------------------------------------------------
 
+    last_active: list[str] = field(default_factory=list)
+    fresh_active: list[str] = field(default_factory=list)  # our actives that just came in this turn
+
     def observe_battle(self, obs: dict) -> None:
+        actives = []
+        for entry in obs.get("active_pokemon") or []:
+            key = species_key(entry.get("species") if isinstance(entry, dict) else entry)
+            if key:
+                actives.append(key)
+        if actives:
+            turn = obs.get("turn")
+            self.fresh_active = [a for a in actives if a not in self.last_active] if (self.last_active or turn not in (None, 1)) else list(actives)
+            self.last_active = actives
         opponent_team = obs.get("opponent_team")
         if isinstance(opponent_team, dict):
             for summary in opponent_team.values():

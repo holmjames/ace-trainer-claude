@@ -300,3 +300,12 @@ def test_create_agent_without_a_key_runs_code_only(monkeypatch, capsys):
     agent = create_agent()
     assert isinstance(agent, PokemonAgent)
     assert "code-only" in capsys.readouterr().err
+
+
+def test_draft_identifies_our_seat_from_the_agent_id_before_our_first_turn(tmp_path):
+    memory = MatchMemory()
+    obs = {"rosters": {"agent-a": [{"card_id": "vgc-garchomp", "species": "Garchomp"}], "agent-b": [{"card_id": "vgc-amoonguss", "species": "Amoonguss"}]},
+           "current_seat": "agent-b", "available_cards": _draft_cards()}
+    memory.observe_draft(obs, my_turn=False, agent_id="agent-a")
+    assert memory.my_seat_key == "agent-a"
+    assert species_key("Garchomp") in memory.my_cards and species_key("Amoonguss") in memory.opp_cards

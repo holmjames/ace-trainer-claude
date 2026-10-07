@@ -70,6 +70,7 @@ def trim_moves(raw: dict) -> dict:
             "target": entry.get("target"),
             "flags": [flag for flag in MOVE_FLAGS if flags.get(flag)],
             "multihit": entry.get("multihit"),  # int, [min, max], or absent
+            "will_crit": bool(entry.get("willCrit")),  # Surging Strikes, Wicked Blow, Flower Trick
         }
     return out
 

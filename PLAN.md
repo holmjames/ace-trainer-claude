@@ -185,6 +185,14 @@ Budget approved: **$250**. Default to Fable 5.1 for testing so what we tune is w
 
 ---
 
+## 5a. Offline strength work (added Oct 6, while waiting for the sign-up link)
+
+- **Scenario eval suite** (`scripts/scenarios.py`): nine hand-built doubles situations with a known good play (Fake Out turn 1, Protect vs a faster KO, no Earthquake into an ally, finish the low-HP target, switch when walled, spread vs two weak targets, Trick Room speed, respect priority Sucker Punch, attack under Tailwind). `--code-only` shows what the computed fallback does; the default runs the real model chain. Every run appends to `logs/scenarios.jsonl`. **Oct 6 results: code-only 9/9; Fable 5.1 8/9** (missed the priority Sucker Punch KO; the sheet now carries explicit LETHAL warnings and the prompt a priority rule).
+- **Damage math verified** against Smogon's official calculator (`@smogon/calc`, 376 generated cases in `tests/fixtures/smogon_calc.json`, `tests/test_damage_vs_smogon.py`): median error 0.5% of max HP, p90 1.4%, max 3.9%. Found and fixed on the way: multi-hit moves, always-crit moves, type-boost items, Expert Belt, Knock Off's item bonus.
+- **Candidate ranking is now scored**, not fixed-order: survival factor (a slot that dies to a faster KO contributes nothing), status-move values (Spore, Rage Powder, Tailwind, Trick Room, Will-O-Wisp…), Fake Out setup on a fresh switch-in, ally damage charged against spread moves, speed-aware Protect.
+- **Payload shapes** aligned with the platform guide's examples: seats keyed by agent id, `fields`/`side_conditions` for Trick Room and Tailwind, `active_pokemon` lists.
+- Still to do offline: run the suite at `AGENT_EFFORT=medium`/`high` and compare accuracy vs latency; more scenarios as live matches reveal mistakes.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |

@@ -24,6 +24,13 @@ from .memory import MatchMemory, species_key
 
 LEVEL = 50
 SPREAD_TARGETS = {"allAdjacentFoes", "allAdjacent"}
+# Items that boost one type's moves by 20%.
+TYPE_BOOST_ITEMS = {
+    "silkscarf": "normal", "charcoal": "fire", "mysticwater": "water", "magnet": "electric", "miracleseed": "grass",
+    "nevermeltice": "ice", "blackbelt": "fighting", "poisonbarb": "poison", "softsand": "ground", "sharpbeak": "flying",
+    "twistedspoon": "psychic", "silverpowder": "bug", "hardstone": "rock", "spelltag": "ghost", "dragonfang": "dragon",
+    "blackglasses": "dark", "metalcoat": "steel", "fairyfeather": "fairy",
+}
 RANDOM_MIN, RANDOM_MAX = 0.85, 1.0
 
 
@@ -138,8 +145,17 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
     mod *= type_mult
     if attacker.status == "brn" and category == "Physical":
         mod *= 0.5
-    if data.to_id(attacker.item) == "lifeorb":
+    item = data.to_id(attacker.item)
+    if item == "lifeorb":
         mod *= 1.3
+    if TYPE_BOOST_ITEMS.get(item) == move_type:
+        mod *= 1.2
+    if item == "expertbelt" and type_mult > 1:
+        mod *= 1.2
+    if move.get("id") == "knockoff" and defender.item:
+        mod *= 1.5  # Knock Off hits harder when the target holds an item
+    if move.get("will_crit"):
+        mod *= 1.5  # always a critical hit (Surging Strikes, Wicked Blow, Flower Trick)
     hits = data.expected_hits(move, item=attacker.item)
     current_hp = max(1.0, defender.stats["hp"] * defender.hp_fraction)
     low = base * RANDOM_MIN * mod * hits / current_hp * 100
@@ -158,9 +174,11 @@ class TurnSheet:
     threats: list[dict] = field(default_factory=list)
     candidates: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)  # lethal threats that act before our slot can
 
     def as_prompt(self) -> dict:
         return {
+            "WARNINGS": self.warnings,
             "speed_order": self.speed_order,
             "trick_room": self.trick_room,
             "our_damage_estimates": self.our_options,
@@ -283,6 +301,8 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
                     est = damage_percent(me, move, defender, weather=weather, spread=spread)
                     if est is not None:
                         per_target.append({**_row(0, defender, est), "spread": True})
+                        if defender.side == "mine" and est[1] > 0:
+                            sheet.notes.append(f"{move['id']} from slot {number} also hits our own {defender.species} for {est[0]}-{est[1]}%.")
             if per_target or move.get("base_power"):
                 entry["options"].append({"option": index, "move": move["id"], "priority": move.get("priority", 0), "spread": spread, "targets": per_target})
         sheet.our_options.append(entry)
@@ -304,7 +324,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
             threat["note"] = "has Fake Out (only works on its first turn out)"
         sheet.threats.append(threat)
 
-    sheet.candidates = rank_candidates(slots, ours, theirs, sheet)
+    sheet.candidates = rank_candidates(slots, ours, theirs, sheet, fresh=set(memory.fresh_active))
     return sheet
 
 
@@ -318,20 +338,24 @@ def _expected(row: dict, priority: int) -> float:
 
 def _best_attack(entry: dict, *, avoid_target: int | None = None) -> tuple[dict | None, dict | None, float]:
     """Highest expected damage (option, target_row, expected%) among a slot's move options.
-    A spread move (rows with target 0) counts the damage to every opposing Pokémon it hits."""
+    A spread move (rows with target 0) counts the damage to every opposing Pokémon it hits and is
+    charged for damage to our own ally."""
     best: tuple[dict | None, dict | None, float] = (None, None, -1.0)
     for option in entry.get("options") or []:
         priority = option.get("priority") or 0
-        rows = [r for r in option.get("targets") or [] if r["side"] == "theirs" and r["target"] != avoid_target]
-        spread_rows = [r for r in rows if r["target"] == 0]
+        rows = [r for r in option.get("targets") or [] if r["target"] != avoid_target]
+        foe_rows = [r for r in rows if r["side"] == "theirs"]
+        spread_rows = [r for r in foe_rows if r["target"] == 0]
         if spread_rows:
-            expected = sum(_expected(r, priority) for r in spread_rows)
+            ally_hit = sum(_expected(r, 0) for r in rows if r["side"] == "mine")
+            expected = sum(_expected(r, priority) for r in spread_rows) - 1.5 * ally_hit
             if expected > best[2]:
                 summary = {"target": 0, "species": " + ".join(r["species"] for r in spread_rows), "side": "theirs",
                            "damage_pct_of_current_hp": [sum(r["damage_pct_of_current_hp"][0] for r in spread_rows),
-                                                        sum(r["damage_pct_of_current_hp"][1] for r in spread_rows)]}
+                                                        sum(r["damage_pct_of_current_hp"][1] for r in spread_rows)],
+                           "ally_damage_pct": round(ally_hit, 1) if ally_hit else 0}
                 best = (option, summary, expected)
-        for row in rows:
+        for row in foe_rows:
             if row["target"] == 0:
                 continue
             expected = _expected(row, priority)
@@ -347,75 +371,246 @@ def _option_index(slot: dict, kind: str, **match: Any) -> int | None:
     return None
 
 
-def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int, "Mon"], sheet: TurnSheet) -> list[dict]:
-    """A few complete turns worth considering, best first. Each is {slot_0, slot_1, why}."""
+SLEEP_MOVES = {"spore", "sleeppowder", "hypnosis", "darkvoid", "lovelykiss", "sing", "grasswhistle", "yawn"}
+REDIRECT_MOVES = {"ragepowder", "followme"}
+SETUP_MOVES = {"tailwind": 55, "trickroom": 50, "icywind": 35, "electroweb": 30, "snarl": 20}
+STATUS_MOVES = {"willowisp": 35, "thunderwave": 35, "stunspore": 25, "glare": 30, "nuzzle": 25}
+MISC_VALUE = {"helpinghand": 20, "partingshot": 25, "encore": 20, "nastyplot": 30, "swordsdance": 30, "dragondance": 30,
+              "calmmind": 25, "bulkup": 25, "coaching": 20, "lifedew": 20, "wideguard": 20, "substitute": 10, "haze": 10}
+
+
+def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "TurnSheet", slot_number: int) -> tuple[float, int]:
+    """(value in 'expected damage points', target int) for a non-damaging move; 0 when pointless."""
+    if move_id in SLEEP_MOVES:
+        best = (0.0, 0)
+        for pos, opp in theirs.items():
+            if opp.status or "grass" in opp.types and move_id in ("spore", "sleeppowder", "stunspore") or data.to_id(opp.item) in ("safetygoggles", "covertcloak") and move_id in ("spore", "sleeppowder"):
+                continue
+            danger = sum(_expected(h, 0) for t in sheet.threats if t["position"] == pos for h in t["hits"])
+            value = 50 + min(danger, 60) / 3
+            if value > best[0]:
+                best = (value, pos)
+        return best
+    if move_id in REDIRECT_MOVES:
+        partner_hits = [h for t in sheet.threats for h in t["hits"] if h["into_slot"] != slot_number]
+        return ((45 if any(h["ko"] != "no" for h in partner_hits) else 15), 0)
+    if move_id in SETUP_MOVES:
+        up = {"tailwind": any("Our Tailwind" in n for n in sheet.notes), "trickroom": sheet.trick_room}.get(move_id, False)
+        return ((0 if up else SETUP_MOVES[move_id]), 0)
+    if move_id in STATUS_MOVES:
+        best = (0.0, 0)
+        for pos, opp in theirs.items():
+            if opp.status:
+                continue
+            immune = ("fire" in opp.types and move_id == "willowisp") or ("electric" in opp.types and move_id in ("thunderwave", "nuzzle")) \
+                or ("ground" in opp.types and move_id in ("thunderwave", "nuzzle")) or ("grass" in opp.types and move_id == "stunspore")
+            if immune:
+                continue
+            if STATUS_MOVES[move_id] > best[0]:
+                best = (float(STATUS_MOVES[move_id]), pos)
+        return best
+    if move_id in MISC_VALUE:
+        value = MISC_VALUE[move_id]
+        if move_id in ("nastyplot", "swordsdance", "dragondance", "calmmind", "bulkup") and me.hp_fraction < 0.6:
+            value = 5
+        return (float(value), 0)
+    return (0.0, 0)
+
+
+def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, speed_rank: dict,
+                    my_attack_row: dict | None = None) -> float:
+    """1.0 if nothing that moves before this slot can KO it; 0.5 for a possible KO; 0.0 for a guaranteed one.
+    A threat we act before AND knock out with our own attack (``my_attack_row``) doesn't count."""
+    factor = 1.0
+    for threat in sheet.threats:
+        for hit in threat["hits"]:
+            if hit["into_slot"] != slot_number or hit["ko"] == "no":
+                continue
+            their_priority = hit.get("priority", 0)
+            we_first = my_priority > their_priority or (my_priority == their_priority and
+                       speed_rank.get(("mine", slot_number), 99) < speed_rank.get(("theirs", threat["position"]), 99))
+            if we_first and my_attack_row and my_attack_row.get("target") == threat["position"] \
+                    and my_attack_row.get("damage_pct_of_current_hp", [0, 0])[0] >= 100:
+                continue  # we remove it before it moves
+            if not we_first:
+                factor = min(factor, 0.0 if hit["ko"] == "guaranteed" else 0.5)
+    return factor
+
+
+def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int, "Mon"], sheet: TurnSheet,
+                    fresh: set[str] | None = None) -> list[dict]:
+    """A few complete turns worth considering, best first. Each is {name, slot_0, slot_1, why, score}."""
     by_slot = {e["slot"]: e for e in sheet.our_options}
+    fresh = fresh or set()
+    speed_rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
     candidates: list[dict] = []
 
-    def slot_answer(number: int, option_index: int | None, target: int | None) -> dict | None:
+    def slot_answer(option_index: int | None, target: int | None) -> dict | None:
         if option_index is None:
             return None
         return {"option": option_index, "target": target if target is not None else 0}
 
-    def add(name: str, s0: dict | None, s1: dict | None, why: str) -> None:
+    def add(name: str, s0: dict | None, s1: dict | None, why: str, score: float) -> None:
         if s0 is None or s1 is None:
             return
-        cand = {"name": name, "slot_0": s0, "slot_1": s1, "why": why}
-        if cand not in candidates:
+        cand = {"name": name, "slot_0": s0, "slot_1": s1, "why": why, "score": round(score, 1)}
+        if not any(c["slot_0"] == s0 and c["slot_1"] == s1 for c in candidates):
             candidates.append(cand)
 
-    # Which opponent is in the most danger from our combined best hits?
-    best0 = _best_attack(by_slot.get(0, {}))
-    best1 = _best_attack(by_slot.get(1, {}))
+    def slot_template(number: int) -> dict | None:
+        return next((s for s in slots if s.get("slot", 0) == number), None)
+
+    def acts_before(me_slot: int, opp_pos: int, my_priority: int = 0, their_priority: int = 0) -> bool:
+        if my_priority != their_priority:
+            return my_priority > their_priority
+        return speed_rank.get(("mine", me_slot), 99) < speed_rank.get(("theirs", opp_pos), 99)
+
+    def best_action(number: int) -> tuple[dict | None, dict | None, float]:
+        """Best attack (discounted by the chance this slot dies first) or best status move, as (option, row, value)."""
+        attack = _best_attack(by_slot.get(number, {}))
+        prio = attack[0].get("priority", 0) if attack[0] else 0
+        value = attack[2] * survival_factor(number, sheet, prio, speed_rank, attack[1]) if attack[0] else -1.0
+        choice = (attack[0], attack[1], value)
+        slot = slot_template(number)
+        me = ours.get(number)
+        if slot and me:
+            surv = survival_factor(number, sheet, 0, speed_rank)
+            for index, option in enumerate(slot.get("options") or []):
+                if option.get("type") != "move":
+                    continue
+                move_id = data.to_id(option.get("move_id"))
+                info = data.move_info(move_id) or {}
+                if (info.get("base_power") or 0) > 0 or move_id in ("protect", "detect", "fakeout"):
+                    continue
+                prio = info.get("priority", 0) or 0
+                sv, target = status_value(move_id, me, theirs, sheet, number)
+                sv *= survival_factor(number, sheet, prio, speed_rank) if prio <= 0 else 1.0
+                if sv > choice[2]:
+                    legal = option.get("targets") or []
+                    tgt = target if target in legal else (legal[0] if legal else 0)
+                    pseudo = {"option": index, "move": move_id, "priority": prio}
+                    choice = (pseudo, {"target": tgt, "species": theirs[tgt].species if tgt in theirs else "field", "side": "theirs",
+                                       "damage_pct_of_current_hp": [0, 0], "status_value": round(sv, 1)}, sv)
+        return choice
+
+    best = {n: best_action(n) for n in (0, 1)}
+
+    # Spell out every KO threat that moves before the slot it targets (priority ignores speed and Tailwind).
+    for threat in sheet.threats:
+        for hit in threat["hits"]:
+            if hit["ko"] == "no":
+                continue
+            number = hit["into_slot"]
+            me = ours.get(number)
+            my_prio = best[number][0].get("priority", 0) if best[number][0] else 0
+            if acts_before(number, threat["position"], my_prio, hit.get("priority", 0)):
+                continue
+            prio_note = f" with priority +{hit['priority']}" if hit.get("priority", 0) > 0 else ""
+            sheet.warnings.append(
+                f"LETHAL: {threat['species']}'s {hit['move']}{prio_note} hits slot {number} ({me.species if me else '?'}) for "
+                f"{hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}% BEFORE it can move. "
+                f"Protect/switch that slot unless the game is won anyway."
+            )
 
     # 1. Both slots use their own best attack.
-    if best0[0] and best1[0]:
-        add("best_attacks",
-            slot_answer(0, best0[0]["option"], best0[1]["target"]),
-            slot_answer(1, best1[0]["option"], best1[1]["target"]),
-            f"slot 0 {best0[0]['move']} -> {best0[1]['species']} ({best0[1]['damage_pct_of_current_hp']}%), "
-            f"slot 1 {best1[0]['move']} -> {best1[1]['species']} ({best1[1]['damage_pct_of_current_hp']}%)")
+    if best[0][0] and best[1][0]:
+        add("best_attacks", slot_answer(best[0][0]["option"], best[0][1]["target"]), slot_answer(best[1][0]["option"], best[1][1]["target"]),
+            f"slot 0 {best[0][0]['move']} -> {best[0][1]['species']} ({best[0][1]['damage_pct_of_current_hp']}%), "
+            f"slot 1 {best[1][0]['move']} -> {best[1][1]['species']} ({best[1][1]['damage_pct_of_current_hp']}%)",
+            best[0][2] + best[1][2])
 
     # 2. Focus fire: both into the same target when together they likely KO it.
     for target, opp in theirs.items():
         rows = []
         for number in (0, 1):
-            opt, row, _ = _best_attack(by_slot.get(number, {}), avoid_target=next((t for t in theirs if t != target), None))
+            other_target = next((t for t in theirs if t != target), None)
+            opt, row, exp = _best_attack(by_slot.get(number, {}), avoid_target=other_target)
             if opt and row and row["target"] == target:
-                rows.append((number, opt, row))
+                rows.append((number, opt, row, exp))
         if len(rows) == 2:
-            combined = sum(r["damage_pct_of_current_hp"][0] for _, _, r in rows)
+            combined = sum(r["damage_pct_of_current_hp"][0] for _, _, r, _ in rows)
             if combined >= 100:
-                add("focus_fire",
-                    slot_answer(0, rows[0][1]["option"], target), slot_answer(1, rows[1][1]["option"], target),
-                    f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO")
+                add("focus_fire", slot_answer(rows[0][1]["option"], target), slot_answer(rows[1][1]["option"], target),
+                    f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO", sum(e for *_, e in rows) + 30)
 
-    # 3. Protect a slot that can be KO'd this turn while the other attacks.
+    # 3. A slot faces a KO this turn from something that acts before it: Protect it while the other attacks.
     for threat in sheet.threats:
         for hit in threat["hits"]:
-            if hit["ko"] in ("guaranteed", "possible"):
-                endangered = hit["into_slot"]
-                other = 1 - endangered
-                slot = next((s for s in slots if s.get("slot", 0) == endangered), None)
-                protect = _option_index(slot, "move", move_id="protect") if slot else None
-                if protect is None and slot:
-                    protect = next((i for i, o in enumerate(slot.get("options") or []) if o.get("type") == "move" and data.to_id(o.get("move_id")) in ("detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap")), None)
-                best_other = _best_attack(by_slot.get(other, {}))
-                if protect is not None and best_other[0]:
-                    answers = {endangered: {"option": protect, "target": 0}, other: slot_answer(other, best_other[0]["option"], best_other[1]["target"])}
-                    add("protect_threatened", answers[0], answers[1],
-                        f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%); Protect it, slot {other} attacks")
+            if hit["ko"] not in ("guaranteed", "possible"):
+                continue
+            endangered, other = hit["into_slot"], 1 - hit["into_slot"]
+            my_best = best[endangered]
+            my_prio = my_best[0].get("priority", 0) if my_best[0] else 0
+            can_remove_first = (my_best[0] and my_best[1] and my_best[1].get("target") == threat["position"]
+                                and my_best[1]["damage_pct_of_current_hp"][0] >= 100
+                                and acts_before(endangered, threat["position"], my_prio, hit.get("priority", 0)))
+            if can_remove_first:
+                continue
+            slot = slot_template(endangered)
+            protect = None
+            if slot:
+                protect = next((i for i, o in enumerate(slot.get("options") or []) if o.get("type") == "move"
+                                and data.to_id(o.get("move_id")) in ("protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap")), None)
+            if protect is not None and best[other][0]:
+                answers = {endangered: {"option": protect, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
+                bonus = 45 if hit["ko"] == "guaranteed" else 30
+                add("protect_threatened", answers[0], answers[1],
+                    f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
+                    best[other][2] + bonus)
+            elif slot and best[other][0]:
+                switch = _option_index(slot, "switch")
+                if switch is not None:
+                    answers = {endangered: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
+                    add("switch_threatened", answers[0], answers[1],
+                        f"{threat['species']}'s {hit['move']} can KO slot {endangered}; switch it out, slot {other} attacks", best[other][2] + 15)
 
-    # 4. Switch a slot that has no worthwhile attack into a bench Pokémon.
+    # 4. Fake Out on a Pokémon's first turn out: flinch the biggest threat while the partner sets up or attacks.
     for number in (0, 1):
-        slot = next((s for s in slots if s.get("slot", 0) == number), None)
-        best = _best_attack(by_slot.get(number, {}))
-        if slot and (best[0] is None or best[2] < 20):
+        me = ours.get(number)
+        slot = slot_template(number)
+        if not me or not slot or species_key(me.species) not in fresh:
+            continue
+        fake = _option_index(slot, "move", move_id="fakeout")
+        if fake is None:
+            continue
+        fake_option = (slot.get("options") or [])[fake]
+        legal_targets = [t for t in fake_option.get("targets") or [] if t > 0 and t in theirs]
+        if not legal_targets:
+            continue
+        # The threat whose known attacks do the most to us.
+        danger = {pos: sum(_expected(h, 0) for t in sheet.threats if t["position"] == pos for h in t["hits"]) for pos in legal_targets}
+        target = max(danger, key=danger.get)
+        other = 1 - number
+        other_slot = slot_template(other)
+        partner = None
+        setup_name = None
+        if other_slot:
+            for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
+                idx = _option_index(other_slot, "move", move_id=setup)
+                if idx is not None:
+                    partner, setup_name = {"option": idx, "target": 0}, setup
+                    break
+        if partner is None and best[other][0]:
+            partner = slot_answer(best[other][0]["option"], best[other][1]["target"])
+        if partner is None:
+            continue
+        answers = {number: {"option": fake, "target": target}, other: partner}
+        why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (f"sets {setup_name}" if setup_name else "attacks")
+        attacks_ko = any(b[1] and b[1].get("damage_pct_of_current_hp", [0, 0])[0] >= 100 for b in best.values())
+        base = 60 if not attacks_ko else 15
+        # Flinching the Pokémon that threatens a KO on us this turn is worth extra: it can't act.
+        threatens_us = any(h["ko"] != "no" for t in sheet.threats if t["position"] == target for h in t["hits"])
+        add("fake_out_setup", answers[0], answers[1], why, base + (20 if threatens_us else 0) + (best[other][2] * 0.6 if not setup_name else 50))
+
+    # 5. Switch a slot that has no worthwhile attack into a bench Pokémon.
+    for number in (0, 1):
+        slot = slot_template(number)
+        if slot and (best[number][0] is None or best[number][2] < 20):
             switch = _option_index(slot, "switch")
             other = 1 - number
-            best_other = _best_attack(by_slot.get(other, {}))
-            if switch is not None and best_other[0]:
-                answers = {number: {"option": switch, "target": 0}, other: slot_answer(other, best_other[0]["option"], best_other[1]["target"])}
-                add("switch_weak_slot", answers[0], answers[1], f"slot {number} has no good attack; switch out while slot {other} attacks")
+            if switch is not None and best[other][0]:
+                answers = {number: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
+                add("switch_weak_slot", answers[0], answers[1], f"slot {number} has no good attack; switch out while slot {other} attacks", best[other][2] + 10)
 
+    candidates.sort(key=lambda c: -c["score"])
     return candidates[:4]

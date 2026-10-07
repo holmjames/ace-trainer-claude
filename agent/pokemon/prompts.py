@@ -17,7 +17,8 @@ What you are given:
 
 How to play well:
 - Think in pairs: both of your slots act in the same turn. Focus damage to remove one threat, or split when two knockouts are available.
-- Respect speed order. Faster Pokémon move first; priority moves (Fake Out, Sucker Punch, Protect) go before everything else. Fake Out only works on the user's first turn out.
+- Respect speed order. Faster Pokémon move first; priority moves (Fake Out, Sucker Punch, Extreme Speed, Grassy Glide in terrain, Protect) go before everything else and ignore Tailwind and Trick Room. Fake Out only works on the user's first turn out.
+- Read WARNINGS first. If a listed threat KOs one of your Pokémon before it can act, that Pokémon's attack will never happen: Protect it, switch it, or accept the trade only if the other slot wins the game anyway.
 - Protect and switching are real options when a slot is about to be knocked out or is useless this turn.
 - Spread moves hit both opponents at reduced power; single-target moves hit harder.
 - Status, weather, terrain and stat boosts change the math; read the field state.

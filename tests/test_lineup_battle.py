@@ -172,3 +172,21 @@ def test_turn_sheet_degrades_gracefully_without_data():
     sheet = battle.build_sheet(template, {}, MatchMemory())
     assert sheet.speed_order == [] and sheet.threats == []
     assert isinstance(sheet.as_prompt(), dict)
+
+
+def test_tailwind_and_trick_room_come_from_fields_and_side_conditions():
+    obs = {**_obs(), "fields": ["Trick Room"], "side_conditions": ["Tailwind"], "opponent_side_conditions": []}
+    sheet = battle.build_sheet(_template(), obs, memory())
+    assert sheet.trick_room and any("Tailwind" in n for n in sheet.notes)
+    rilla = next(r for r in sheet.speed_order if r["species"] == "Rillaboom")
+    assert rilla["speed"] == pytest.approx(2 * 105, abs=1)  # base 85, 0 Spe EVs, Adamant -> 105, doubled by Tailwind
+    # Under Trick Room the slowest goes first.
+    assert sheet.speed_order == sorted(sheet.speed_order, key=lambda r: r["speed"])
+
+
+def test_multihit_moves_count_every_hit():
+    urshifu = _mon(THEIRS[1], side="theirs", position=1)
+    flutter = _mon(MINE[3], side="mine", position=0)
+    three_hits = battle.damage_percent(urshifu, data.move_info("Surging Strikes") | {"id": "surgingstrikes"}, flutter)
+    one_hit = battle.damage_percent(urshifu, data.move_info("Aqua Jet") | {"id": "aquajet"}, flutter)
+    assert three_hits[1] > 2.5 * one_hit[1]  # 3 x 25 BP (STAB) vs 1 x 40 BP (STAB)
