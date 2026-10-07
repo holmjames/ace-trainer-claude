@@ -191,7 +191,8 @@ Budget approved: **$250**. Default to Fable 5.1 for testing so what we tune is w
 - **Damage math verified** against Smogon's official calculator (`@smogon/calc`, 376 generated cases in `tests/fixtures/smogon_calc.json`, `tests/test_damage_vs_smogon.py`): median error 0.5% of max HP, p90 1.4%, max 3.9%. Found and fixed on the way: multi-hit moves, always-crit moves, type-boost items, Expert Belt, Knock Off's item bonus.
 - **Candidate ranking is now scored**, not fixed-order: survival factor (a slot that dies to a faster KO contributes nothing), status-move values (Spore, Rage Powder, Tailwind, Trick Room, Will-O-Wisp…), Fake Out setup on a fresh switch-in, ally damage charged against spread moves, speed-aware Protect.
 - **Payload shapes** aligned with the platform guide's examples: seats keyed by agent id, `fields`/`side_conditions` for Trick Room and Tailwind, `active_pokemon` lists.
-- Still to do offline: run the suite at `AGENT_EFFORT=medium`/`high` and compare accuracy vs latency; more scenarios as live matches reveal mistakes.
+- **Effort sweep (Oct 6, three parallel runs of the 9 scenarios):** low 9/9, median ~3 s, max 16 s; medium 9/9, max 22 s; high 9/9, max 33 s (one call fell through to Sonnet 5.5, which also answered correctly). Decision: **stay on `low`**. It is the fastest and cheapest and lost nothing; the 300 s clock leaves huge margin either way. Revisit only if live matches show judgment errors the sheet can't fix.
+- Still to do offline: harder scenarios as live matches reveal mistakes (the current nine no longer discriminate between effort levels).
 
 ## 6. Milestones (Oct 6 → Oct 13)
 
