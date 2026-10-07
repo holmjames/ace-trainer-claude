@@ -266,6 +266,12 @@ Reviewed turn by turn against the code's top candidate (3 wins, 2 losses).
 Protect; redirection), sash status notes and multi-hit flags in the sheet, probability-weighted survival and Protect scoring, Unseen Fist handling,
 a redirection candidate, three new scenarios. Opus on the hard set: 14/16 after the fixes (was 12/18 equivalent).
 
+**Status of the five (Oct 7, early):** 1 and 2 implemented behind tuning knobs (`lineup_answer_w`, `lead_priority_multihit_w`;
+`draft_mode_w`, `draft_role_w`, `draft_deny_mode_w`) and being measured by 1,000-game sweeps before they become defaults. 3 implemented:
+our own Protect last turn is tracked (a repeat is discounted to 1/3) and their Protect is inferred when a targeted Pokémon's HP did not move.
+4 implemented: the answer schema has a `win_condition` field and the prompt asks for a two-turn plan; Opus 7/8 on the hard set with it.
+5 pending the two 30-game series (Fable vs code, Opus vs code, same seed) whose losses will seed new hand-checked scenarios.
+
 **Where to improve next, in order of expected impact:**
 1. **Lineup: defensive answers.** Require at least one brought Pokémon that resists or is immune to each of their two strongest attackers' main STAB; weight leads against their likely leads' multi-hit and priority. (Would have brought Garchomp vs Miraidon.)
 2. **Draft: build around a mode.** Once a Trick Room / Tailwind / weather setter is picked, value its partners; reserve roles (speed control, Fake Out/redirect, a defensive answer to their best attacker); deny their mode-completing piece.
