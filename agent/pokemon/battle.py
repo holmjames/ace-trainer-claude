@@ -160,7 +160,7 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
     current_hp = max(1.0, defender.stats["hp"] * defender.hp_fraction)
     low = base * RANDOM_MIN * mod * hits / current_hp * 100
     high = base * RANDOM_MAX * mod * hits / current_hp * 100
-    return (round(low, 1), round(high, 1))
+    return (round(min(low, 999.0), 1), round(min(high, 999.0), 1))  # anything past a KO is just "a KO"
 
 
 # -- the sheet -----------------------------------------------------------------------------------
@@ -311,9 +311,12 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory) -> TurnSheet:
     for position, opp in sorted(theirs.items()):
         threat = {"position": position, "species": opp.species, "hp_pct": round(opp.hp_fraction * 100), "status": opp.status,
                   "item": opp.item, "ability": opp.ability, "known_moves": [m["id"] for m in opp.moves], "hits": []}
+        opp_fresh = species_key(opp.species) in set(memory.opp_fresh_active) or obs.get("turn") in (None, 1)
         for move in opp.moves:
             if (move.get("base_power") or 0) <= 0:
                 continue
+            if move["id"] in ("fakeout", "firstimpression") and not opp_fresh:
+                continue  # only works on the user's first turn out
             for number, me in sorted(ours.items()):
                 est = damage_percent(opp, move, me, weather=weather, spread=move.get("target") in SPREAD_TARGETS and len(ours) > 1)
                 if est is None:

@@ -97,6 +97,13 @@ def score_four(four: list[Profile], theirs: list[Profile]) -> tuple[float, list[
         notes.append("too few attackers")
     score += sum(p.bst for p in four) / 200.0
 
+    # Known 4x weaknesses: a brought Pokémon that takes 4x from one of their actual moves is a liability.
+    if theirs:
+        quad = sum(1 for me in four for opp in theirs for mv in opp.attacks if data.effectiveness(mv.get("type") or "", me.types) >= 4)
+        if quad:
+            score -= 1.5 * quad
+            notes.append(f"{quad} known 4x hit(s) into our four")
+
     # Shared weaknesses: three or more of the four weak to one type is a liability.
     for attack_type in data.TYPES:
         weak = sum(1 for p in four if data.effectiveness(attack_type, p.types) > 1)
@@ -124,12 +131,24 @@ def pick_leads(four: list[Profile], theirs: list[Profile]) -> tuple[list[str], s
         if a.attacks and b.attacks:
             s += 1
         if theirs:
-            # Don't lead two Pokémon the opponent's likely leads both hit super-effectively.
+            # Known attacks into our leads: 4x is a disaster, spread 2x into both is nearly as bad.
             for opp in theirs:
-                hard = [max((data.effectiveness(m.get("type") or "", p.types) for m in opp.attacks), default=1.0) for p in (a, b)]
-                if all(h >= 2 for h in hard):
-                    s -= 2
+                for move in opp.attacks:
+                    mults = [data.effectiveness(move.get("type") or "", p.types) for p in (a, b)]
+                    spread = move.get("target") in ("allAdjacentFoes", "allAdjacent")
+                    for m in mults:
+                        if m >= 4:
+                            s -= 3
+                        elif m >= 2:
+                            s -= 0.8
+                    if spread and all(m >= 2 for m in mults):
+                        s -= 3
+                if "fakeout" in {m["id"] for m in opp.moves}:
+                    s -= 0.5  # their Fake Out costs us tempo on turn 1
             s += sum(max(hit_quality(p, opp) for p in (a, b)) for opp in theirs) / len(theirs)
+            # Our leads should threaten their likely leads back: reward a lead pair that outspeeds and hits hard.
+            fastest_opp = max((o.stats.get("spe", 0) for o in theirs), default=0)
+            s += 1.5 * sum(1 for p in (a, b) if p.stats.get("spe", 0) > fastest_opp or p.priority)
         if s > best_score:
             best_pair, best_score, best_note = [a, b], s, ", ".join(notes)
     return [p.species for p in best_pair], best_note

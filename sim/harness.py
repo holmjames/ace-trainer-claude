@@ -221,8 +221,11 @@ def main(argv: list[str] | None = None) -> int:
             specs = {"p1": args.p1, "p2": args.p2} if g % 2 == 0 else {"p1": args.p2, "p2": args.p1}
             players, names = {}, {}
             for side, spec in specs.items():
-                os.environ["AGENT_LOG_DIR"] = str(out_dir / spec.replace(":", "_").replace("/", "_"))
+                log_dir = out_dir / spec.replace(":", "_").replace("/", "_")
+                os.environ["AGENT_LOG_DIR"] = str(log_dir)
                 players[side], names[side] = make_player(spec, rng)
+                if hasattr(players[side], "_log_dir"):  # PokemonAgent: pin the directory now, not at first decision
+                    players[side]._log_dir = str(log_dir)
                 names[side] = spec  # keep the CLI spelling as the display name
             for n in names.values():
                 if n not in names_seen:
