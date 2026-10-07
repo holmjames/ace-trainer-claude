@@ -234,6 +234,13 @@ HARD: list[Scenario] = [
         accept_text="Basculegion Protects or switches; the LETHAL warning already accounts for Miraidon's -2.",
     ),
     Scenario(
+        "sun_koraidon_outspeeds_the_redirector", "Game-17 turn 1: our Maushold + sashed Sneasler vs Koraidon (sun up, 205 speed) and Farigiraf. Flare Blitz one-shots Maushold before it moves; Follow Me would only pull the hit onto itself.",
+        ("maushold", "sneasler"), ("koraidon", "farigiraf"), turn=1, weather="sunnyday", hard=True,
+        mine=["maushold", "sneasler", "kommoo", "arcaninehisui", "dragonite", "whimsicott"], theirs=["koraidon", "farigiraf", "incineroar", "garchomp", "pelipper", "gholdengo"],
+        accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and move_of(p, "slot_1") not in ("protect", None),
+        accept_text="Maushold Protects or switches out of the lethal sun-boosted Flare Blitz; Sneasler attacks (Close Combat into Koraidon, or Fake Out Koraidon so neither of ours is hit). Follow Me or Population Bomb from Maushold loses it for nothing.",
+    ),
+    Scenario(
         "spread_breaks_sash_partner_finishes", "Whimsicott (sash, full HP) beside Gyarados at 30%; our Garchomp (faster than Incineroar) + Incineroar.",
         ("garchomp", "incineroar"), ("whimsicott", "gyarados"), their_hp={"gyarados": 0.30}, drop_moves={"incineroar": {"fakeout"}}, hard=True,
         mine=["garchomp", "incineroar", "fluttermane", "rillaboom", "amoonguss", "whimsicott"], theirs=["whimsicott", "gyarados", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
