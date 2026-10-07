@@ -217,3 +217,13 @@ def test_fake_out_setup_skips_covert_cloak_holders():
            "opponent_active_pokemon": [{"species": "Gyarados"}, {"species": "Urshifu-Rapid-Strike"}]}
     sheet = battle.build_sheet(_template(), obs, cloak_memory)
     assert all(c["name"] != "fake_out_setup" for c in sheet.candidates)
+
+
+def test_armor_tail_on_either_opponent_blocks_fake_out_setup():
+    m = memory()
+    m.opp_cards[species_key("Gyarados")] = {**THEIRS[0], "ability": "Armor Tail"}
+    m.fresh_active = ["rillaboom", "garchomp"]
+    obs = {**_obs(), "turn": 1, "active_pokemon": [{"species": "Rillaboom"}, {"species": "Garchomp"}],
+           "opponent_active_pokemon": [{"species": "Gyarados"}, {"species": "Urshifu-Rapid-Strike"}]}
+    sheet = battle.build_sheet(_template(), obs, m)
+    assert all(c["name"] != "fake_out_setup" for c in sheet.candidates)

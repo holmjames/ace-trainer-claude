@@ -56,6 +56,9 @@ CARDS = {
     "pelipper": card("Pelipper", ["Hurricane", "Weather Ball", "Tailwind", "Protect"], ability="Drizzle", nature="Modest", evs={"spa": 252, "hp": 252}, item="Covert Cloak"),
     "dragonite": card("Dragonite", ["Extreme Speed", "Scale Shot", "Fire Punch", "Protect"], ability="Multiscale", nature="Adamant", evs={"atk": 252, "hp": 252}, item="Loaded Dice"),
     "gholdengo": card("Gholdengo", ["Make It Rain", "Shadow Ball", "Nasty Plot", "Protect"], ability="Good as Gold", nature="Modest", evs={"spa": 252, "hp": 252}, item="Choice Specs"),
+    "chienpao": card("Chien-Pao", ["Icicle Crash", "Sucker Punch", "Sacred Sword", "Protect"], ability="Sword of Ruin", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Focus Sash"),
+    "farigiraf": card("Farigiraf", ["Trick Room", "Psychic", "Foul Play", "Protect"], ability="Armor Tail", nature="Quiet", evs={"hp": 252, "spa": 252}, item="Sitrus Berry"),
+    "hatterene": card("Hatterene", ["Trick Room", "Dazzling Gleam", "Expanding Force", "Protect"], ability="Magic Bounce", nature="Quiet", evs={"hp": 252, "spa": 252}, item="Life Orb"),
 }
 MINE_DEFAULT = ["rillaboom", "incineroar", "garchomp", "fluttermane", "amoonguss", "whimsicott"]
 THEIRS_DEFAULT = ["gyarados", "urshifurapidstrike", "kingambit", "pelipper", "dragonite", "gholdengo"]
@@ -80,6 +83,9 @@ class Scenario:
     drop_moves: dict[str, set[str]] = field(default_factory=dict)  # e.g. no Fake Out after turn 1
     mine: list[str] = field(default_factory=lambda: list(MINE_DEFAULT))
     theirs: list[str] = field(default_factory=lambda: list(THEIRS_DEFAULT))
+    their_boosts: dict[str, dict] = field(default_factory=dict)  # species -> {"atk": 1}
+    slot1_fainted: bool = False  # our second slot is empty (1v2 endgame): it can only pass
+    hard: bool = False
 
 
 def move_of(payload: dict, slot: str) -> str | None:
@@ -155,6 +161,50 @@ SCENARIOS: list[Scenario] = [
 ]
 
 
+HARD: list[Scenario] = [
+    Scenario(
+        "break_sash_then_ko", "Chien-Pao at full HP behind a Focus Sash beside Kingambit; our Garchomp + Flutter Mane. One hit can't KO it.",
+        ("garchomp", "fluttermane"), ("chienpao", "kingambit"), hard=True,
+        mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
+        accept=lambda p: (move_of(p, "slot_0") == "rockslide" and move_of(p, "slot_1") in ("moonblast", "dazzlinggleam", "shadowball") and (p["slot_1"].get("target") == 1 or move_of(p, "slot_1") == "dazzlinggleam"))
+        or (move_of(p, "slot_0") == "protect" and move_of(p, "slot_1") == "protect"),
+        accept_text="Two hits into Chien-Pao this turn (spread Rock Slide breaks the sash, Flutter Mane's move finishes), or a double Protect vs Sucker Punch/Kowtow pressure.",
+    ),
+    Scenario(
+        "intimidate_the_dancer", "Gyarados sits at +1 Attack after Dragon Dance beside Pelipper; our Amoonguss + Whimsicott, Incineroar (Intimidate) on the bench.",
+        ("amoonguss", "whimsicott"), ("gyarados", "pelipper"), their_boosts={"gyarados": {"atk": 1, "spe": 1}}, my_bench=("incineroar", "garchomp"), hard=True,
+        accept=lambda p: (move_of(p, "slot_0") == "spore" and p["slot_0"].get("target") == 1) or (p["slot_1"].get("type") == "switch" and p["slot_1"].get("species", "").lower().startswith("incineroar")),
+        accept_text="Shut the boosted Gyarados down: Spore it, and/or bring Incineroar in for Intimidate.",
+    ),
+    Scenario(
+        "redirect_to_set_tailwind", "Scarf Urshifu's Surging Strikes breaks Whimsicott's sash and KOs it before Tailwind; Amoonguss stands beside it.",
+        ("amoonguss", "whimsicott"), ("urshifurapidstrike", "kingambit"), hard=True,
+        accept=lambda p: move_of(p, "slot_0") == "ragepowder" and move_of(p, "slot_1") == "tailwind",
+        accept_text="Rage Powder absorbs Surging Strikes while Whimsicott sets Tailwind.",
+    ),
+    Scenario(
+        "deny_trick_room", "Farigiraf (Armor Tail: no Fake Out) wants Trick Room beside Hatterene; our Incineroar + Garchomp outspeed it this turn only.",
+        ("incineroar", "garchomp"), ("farigiraf", "hatterene"), hard=True,
+        mine=["incineroar", "garchomp", "fluttermane", "rillaboom", "amoonguss", "whimsicott"], theirs=["farigiraf", "hatterene", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
+        accept=lambda p: move_of(p, "slot_0") != "fakeout" and all(p[s].get("type") == "move" and p[s].get("target") == 1 for s in ("slot_0", "slot_1")),
+        accept_text="Both attacks into Farigiraf to KO it before Trick Room; Fake Out is blocked by Armor Tail.",
+    ),
+    Scenario(
+        "endgame_immunities", "1v1 endgame: our Specs Flutter Mane alone vs Dragonite (Extreme Speed, Scale Shot, Fire Punch). Both immune moves are irrelevant.",
+        ("fluttermane", "garchomp"), ("dragonite", "gholdengo"), slot1_fainted=True, their_hp={"gholdengo": 0.0}, hard=True,
+        accept=lambda p: move_of(p, "slot_0") in ("moonblast", "dazzlinggleam") and p["slot_1"].get("type") == "pass",
+        accept_text="Attack with the Fairy move: Dragonite's Extreme Speed (Normal) and Scale Shot (Dragon) cannot touch a Ghost/Fairy; Protect gains nothing.",
+    ),
+    Scenario(
+        "spread_breaks_sash_partner_finishes", "Whimsicott (sash, full HP) beside Gyarados at 30%; our Garchomp (faster than Incineroar) + Incineroar.",
+        ("garchomp", "incineroar"), ("whimsicott", "gyarados"), their_hp={"gyarados": 0.30}, drop_moves={"incineroar": {"fakeout"}}, hard=True,
+        mine=["garchomp", "incineroar", "fluttermane", "rillaboom", "amoonguss", "whimsicott"], theirs=["whimsicott", "gyarados", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
+        accept=lambda p: move_of(p, "slot_0") == "rockslide" and move_of(p, "slot_1") in ("knockoff", "flareblitz") and p["slot_1"].get("target") == 1,
+        accept_text="Rock Slide KOs the 30% Gyarados and breaks Whimsicott's sash; Incineroar's single hit then finishes Whimsicott.",
+    ),
+]
+
+
 def build_template(sc: Scenario, mine_bring: list[str]) -> dict:
     opp = [{"target": i + 1, "side": "opponent", "species": CARDS[s]["species"]} for i, s in enumerate(sc.their_active)]
 
@@ -182,22 +232,30 @@ def build_template(sc: Scenario, mine_bring: list[str]) -> dict:
             out.append({"type": "switch", "species": bench})
         return out
 
+    slots = []
+    for i, s in enumerate(sc.my_active):
+        if i == 1 and sc.slot1_fainted:
+            slots.append({"slot": 1, "board_position": -2, "active": None, "force_switch": False, "options": [{"type": "pass"}]})
+        else:
+            slots.append({"slot": i, "board_position": -(i + 1), "active": CARDS[s]["species"], "force_switch": False, "options": options_for(i, s)})
     return {"type": "doubles_turn", "instructions": "Pick one option per slot.",
             "target_legend": {"1": "opponent A", "2": "opponent B", "-1": "your slot 0", "-2": "your slot 1", "0": "none"},
-            "slots": [{"slot": i, "board_position": -(i + 1), "active": CARDS[s]["species"], "force_switch": False, "options": options_for(i, s)}
-                      for i, s in enumerate(sc.my_active)]}
+            "slots": slots}
 
 
 def build_observation(sc: Scenario, mine_bring: list[str]) -> dict:
-    def summary(species_id: str, active: bool, hp: float) -> dict:
+    def summary(species_id: str, active: bool, hp: float, boosts: dict | None = None) -> dict:
         c = CARDS[species_id]
-        return {"species": c["species"], "active": active, "fainted": False, "current_hp_fraction": hp,
-                "status": None, "boosts": {}, "item": c["item"], "ability": c["ability"]}
-    team = {f"p1: {CARDS[s]['species']}": summary(s, s in sc.my_active, sc.my_hp.get(s, 1.0)) for s in mine_bring}
-    opp = {f"p2: {CARDS[s]['species']}": summary(s, s in sc.their_active, sc.their_hp.get(s, 1.0)) for s in sc.their_active}
+        return {"species": c["species"], "active": active, "fainted": hp <= 0, "current_hp_fraction": hp,
+                "status": None, "boosts": boosts or {}, "item": c["item"], "ability": c["ability"]}
+    team = {}
+    for s in mine_bring:
+        hp = 0.0 if (sc.slot1_fainted and s == sc.my_active[1]) else sc.my_hp.get(s, 1.0)
+        team[f"p1: {CARDS[s]['species']}"] = summary(s, s in sc.my_active and hp > 0, hp)
+    opp = {f"p2: {CARDS[s]['species']}": summary(s, s in sc.their_active, sc.their_hp.get(s, 1.0), sc.their_boosts.get(s)) for s in sc.their_active}
     return {"phase": "moving", "is_doubles": True, "turn": sc.turn, "weather": sc.weather, "fields": sc.fields,
             "side_conditions": sc.my_side, "opponent_side_conditions": sc.their_side,
-            "active_pokemon": [team[f"p1: {CARDS[s]['species']}"] for s in sc.my_active],
+            "active_pokemon": [team[f"p1: {CARDS[s]['species']}"] for s in sc.my_active if team[f"p1: {CARDS[s]['species']}"]["active"]],
             "opponent_active_pokemon": [opp[f"p2: {CARDS[s]['species']}"] for s in sc.their_active],
             "force_switch": [False, False], "team": team, "opponent_team": opp}
 
@@ -237,12 +295,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="run one scenario by name")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--code-only", action="store_true", help="no model: what the computed fallback does")
+    parser.add_argument("--set", choices=["basic", "hard", "all"], default="basic")
     args = parser.parse_args(argv)
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    chosen = [s for s in SCENARIOS if not args.only or s.name == args.only]
+    pool = {"basic": SCENARIOS, "hard": HARD, "all": SCENARIOS + HARD}[args.set]
+    chosen = [s for s in pool if not args.only or s.name == args.only]
     if not chosen:
-        print("no such scenario; options:", [s.name for s in SCENARIOS])
+        print("no such scenario; options:", [s.name for s in pool])
         return 2
     results = []
     for sc in chosen:

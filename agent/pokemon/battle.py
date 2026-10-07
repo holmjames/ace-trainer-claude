@@ -639,7 +639,9 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if fake is None:
             continue
         fake_option = (slot.get("options") or [])[fake]
-        legal_targets = [t for t in fake_option.get("targets") or [] if t > 0 and t in theirs
+        # Armor Tail / Dazzling / Queenly Majesty on EITHER opponent blocks priority moves into both of them.
+        priority_blocked = any(data.to_id(o.ability) in ("armortail", "dazzling", "queenlymajesty") for o in theirs.values())
+        legal_targets = [t for t in fake_option.get("targets") or [] if t > 0 and t in theirs and not priority_blocked
                          and data.to_id(theirs[t].item) != "covertcloak" and data.to_id(theirs[t].ability) not in ("innerfocus", "shielddust")]
         if not legal_targets:
             continue  # nothing flinchable: a Fake Out would be wasted
