@@ -182,6 +182,7 @@ class TurnSheet:
     candidates: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)  # lethal threats that act before our slot can
+    choice_locks: dict = field(default_factory=dict)  # slot -> {move_id: [opponents it does nothing to]}
 
     def as_prompt(self) -> dict:
         return {
@@ -288,6 +289,34 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
     for key in memory.opp_protected_last_turn:
         name = next((o.species for o in theirs.values() if species_key(o.species) == key), key)
         sheet.notes.append(f"Their {name} probably Protected last turn (we hit it and its HP did not move): a second Protect in a row fails 2/3 of the time, so this is the turn to attack it.")
+
+    # Choice items lock the user into its first move until it switches: warn when a move we might pick
+    # would be useless against something the opponent still has (immunity / heavy resistance).
+    bench_opp = []
+    opp_team = obs.get("opponent_team")
+    for summary in (opp_team.values() if isinstance(opp_team, dict) else []):
+        if isinstance(summary, dict) and not summary.get("active") and not summary.get("fainted"):
+            bm = build_mon(summary, memory.opp_cards.get(species_key(summary.get("species"))), side="theirs", position=None)
+            if bm:
+                bench_opp.append(bm)
+    choice_targets = list(theirs.values()) + bench_opp
+    for number, me in sorted(ours.items()):
+        if data.to_id(me.item) not in ("choicescarf", "choiceband", "choicespecs"):
+            continue
+        slot = next((sl for sl in slots if sl.get("slot", 0) == number), None)
+        if not slot:
+            continue
+        for option in slot.get("options") or []:
+            if option.get("type") != "move":
+                continue
+            info = data.move_info(option.get("move_id")) or {}
+            if (info.get("base_power") or 0) <= 0:
+                continue
+            dead_against = [t.species for t in choice_targets if t.types and data.effectiveness(info.get("type") or "", t.types) <= 0.25]
+            if dead_against:
+                mid = data.to_id(option.get("move_id"))
+                sheet.notes.append(f"Our {me.species} holds a Choice item: picking {mid} LOCKS it into that move, which does nothing to their {dead_against}. Prefer a move that still works next turn, or plan the switch.")
+                sheet.choice_locks.setdefault(number, {})[mid] = dead_against
 
     # Our damage estimates per slot option.
     for slot in slots:
@@ -565,6 +594,13 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         return choice
 
     best = {n: best_action(n) for n in (0, 1)}
+    for n in (0, 1):
+        opt = best[n][0]
+        if opt and sheet.choice_locks.get(n, {}).get(opt.get("move")):
+            # A Choice-locked move with a dead target left: prefer the best option that stays useful, if it is close.
+            usable = _best_attack({"options": [o for o in by_slot.get(n, {}).get("options") or [] if o.get("move") not in sheet.choice_locks[n]]}, P=P)
+            if usable[0] and usable[2] >= 0.6 * max(best[n][2], 1e-6):
+                best[n] = (usable[0], usable[1], usable[2] * survival_factor(n, sheet, usable[0].get("priority", 0), speed_rank, usable[1], P))
 
     # 0. Forced switches (a Pokémon fainted): bring in the best matchup; the other slot keeps its best action or passes.
     forced = [n for n in (0, 1) if (slot_template(n) or {}).get("force_switch")]

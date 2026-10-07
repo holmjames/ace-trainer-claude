@@ -227,3 +227,20 @@ def test_armor_tail_on_either_opponent_blocks_fake_out_setup():
            "opponent_active_pokemon": [{"species": "Gyarados"}, {"species": "Urshifu-Rapid-Strike"}]}
     sheet = battle.build_sheet(_template(), obs, m)
     assert all(c["name"] != "fake_out_setup" for c in sheet.candidates)
+
+
+def test_choice_lock_is_flagged_against_a_remaining_immune_opponent():
+    m = memory()
+    m.my_cards[species_key("Flutter Mane")] = {**MINE[3], "item": "Choice Specs", "moves": ["Thunderbolt", "Moonblast", "Shadow Ball", "Protect"]}
+    m.opp_cards[species_key("Garchomp")] = {"species": "Garchomp", "item": "Life Orb", "ability": "Rough Skin", "nature": "Jolly", "evs": {}, "moves": ["Earthquake"]}
+    template = {"type": "doubles_turn", "slots": [
+        {"slot": 0, "active": "Flutter Mane", "options": [
+            {"type": "move", "move_id": "thunderbolt", "targets": [1, 2], "target_options": [{"target": 1, "side": "opponent", "species": "Gyarados"}, {"target": 2, "side": "opponent", "species": "Urshifu-Rapid-Strike"}]},
+            {"type": "move", "move_id": "moonblast", "targets": [1, 2], "target_options": [{"target": 1, "side": "opponent", "species": "Gyarados"}, {"target": 2, "side": "opponent", "species": "Urshifu-Rapid-Strike"}]}]},
+        {"slot": 1, "active": None, "options": [{"type": "pass"}]}]}
+    obs = {**_obs(), "team": {"p1: Flutter Mane": {"species": "Flutter Mane", "active": True, "current_hp_fraction": 1.0}},
+           "opponent_team": {**_obs()["opponent_team"], "p2: Garchomp": {"species": "Garchomp", "active": False, "fainted": False, "current_hp_fraction": 1.0}}}
+    sheet = battle.build_sheet(template, obs, m)
+    assert any("LOCKS" in n and "thunderbolt" in n and "Garchomp" in n for n in sheet.notes)
+    assert "thunderbolt" in sheet.choice_locks.get(0, {})
+    assert "moonblast" not in sheet.choice_locks.get(0, {})
