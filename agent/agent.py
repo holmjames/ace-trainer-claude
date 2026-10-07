@@ -165,6 +165,7 @@ class PokemonAgent:
 
     def _draft(self, state: GameState, obs: dict, log: DecisionLog):
         pick = draft_rules.choose_pick(state.legal_actions, self.memory, self.params)
+        self.memory.record_pick(pick.card_id)
         log.write(
             "draft",
             state_version=state.state_version,

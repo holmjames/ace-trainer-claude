@@ -383,6 +383,20 @@ and answers once more; its second answer stands either way (trades can be right)
 it: `stale_fake_out` 2/2, `sucker_punch_respect` 3/3, `break_sash_then_ko` 3/3 under the broadened rule (the recheck fired on
 3 of the 6 and flipped the answer each time). Scenario suite now 18 (10 basic + 8 hard); code-only 18/18.
 
+**Human seat (Oct 7).** `python sim/harness.py --games 1 --p1 human --p2 fable --verbose` lets James play the agent from the
+terminal: numbered draft picks with full sets, Team Preview, and per-turn options with targets; `h` on a battle turn prints the
+code brain's warnings and top candidates. Building it exposed a real bug: **the agent's own last draft pick never reached
+memory as a full card.** The server only talks to us on our own turns, so there is no draft observation after our final pick,
+and Team Preview only sends species/types/base stats. In every simulated game so far one of our six went into the lineup
+scorer blank (no moves, no item, no EVs) and, if brought, into the battle sheet with wrong stats. Fixed in two places: the agent
+records the card it just took (`MatchMemory.record_pick`), and Team Preview recovers any roster member it never saw as a
+card from the pool. Regression test added. Code brain after the fix, 300 games each: **97% vs random (was 93-94), 85% vs smoke** (unchanged). Note
+the seed-501 rerun below started before this fix and does not include it.
+
+**Effort sweep (Oct 7, all 18 scenarios, Opus, recheck on):** low 18/18, median 3.2 s, p95 8.1 s; medium 17/18, median 7.8 s,
+p95 14.3 s (it missed `intimidate_the_dancer`). The recheck fired 4 times at low and 2 at medium. More thinking bought nothing here
+and doubled latency, so **effort stays low**; the recheck is doing the work the extra thinking was supposed to do.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |

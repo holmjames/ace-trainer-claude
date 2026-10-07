@@ -373,3 +373,23 @@ def test_ask_rechecks_once_and_keeps_the_second_answer(tmp_path):
     agent = _agent(provider, tmp_path)
     value, answer, info = agent._ask(choice, {"decision": "doubles_turn"}, kind="turn", recheck=lambda v: "Recheck.")
     assert value == first and len(provider.calls) == 2 and info["fallback"] is False
+
+
+def test_our_own_final_pick_is_a_full_card_at_team_preview(tmp_path):
+    """The server never shows us a draft observation after our last pick, so the agent must remember what it took."""
+    from agent.pokemon.memory import MatchMemory
+
+    cards = _draft_cards()
+    agent = _agent(FakeProvider(), tmp_path)
+    decision = agent.choose_action(_draft_state(cards), CONTEXT)
+    taken = decision.action_id.split(":", 1)[1] if hasattr(decision, "action_id") else decision.action.action_id.split(":", 1)[1]
+    card = next(c for c in cards if c["card_id"] == taken)
+    key = card["species"].lower().replace("-", "").replace(" ", "")
+    assert agent.memory.my_cards[key]["moves"] == card["moves"] and agent.memory.my_cards[key]["item"] == card["item"]
+
+    # Team Preview can also recover a roster member from the pool when the card itself was never seen.
+    memory = MatchMemory()
+    for c in cards:
+        memory.pool_cards[c["card_id"]] = c
+    memory.observe_team_preview({"your_roster": [{"species": "dragapult", "types": ["DRAGON", "GHOST"]}], "opponent_roster": [{"species": "pikachu"}]})
+    assert memory.my_cards["dragapult"]["item"] == "Choice Band" and memory.opp_cards["pikachu"]["moves"] == cards[2]["moves"]

@@ -93,11 +93,28 @@ class MatchMemory:
 
     # -- team preview ----------------------------------------------------------------
 
+    def record_pick(self, card_id: str | None) -> None:
+        """Remember the card WE just drafted. The server only talks to us on our own turns, so our final pick never
+        shows up in a later draft observation; without this, one of our six reached Team Preview as a blank."""
+        card = self.pool_cards.get(str(card_id or ""))
+        if card:
+            key = species_key(card.get("species"))
+            if key:
+                self.my_cards[key] = {**self.my_cards.get(key, {}), **card}
+
     def observe_team_preview(self, obs: dict) -> None:
-        for entry in obs.get("your_roster") or []:
-            self._enrich(self.my_cards, entry)
-        for entry in obs.get("opponent_roster") or []:
-            self._enrich(self.opp_cards, entry)
+        for side, roster_key in ((self.my_cards, "your_roster"), (self.opp_cards, "opponent_roster")):
+            for entry in obs.get(roster_key) or []:
+                if not isinstance(entry, dict):
+                    continue
+                key = species_key(entry.get("species") or entry.get("name"))
+                if key and not (side.get(key) or {}).get("moves"):
+                    # A roster member we never saw as a full card (our own last pick, or a restart): recover it from the pool.
+                    for card in self.pool_cards.values():
+                        if species_key(card.get("species")) == key:
+                            side[key] = {**side.get(key, {}), **card}
+                            break
+                self._enrich(side, entry)
 
     def _enrich(self, side: dict[str, dict], entry: Any) -> None:
         if not isinstance(entry, dict):

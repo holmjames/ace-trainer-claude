@@ -96,6 +96,10 @@ class RandomPlayer:
 def make_player(spec: str, rng: random.Random):
     if spec == "random":
         return RandomPlayer(rng), "random"
+    if spec == "human":
+        from sim.human import HumanPlayer
+
+        return HumanPlayer(), "human"
     if spec == "code":
         spec = "agent.versions.code_only"
     elif spec == "fable":
@@ -208,7 +212,7 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--games", type=int, default=10)
-    parser.add_argument("--p1", default="code")
+    parser.add_argument("--p1", default="code", help="code | fable (the default agent, Opus) | random | human | a module path")
     parser.add_argument("--p2", default="random")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--verbose", action="store_true")
