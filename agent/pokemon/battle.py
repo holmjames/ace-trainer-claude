@@ -389,7 +389,7 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
 def field_from_obs(obs: dict, ours: dict[int, "Mon"], theirs: dict[int, "Mon"], memory: "MatchMemory | None" = None) -> FieldState:
     """Read weather, terrain, screens and fainted counts out of the server's observation."""
     fs = FieldState()
-    fs.weather = normalize_weather(obs.get("weather")) if isinstance(obs.get("weather"), str) else None
+    fs.weather = normalize_weather(obs.get("weather"))  # the live server sends a dict ({} or {"SUNNYDAY": turns}); strings also work
     field_blob = json.dumps([obs.get("fields"), obs.get("field")], default=str)
     fs.terrain = normalize_terrain(field_blob)
     fs.trick_room = "trickroom" in data.to_id(field_blob)
@@ -487,7 +487,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
     P = params or DEFAULTS
     sheet = TurnSheet()
     slots = sorted(template.get("slots") or [], key=lambda s: s.get("slot", 0))
-    weather = obs.get("weather") if isinstance(obs.get("weather"), str) else None
+    weather = normalize_weather(obs.get("weather"))  # dict from the live server, string from the simulator, None when clear
     field_text = data.to_id(json.dumps([obs.get("fields"), obs.get("field")], default=str))
     sheet.trick_room = "trickroom" in field_text
     if sheet.trick_room:
@@ -638,7 +638,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                     per_target.append(_row(target, defender, est))
                 if psychic_spread:
                     note = "Expanding Force in Psychic Terrain hits BOTH opponents (120 power, spread): the numbers are per target."
-            elif (move.get("base_power") or 0) > 0:
+            elif note is None and (move.get("base_power") or 0) > 0:
                 # No target to choose: a spread move (or a fixed-target move). It hits every
                 # opposing active (and, for allAdjacent moves like Earthquake, our own ally too).
                 victims = list(theirs.values())
@@ -654,6 +654,9 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 row = {"option": index, "move": move["id"], "priority": eff.get("priority", 0), "spread": spread or psychic_spread, "targets": per_target}
                 if note:
                     row["note"] = note
+                    if "FAILS" in note or "BLOCKED" in note:
+                        row["fails"] = True  # never a candidate: it does nothing this turn (first live match, Oct 7: a stale Fake Out
+                        # fell through to the spread branch, kept its +3 priority bonus and won "best attack" for seven turns)
                 entry["options"].append(row)
         sheet.our_options.append(entry)
 
@@ -714,6 +717,8 @@ def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None
     charged for damage to our own ally."""
     best: tuple[dict | None, dict | None, float] = (None, None, -1.0)
     for option in entry.get("options") or []:
+        if option.get("fails"):
+            continue
         priority = option.get("priority") or 0
         rows = [r for r in option.get("targets") or [] if r["target"] != avoid_target]
         foe_rows = [r for r in rows if r["side"] == "theirs"]
@@ -861,7 +866,25 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             return None
         return {"option": option_index, "target": target if target is not None else 0}
 
+    def pass_only(number: int) -> dict | None:
+        """The answer for a slot that can only pass (our last Pokémon stands alone, the other board position is empty).
+        The live server offers such a slot every end-game; without this every candidate was dropped and the adapter's
+        first-option default played (seen in the first live match, Oct 7)."""
+        slot = slot_template(number)
+        if not slot:
+            return None
+        options = slot.get("options") or []
+        if options and all(o.get("type") == "pass" for o in options):
+            return {"option": 0, "target": 0}
+        return None
+
+    lone: dict[int, dict | None] = {0: None, 1: None}  # filled once slot_template exists, below
+
     def add(name: str, s0: dict | None, s1: dict | None, why: str, score: float) -> None:
+        if s0 is None and lone[0]:
+            s0 = lone[0]
+        if s1 is None and lone[1]:
+            s1 = lone[1]
         if s0 is None or s1 is None:
             return
         cand = {"name": name, "slot_0": s0, "slot_1": s1, "why": why, "score": round(score, 1)}
@@ -870,6 +893,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
 
     def slot_template(number: int) -> dict | None:
         return next((s for s in slots if s.get("slot", 0) == number), None)
+
+    lone.update({n: pass_only(n) for n in (0, 1)})
 
     def acts_before(me_slot: int, opp_pos: int, my_priority: int = 0, their_priority: int = 0) -> bool:
         if my_priority != their_priority:
@@ -987,6 +1012,13 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             f"slot 0 {best[0][0]['move']} -> {best[0][1]['species']} ({best[0][1]['damage_pct_of_current_hp']}%), "
             f"slot 1 {best[1][0]['move']} -> {best[1][1]['species']} ({best[1][1]['damage_pct_of_current_hp']}%)",
             best[0][2] + best[1][2])
+    elif any(lone.values()):
+        n = 0 if lone[1] else 1  # the slot that still fights
+        if best[n][0]:
+            add("best_attack_alone", slot_answer(best[n][0]["option"], best[n][1]["target"]) if n == 0 else None,
+                slot_answer(best[n][0]["option"], best[n][1]["target"]) if n == 1 else None,
+                f"slot {n} {best[n][0]['move']} -> {best[n][1]['species']} ({best[n][1]['damage_pct_of_current_hp']}%); the other slot can only pass",
+                best[n][2])
 
     # 2. Focus fire: both into the same target when together they likely KO it.
     for target, opp in theirs.items():

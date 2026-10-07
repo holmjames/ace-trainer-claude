@@ -55,6 +55,24 @@ from agent.pokemon.tuning import DEFAULTS
 VERSION = os.environ.get("AGENT_VERSION") or "m3"
 MAX_ATTEMPTS = 2  # first answer + one retry carrying the validation error
 SECOND_CALL_CUTOFF_SECONDS = 10.0  # a retry/recheck after this many seconds could push a decision past Showdown's 55 s clock
+MIN_DECISION_SECONDS_FOR_MODEL = 25.0  # below this the model chain (worst case ~30 s) could run the decision out: play the computed move
+MIN_BANK_SECONDS_FOR_MODEL = 90.0      # a nearly empty bank forfeits the battle; stop spending it on model calls
+
+
+def _clock_budget(clock: dict | None) -> tuple[float | None, float | None, float]:
+    """(decision seconds left, bank seconds left, cutoff for a second model call) from the server's clock, if any."""
+    decision_left = bank_left = None
+    if isinstance(clock, dict):
+        try:
+            decision_left = float(clock["decision_seconds_left"]) if clock.get("decision_seconds_left") is not None else None
+            bank_left = float(clock["bank_seconds_left"]) if clock.get("bank_seconds_left") is not None else None
+        except (TypeError, ValueError):
+            decision_left = bank_left = None
+    cutoff = SECOND_CALL_CUTOFF_SECONDS
+    if decision_left is not None:
+        # a second call must still finish inside the decision: leave the chain's worst case (~30 s) after it starts
+        cutoff = max(0.0, min(cutoff, decision_left - MIN_DECISION_SECONDS_FOR_MODEL - 5.0))
+    return decision_left, bank_left, cutoff
 OBSERVATION_CHAR_LIMIT = 12_000
 REASONING_CHAR_LIMIT = 280
 
@@ -209,7 +227,7 @@ class PokemonAgent:
             "known_sets": {"mine": self.memory.known_sets("mine"), "opponent": self.memory.known_sets("opponent")},
             "observation": _compact(obs, ("your_roster", "opponent_roster", "battle_format")),
         }
-        value, answer, info = self._ask(choice, payload, kind="lineup")
+        value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"))
         if isinstance(value, dict):
             self.memory.my_lineup = list(value.get("bring") or [])
         log.write("lineup", state_version=state.state_version, payload=_payload(value),
@@ -247,7 +265,8 @@ class PokemonAgent:
             "known_sets": {"mine": self.memory.known_sets("mine"), "opponent": self.memory.known_sets("opponent")},
             "observation": _compact(obs, _BATTLE_KEYS),
         }
-        value, answer, info = self._ask(choice, payload, kind="turn", recheck=lambda v: _lethal_recheck(v, sheet))
+        value, answer, info = self._ask(choice, payload, kind="turn", recheck=lambda v: _lethal_recheck(v, sheet),
+                                        clock=obs.get("clock"))
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"))
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
                   win_condition=(answer or {}).get("win_condition"), turn_sheet=sheet.as_prompt(), **info)
@@ -256,7 +275,8 @@ class PokemonAgent:
 
     # -- the model call, with retry-once and deterministic fallback ---------------------
 
-    def _ask(self, choice: Choice, payload: dict, *, kind: str, recheck: Any = None) -> tuple[Any, dict | None, dict]:
+    def _ask(self, choice: Choice, payload: dict, *, kind: str, recheck: Any = None,
+             clock: dict | None = None) -> tuple[Any, dict | None, dict]:
         """Ask the model, retry once on an invalid answer, fall back to the computed move if it still fails.
         ``recheck(value)`` may return a message for a valid-but-suspicious first answer (e.g. attacking with a slot the
         sheet marks LETHAL); the model is then asked once more with that message and its second answer stands.
@@ -265,6 +285,16 @@ class PokemonAgent:
         the computed move is played."""
         info: dict[str, Any] = {"model": None, "latency_ms": None, "attempts": 0, "errors": [], "fallback": False}
         started = time.monotonic()
+        # The server's own clock (observation["clock"]): seconds left for this decision and in the battle bank.
+        decision_left, bank_left, cutoff = _clock_budget(clock)
+        if clock:
+            info["clock"] = {"decision_seconds_left": decision_left, "bank_seconds_left": bank_left}
+        if self._provider is not None and (decision_left is not None and decision_left < MIN_DECISION_SECONDS_FOR_MODEL
+                                           or bank_left is not None and bank_left < MIN_BANK_SECONDS_FOR_MODEL):
+            info["errors"].append(f"clock too short for a model call ({decision_left}s left, bank {bank_left}s); playing the computed move")
+            info["fallback"] = True
+            self.memory.fallbacks += 1
+            return choice.fallback(), None, info
         if self._provider is None:
             info["errors"].append("no provider configured (code-only mode)")
             info["fallback"] = True
@@ -292,7 +322,7 @@ class PokemonAgent:
                 value = choice.build(answer)
             except InvalidChoice as exc:
                 info["errors"].append(f"invalid answer: {exc}")
-                if time.monotonic() - started > SECOND_CALL_CUTOFF_SECONDS:
+                if time.monotonic() - started > cutoff:
                     info["errors"].append("no time left for a second model call; playing the computed move")
                     break
                 messages.append({"role": "assistant", "content": json.dumps(answer, default=str)})
@@ -300,7 +330,7 @@ class PokemonAgent:
                 continue
             if recheck is not None and attempt == 1:
                 message = recheck(value)
-                if message and time.monotonic() - started > SECOND_CALL_CUTOFF_SECONDS:
+                if message and time.monotonic() - started > cutoff:
                     info["recheck_skipped"] = "no time left for a second model call; first answer stands"
                     message = None
                 if message:
@@ -337,7 +367,8 @@ class PokemonAgent:
         try:
             folder = Path(self._capture_dir) / context.session_id
             folder.mkdir(parents=True, exist_ok=True)
-            (folder / f"{state.state_version:05d}.json").write_text(
+            phase = str(getattr(state, "phase", None) or "state").replace("/", "_")
+            (folder / f"{phase}-{state.state_version:05d}-seat{context.seat_position}.json").write_text(
                 json.dumps(state.raw, ensure_ascii=False, indent=1, default=str), encoding="utf-8"
             )
         except (OSError, TypeError, ValueError):

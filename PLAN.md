@@ -444,6 +444,37 @@ our guess; (3) real-runtime restart drill; (4) cold-boot dry run of `run_tournam
 stop running 30-game Opus series (they measure, they don't improve; ~$0.15-0.20 per decision); hold ~$40 for real platform
 test matches once the key arrives plus ~$15-25 for tournament day.
 
+### 5i. Oct 7 evening: the first live match on the real platform, and what it found
+
+**Setup.** James added the Official Agent Key and registered the agent as **Ace Trainer Claude**. `--check-tournament`
+showed ✓ on all six lines once the key line was uncommented in `.env` (his paste landed on the example line). His save also
+reverted two `.env` lines: `AGENT_MODEL` went back to Fable (fixed to Opus) and `ANTHROPIC_WORKSPACE_ID` vanished; the API
+confirms the personal key must send that header, so **James must re-add the workspace id** (Anthropic Console → Settings →
+Workspaces) before any model call works. The retired `ALTRUAGENT_API_KEY` line is ignored by the runtime.
+
+**Match 1 (self-play, both seats ours, code-only, `AGENT_CAPTURE_DIR=tests/fixtures/live`).** One `--match` runtime played
+both seats. Draft: 12 picks, 3–9 ms each. Team Preview and 11 battle turns, completed, player 1 won. No errors, no rejected
+moves. The real observation parsed on turn 1: speed order with real stats, damage rows, ranked candidates. Real format notes:
+`weather` and `fields` are dicts keyed `UPPER_SNAKE` (`{}` / `{"GRASSY_TERRAIN": 0}`), `clock` =
+`{decision_seconds_left, bank_seconds_left}` (50 s left when we are asked, 85 s at Team Preview), unrevealed opposing
+Pokémon have `item: null, moves: []` (our drafted sets fill them), the battle observation has no `phase` key (top level has it),
+`target_legend` names board positions. 12 of the 12 real cards are species we know; Gyarados and Dondozo were not in `sim/cards.json`.
+
+**Two real bugs the simulator never showed (both fixed, covered by `tests/test_live_fixtures.py`, which replays every captured state):**
+1. From turn 5 both seats produced **zero candidates** and the adapter's first-option default played for seven turns
+   (Fake Out every turn). Cause A: a slot whose only option is `pass` (our last Pokémon stands alone) made `add()` drop every
+   candidate. Fix: `lone` slots get the pass answer and `best_attack_alone`. Cause B: a stale Fake Out (`FAILS`) had its
+   targets emptied and fell into the spread branch, kept its +3 priority bonus and won "best attack"; its target 0 then failed
+   validation, so the one candidate was dropped. Fix: FAILS/BLOCKED rows carry `fails: True`, produce no damage rows and
+   `_best_attack` skips them.
+2. `weather` as a dict was read as "no weather". Fix: both reads go through `normalize_weather`, which handles dicts.
+
+**Also from the live payload:** the agent now reads the server clock. Under 25 s left on the decision or under 90 s in the bank,
+the model is skipped and the computed move plays; the second-call cutoff shrinks with the decision clock. Capture files are now
+named `<phase>-<version>-seat<n>.json` (both seats and all phases used to overwrite each other; the draft states were lost).
+
+**Baselines after the fixes:** 860 tests, 19/19 scenarios, code vs smoke 85% (200 games), code vs random 930/1000 (93%) with the fixes vs 930/1000 for the previous commit on the same seed: no regression.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |

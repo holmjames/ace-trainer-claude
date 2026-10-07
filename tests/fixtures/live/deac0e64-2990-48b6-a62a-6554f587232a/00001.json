@@ -1,0 +1,1358 @@
+{
+ "session_id": "deac0e64-2990-48b6-a62a-6554f587232a",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 1,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-54",
+  "turn": 1,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {},
+  "fields": {
+   "GRASSY_TERRAIN": 0
+  },
+  "side_conditions": {},
+  "opponent_side_conditions": {},
+  "team": {
+   "p1: Landorus": {
+    "species": "landorustherian",
+    "name": "Landorus",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "choicescarf",
+    "types": [
+     "GROUND",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 90,
+     "hp": 89,
+     "spa": 105,
+     "spd": 80,
+     "spe": 91
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "uturn",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Archaludon": {
+    "species": "archaludon",
+    "name": "Archaludon",
+    "current_hp": 197,
+    "max_hp": 197,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "stamina",
+    "item": "leftovers",
+    "types": [
+     "STEEL",
+     "DRAGON"
+    ],
+    "base_stats": {
+     "atk": 105,
+     "def": 130,
+     "hp": 90,
+     "spa": 125,
+     "spd": 65,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "bodypress",
+     "dracometeor",
+     "flashcannon",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Iron Hands": {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 259,
+    "max_hp": 259,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "assaultvest",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "closecombat",
+     "wildcharge",
+     "drainpunch"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Gholdengo": {
+    "species": "gholdengo",
+    "name": "Gholdengo",
+    "current_hp": 162,
+    "max_hp": 162,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "goodasgold",
+    "item": "airballoon",
+    "types": [
+     "STEEL",
+     "GHOST"
+    ],
+    "base_stats": {
+     "atk": 60,
+     "def": 95,
+     "hp": 87,
+     "spa": 133,
+     "spd": 91,
+     "spe": 84
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "makeitrain",
+     "shadowball",
+     "nastyplot",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Gyarados": {
+    "species": "gyarados",
+    "name": "Gyarados",
+    "current_hp": 202,
+    "max_hp": 202,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "sitrusberry",
+    "types": [
+     "WATER",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 79,
+     "hp": 95,
+     "spa": 60,
+     "spd": 100,
+     "spe": 81
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "waterfall",
+     "earthquake",
+     "taunt",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Whimsicott": {
+    "species": "whimsicott",
+    "name": "Whimsicott",
+    "current_hp": 136,
+    "max_hp": 136,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "prankster",
+    "item": "focussash",
+    "types": [
+     "GRASS",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 67,
+     "def": 85,
+     "hp": 60,
+     "spa": 77,
+     "spd": 75,
+     "spe": 116
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "tailwind",
+     "moonblast",
+     "encore",
+     "lightscreen"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p2: Flutter Mane": {
+    "species": "fluttermane",
+    "name": "Flutter Mane",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": null,
+    "types": [
+     "GHOST",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 55,
+     "def": 55,
+     "hp": 55,
+     "spa": 135,
+     "spd": 135,
+     "spe": 135
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Rillaboom": {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   false
+  ],
+  "can_tera": [
+   true,
+   true
+  ],
+  "active_pokemon": [
+   {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 259,
+    "max_hp": 259,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "assaultvest",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "closecombat",
+     "wildcharge",
+     "drainpunch"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "whimsicott",
+    "name": "Whimsicott",
+    "current_hp": 136,
+    "max_hp": 136,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "prankster",
+    "item": "focussash",
+    "types": [
+     "GRASS",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 67,
+     "def": 85,
+     "hp": 60,
+     "spa": 77,
+     "spd": 75,
+     "spe": 116
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "tailwind",
+     "moonblast",
+     "encore",
+     "lightscreen"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_active_pokemon": [
+   {
+    "species": "fluttermane",
+    "name": "Flutter Mane",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": null,
+    "types": [
+     "GHOST",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 55,
+     "def": 55,
+     "hp": 55,
+     "spa": 135,
+     "spd": 135,
+     "spe": 135
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [
+    {
+     "id": "fakeout",
+     "type": "NORMAL",
+     "category": "PHYSICAL",
+     "base_power": 40,
+     "accuracy": 1.0,
+     "priority": 3,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "whimsicott"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "rillaboom"
+      }
+     ]
+    },
+    {
+     "id": "closecombat",
+     "type": "FIGHTING",
+     "category": "PHYSICAL",
+     "base_power": 120,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 8,
+     "max_pp": 8,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "whimsicott"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "rillaboom"
+      }
+     ]
+    },
+    {
+     "id": "wildcharge",
+     "type": "ELECTRIC",
+     "category": "PHYSICAL",
+     "base_power": 90,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 24,
+     "max_pp": 24,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "whimsicott"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "rillaboom"
+      }
+     ]
+    },
+    {
+     "id": "drainpunch",
+     "type": "FIGHTING",
+     "category": "PHYSICAL",
+     "base_power": 75,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "whimsicott"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "rillaboom"
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "id": "tailwind",
+     "type": "FLYING",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 24,
+     "max_pp": 24,
+     "target": "ALLY_SIDE",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "moonblast",
+     "type": "FAIRY",
+     "category": "SPECIAL",
+     "base_power": 95,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 24,
+     "max_pp": 24,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "ironhands"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "rillaboom"
+      }
+     ]
+    },
+    {
+     "id": "encore",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 8,
+     "max_pp": 8,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "ironhands"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "rillaboom"
+      }
+     ]
+    },
+    {
+     "id": "lightscreen",
+     "type": "PSYCHIC",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 48,
+     "max_pp": 48,
+     "target": "ALLY_SIDE",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ]
+  ],
+  "available_switches": [
+   [
+    {
+     "species": "archaludon",
+     "name": "Archaludon",
+     "current_hp": 197,
+     "max_hp": 197,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "stamina",
+     "item": "leftovers",
+     "types": [
+      "STEEL",
+      "DRAGON"
+     ],
+     "base_stats": {
+      "atk": 105,
+      "def": 130,
+      "hp": 90,
+      "spa": 125,
+      "spd": 65,
+      "spe": 85
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "bodypress",
+      "dracometeor",
+      "flashcannon",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    },
+    {
+     "species": "landorustherian",
+     "name": "Landorus",
+     "current_hp": 164,
+     "max_hp": 164,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "intimidate",
+     "item": "choicescarf",
+     "types": [
+      "GROUND",
+      "FLYING"
+     ],
+     "base_stats": {
+      "atk": 145,
+      "def": 90,
+      "hp": 89,
+      "spa": 105,
+      "spd": 80,
+      "spe": 91
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "earthquake",
+      "rockslide",
+      "uturn",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ],
+   [
+    {
+     "species": "archaludon",
+     "name": "Archaludon",
+     "current_hp": 197,
+     "max_hp": 197,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "stamina",
+     "item": "leftovers",
+     "types": [
+      "STEEL",
+      "DRAGON"
+     ],
+     "base_stats": {
+      "atk": 105,
+      "def": 130,
+      "hp": 90,
+      "spa": 125,
+      "spd": 65,
+      "spe": 85
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "bodypress",
+      "dracometeor",
+      "flashcannon",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    },
+    {
+     "species": "landorustherian",
+     "name": "Landorus",
+     "current_hp": 164,
+     "max_hp": 164,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "intimidate",
+     "item": "choicescarf",
+     "types": [
+      "GROUND",
+      "FLYING"
+     ],
+     "base_stats": {
+      "atk": 145,
+      "def": 90,
+      "hp": 89,
+      "spa": 105,
+      "spd": 80,
+      "spe": 91
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "earthquake",
+      "rockslide",
+      "uturn",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ]
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-deac0e 1 vs. able-p1-deac0e 1",
+   "|j|☆able-p0-deac0e 1",
+   "|j|☆able-p1-deac0e 1",
+   "|gametype|doubles",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p0-deac0e 1)",
+   "|player|p1|able-p0-deac0e 1|266|",
+   "|player|p2|able-p1-deac0e 1|2|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Landorus-Therian, L50, M|",
+   "|poke|p1|Archaludon, L50, M|",
+   "|poke|p1|Iron Hands, L50|",
+   "|poke|p1|Gholdengo, L50|",
+   "|poke|p1|Gyarados, L50, F|",
+   "|poke|p1|Whimsicott, L50, M|",
+   "|poke|p2|Tornadus, L50, M|",
+   "|poke|p2|Flutter Mane, L50|",
+   "|poke|p2|Garchomp, L50, F|",
+   "|poke|p2|Rillaboom, L50, M|",
+   "|poke|p2|Dragonite, L50, M|",
+   "|poke|p2|Dondozo, L50, F|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p1-deac0e 1 also wants the timer to be on.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Iron Hands|Iron Hands, L50|259/259",
+   "|switch|p1b: Whimsicott|Whimsicott, L50, M|136/136",
+   "|switch|p2a: Flutter Mane|Flutter Mane, L50|100/100",
+   "|switch|p2b: Rillaboom|Rillaboom, L50, M|100/100",
+   "|-fieldstart|move: Grassy Terrain|[from] ability: Grassy Surge|[of] p2b: Rillaboom",
+   "|-enditem|p2a: Flutter Mane|Booster Energy",
+   "|-activate|p2a: Flutter Mane|ability: Protosynthesis|[fromitem]",
+   "|-start|p2a: Flutter Mane|protosynthesisspe",
+   "|turn|1"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 420
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "9481df7e-e719-451a-8949-fe66c6a35d8f",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "deac0e64-2990-48b6-a62a-6554f587232a",
+  "state_version": 1,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "deac0e64-2990-48b6-a62a-6554f587232a",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "ironhands",
+         "name": "Iron Hands",
+         "current_hp": 259,
+         "max_hp": 259,
+         "current_hp_fraction": 1.0,
+         "status": null,
+         "ability": "quarkdrive",
+         "item": "assaultvest",
+         "types": [
+          "FIGHTING",
+          "ELECTRIC"
+         ],
+         "base_stats": {
+          "atk": 140,
+          "def": 108,
+          "hp": 154,
+          "spa": 50,
+          "spd": 68,
+          "spe": 50
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "fakeout",
+          "closecombat",
+          "wildcharge",
+          "drainpunch"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "fakeout",
+          "base_power": 40,
+          "category": "PHYSICAL",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "whimsicott"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "rillaboom"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "closecombat",
+          "base_power": 120,
+          "category": "PHYSICAL",
+          "move_type": "FIGHTING",
+          "current_pp": 8,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "whimsicott"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "rillaboom"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "wildcharge",
+          "base_power": 90,
+          "category": "PHYSICAL",
+          "move_type": "ELECTRIC",
+          "current_pp": 24,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "whimsicott"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "rillaboom"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "drainpunch",
+          "base_power": 75,
+          "category": "PHYSICAL",
+          "move_type": "FIGHTING",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "whimsicott"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "rillaboom"
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "archaludon"
+         },
+         {
+          "type": "switch",
+          "species": "landorustherian"
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": {
+         "species": "whimsicott",
+         "name": "Whimsicott",
+         "current_hp": 136,
+         "max_hp": 136,
+         "current_hp_fraction": 1.0,
+         "status": null,
+         "ability": "prankster",
+         "item": "focussash",
+         "types": [
+          "GRASS",
+          "FAIRY"
+         ],
+         "base_stats": {
+          "atk": 67,
+          "def": 85,
+          "hp": 60,
+          "spa": 77,
+          "spd": 75,
+          "spe": 116
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "tailwind",
+          "moonblast",
+          "encore",
+          "lightscreen"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "tailwind",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "FLYING",
+          "current_pp": 24,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "moonblast",
+          "base_power": 95,
+          "category": "SPECIAL",
+          "move_type": "FAIRY",
+          "current_pp": 24,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "ironhands"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "rillaboom"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "encore",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 8,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "ironhands"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "rillaboom"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "lightscreen",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "PSYCHIC",
+          "current_pp": 48,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "archaludon"
+         },
+         {
+          "type": "switch",
+          "species": "landorustherian"
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 1
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}
