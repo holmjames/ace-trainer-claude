@@ -166,9 +166,8 @@ HARD: list[Scenario] = [
         "break_sash_then_ko", "Chien-Pao at full HP behind a Focus Sash beside Kingambit; our Garchomp + Flutter Mane. One hit can't KO it.",
         ("garchomp", "fluttermane"), ("chienpao", "kingambit"), hard=True,
         mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
-        accept=lambda p: (move_of(p, "slot_0") == "rockslide" and move_of(p, "slot_1") in ("moonblast", "dazzlinggleam", "shadowball") and (p["slot_1"].get("target") == 1 or move_of(p, "slot_1") == "dazzlinggleam"))
-        or (move_of(p, "slot_0") == "protect" and move_of(p, "slot_1") == "protect"),
-        accept_text="Two hits into Chien-Pao this turn (spread Rock Slide breaks the sash, Flutter Mane's move finishes), or a double Protect vs Sucker Punch/Kowtow pressure.",
+        accept=lambda p: move_of(p, "slot_0") == "protect" and move_of(p, "slot_1") in ("dazzlinggleam", "moonblast", "shadowball", "protect"),
+        accept_text="Garchomp must Protect (Chien-Pao outspeeds it and Icicle Crash is 4x); Flutter Mane breaks the sash with Dazzling Gleam or chips. Attacking with Garchomp just loses it.",
     ),
     Scenario(
         "intimidate_the_dancer", "Gyarados sits at +1 Attack after Dragon Dance beside Pelipper; our Amoonguss + Whimsicott, Incineroar (Intimidate) on the bench.",
