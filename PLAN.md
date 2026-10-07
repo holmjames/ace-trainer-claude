@@ -227,8 +227,9 @@ Fable's losses turn by turn against the code's top candidate.
 variants against the baseline. First sweep: every knob at 0.5x and 1.5x, 300 games each (58 variants, 17,400 games,
 ~15 min). **Result: everything landed within ±6 points of 50%**, i.e. at the noise floor for 300 games, so the current
 defaults are not badly mis-set anywhere. Four knobs moved consistently in one direction at both ends (lower
-`draft_support_cap`, higher `switch_weak_bonus`, lower `ally_damage_w`, higher `fakeout_base`) and are being confirmed at
-1,000 games each before any default changes. Rule: adopt a change only when its 95% interval clears 50% at 1,000 games.
+`draft_support_cap`, higher `switch_weak_bonus`, lower `ally_damage_w`, higher `fakeout_base`). **Confirmed at 1,000 games: the four together beat the old defaults 55.7% ± 3.1, so they are now the defaults** (annotated in `tuning.py`). Individually only `draft_support_cap=15` cleared the bar (53.9%). The opponent-lineup prediction flag measured 49.8%: a null result, kept off. Rule: adopt a change only when its 95% interval clears 50% at 1,000 games.
+
+**Hardening from the simulator (Oct 6 night):** a Fable call once hung for 18+ minutes with the socket open despite the SDK's 40 s timeout. Every model call now runs under a hard wall-clock deadline (timeout + 5 s) in a worker thread; past it, the agent treats the call as failed and falls back. The 300 s turn clock can no longer be eaten by a stuck connection.
 
 ## 6. Milestones (Oct 6 → Oct 13)
 
