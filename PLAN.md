@@ -251,6 +251,28 @@ time with the same override rate in won and lost games. Fable had 0 real fallbac
 `AGENT_MODEL=claude-opus-5-5` in `.env` and `DEFAULT_MODEL` in `agent/llm/anthropic_provider.py`; Sonnet 5.5 remains the fast fallback;
 Fable 5.1 is one `.env` line away. Re-check after the first live test matches.
 
+## 5e. Game review: last five Opus-judged games (Oct 6 night), ratings out of 10
+
+Reviewed turn by turn against the code's top candidate (3 wins, 2 losses).
+
+| Area | Rating | Evidence |
+|---|---|---|
+| Team building (draft + lineup) | **5.5** | Draft takes strong individuals (Garchomp, Iron Bundle, Calyrex-Ice) but builds little synergy: the two losses had all-offense rosters with no speed control or redirection used. Lineup benched the Ground type (Electric-immune) against a Specs Miraidon that then swept; lead Sneasler into a Scarf Urshifu whose multi-hit breaks the sash. |
+| Move choices | **7** | Mostly sound: Protect vs lethal, priority sweeps, focus fire, Trick Room timing. Two costly overrides of CORRECT warnings: believed a sash survives Surging Strikes; dismissed a lethal range as "overstated" because of -4 SpA when the number already included it. Both fixed (prompt + sheet) and verified on scenarios. |
+| Timing / tempo | **6.5** | Good: Trick Room set turn 1 and ridden to a win; Fake Out and Thunderclap used for tempo. Weak: turn-1 lead matchups lost a Pokémon immediately in both losses. |
+| Strategy overall | **6** | Coherent when a mode exists (TR, sun); otherwise turn-by-turn with no win-condition planning, no reading of the opponent's Protect cycle, no sacrifice/positioning concept. |
+
+**Fixes landed from the review (Oct 6 night):** prompt rules (numbers already include modifiers; sash fails vs multi-hit; Unseen Fist pierces
+Protect; redirection), sash status notes and multi-hit flags in the sheet, probability-weighted survival and Protect scoring, Unseen Fist handling,
+a redirection candidate, three new scenarios. Opus on the hard set: 14/16 after the fixes (was 12/18 equivalent).
+
+**Where to improve next, in order of expected impact:**
+1. **Lineup: defensive answers.** Require at least one brought Pokémon that resists or is immune to each of their two strongest attackers' main STAB; weight leads against their likely leads' multi-hit and priority. (Would have brought Garchomp vs Miraidon.)
+2. **Draft: build around a mode.** Once a Trick Room / Tailwind / weather setter is picked, value its partners; reserve roles (speed control, Fake Out/redirect, a defensive answer to their best attacker); deny their mode-completing piece.
+3. **Opponent modelling across turns.** Track their Protect usage per Pokémon and their revealed patterns; the sheet is currently stateless turn to turn.
+4. **Win-condition framing in the prompt.** Ask the model to name the win condition (which of theirs must die, which of ours must live) and plan two turns ahead.
+5. **More hard scenarios from real losses**, verified by hand before they are trusted (two of today's were wrong on first writing).
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |

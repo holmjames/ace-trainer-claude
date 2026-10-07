@@ -183,10 +183,10 @@ HARD: list[Scenario] = [
         accept_text="Shut the boosted Gyarados down: Spore it, and/or bring Incineroar in for Intimidate.",
     ),
     Scenario(
-        "redirect_to_set_tailwind", "Scarf Urshifu's Surging Strikes breaks Whimsicott's sash and KOs it before Tailwind; Amoonguss stands beside it.",
-        ("amoonguss", "whimsicott"), ("urshifurapidstrike", "kingambit"), hard=True,
-        accept=lambda p: move_of(p, "slot_0") == "ragepowder" and move_of(p, "slot_1") == "tailwind",
-        accept_text="Rage Powder absorbs Surging Strikes while Whimsicott sets Tailwind.",
+        "redirect_to_free_specs_attacker", "Specs Flutter Mane (frail) beside Amoonguss vs Scarf Urshifu-RS (Surging Strikes KOs it) and Kingambit (Sucker Punch KOs it). Rage Powder soaks both single-target hits; Amoonguss resists Water and Sucker Punch fails on a non-attacker.",
+        ("amoonguss", "fluttermane"), ("urshifurapidstrike", "kingambit"), hard=True, turn=2,
+        accept=lambda p: move_of(p, "slot_0") == "ragepowder" and move_of(p, "slot_1") != "protect",
+        accept_text="Amoonguss Rage Powder redirects both lethal single-target attacks; Flutter Mane then attacks freely (ideal) or pivots.",
     ),
     Scenario(
         "deny_trick_room", "Farigiraf (Armor Tail: no Fake Out) wants Trick Room beside Hatterene; our Incineroar + Garchomp outspeed it this turn only.",

@@ -615,9 +615,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             other_target = next((t for t in theirs if t != target), None)
             opt, row, exp = _best_attack(by_slot.get(number, {}), avoid_target=other_target, P=P)
             if opt and row and row["target"] == target:
+                exp *= survival_factor(number, sheet, opt.get("priority", 0), speed_rank, row, P)
                 rows.append((number, opt, row, exp))
         if len(rows) == 2:
-            combined = sum(r["damage_pct_of_current_hp"][0] for _, _, r, _ in rows)
+            # only count damage from slots that actually get to move
+            combined = sum(r["damage_pct_of_current_hp"][0] * (1 if e > 0 else 0) for _, _, r, e in rows)
             if combined >= 100:
                 add("focus_fire", slot_answer(rows[0][1]["option"], target), slot_answer(rows[1][1]["option"], target),
                     f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO", sum(e for *_, e in rows) + P["focus_fire_bonus"])
@@ -661,6 +663,50 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     add("switch_threatened", answers[0], answers[1],
                         f"{threat['species']}'s {hit['move']} can KO slot {endangered}" + (" and pierces Protect" if pierces_protect else "") + f"; switch it out, slot {other} attacks",
                         best[other][2] + P["switch_threatened_bonus"] + (P["protect_bonus_guaranteed"] if pierces_protect else 0) * ko_probability(hit))
+
+    # 3b. Redirection: Follow Me / Rage Powder soaks a single-target lethal hit aimed at our partner, who then
+    #     gets its turn (setup or attack). Only when the redirector is sturdier than the partner against that hit.
+    for threat in sheet.threats:
+        for hit in threat["hits"]:
+            if hit["ko"] == "no":
+                continue
+            endangered, redirector = hit["into_slot"], 1 - hit["into_slot"]
+            slot_r = slot_template(redirector)
+            if not slot_r:
+                continue
+            redirect = next((i for i, o in enumerate(slot_r.get("options") or []) if o.get("type") == "move"
+                             and data.to_id(o.get("move_id")) in ("followme", "ragepowder")), None)
+            if redirect is None:
+                continue
+            move_info = data.move_info(hit["move"]) or {}
+            if move_info.get("target") not in ("normal", "any", "adjacentFoe"):
+                continue  # spread moves can't be redirected
+            me_r = ours.get(redirector)
+            if me_r is None:
+                continue
+            if data.to_id(move_info.get("id") or hit["move"]) == "ragepowder" or (data.to_id(me_r.item) == "safetygoggles"):
+                pass
+            # does the redirector survive that hit?
+            attacker = theirs.get(threat["position"])
+            est = damage_percent(attacker, {**move_info, "id": hit["move"]}, me_r) if attacker else None
+            if est is None or est[1] >= 100:
+                continue  # it would just die instead
+            partner_slot = slot_template(endangered)
+            partner_action = None
+            for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
+                idx = _option_index(partner_slot, "move", move_id=setup) if partner_slot else None
+                if idx is not None:
+                    partner_action = ({"option": idx, "target": 0}, f"sets {setup}")
+                    break
+            raw_partner = _best_attack(by_slot.get(endangered, {}), P=P)
+            if partner_action is None and raw_partner[0]:
+                partner_action = (slot_answer(raw_partner[0]["option"], raw_partner[1]["target"]), "attacks freely")
+            if partner_action is None:
+                continue
+            answers = {redirector: {"option": redirect, "target": 0}, endangered: partner_action[0]}
+            add("redirect_to_protect_partner", answers[0], answers[1],
+                f"{threat['species']}'s {hit['move']} would KO slot {endangered}; slot {redirector} redirects it ({est[0]}-{est[1]}% to itself) while slot {endangered} {partner_action[1]}",
+                (P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25 + (50 if "sets" in partner_action[1] else raw_partner[2] * 0.8))
 
     # 4. Fake Out on a Pokémon's first turn out: flinch the biggest threat while the partner sets up or attacks.
     for number in (0, 1):
