@@ -274,6 +274,8 @@ our own Protect last turn is tracked (a repeat is discounted to 1/3) and their P
 
 **Item 1 sweep result (1,000 games per variant): no gain.** `lead_priority_multihit_w` 2/4 → 49.3% / 50.2%; `lineup_answer_w` 4/8 → 46.5% / 48.2%; combined → 48.3%. The defensive-answer rule costs more offense than it saves in self-play, so both knobs stay at 0 (code kept for live-match re-test). A good reminder that a convincing single-game story (Garchomp vs Miraidon) is not a measured gain.
 
+**Item 2 sweep result (1,000 games per variant):** `draft_mode_w` 10 → 52.6% ± 3.1 (borderline, being re-tested with a fresh seed), 20 → 49.3%; `draft_deny_mode_w` 5 → 50.8%; `draft_role_w` 5 → 49.3%, 10 → 45.4% (hurts: forcing roles costs raw strength); combined → 51.1%. Only a mild mode preference shows any sign of value; role quotas and denial do not.
+
 **Where to improve next, in order of expected impact:**
 1. **Lineup: defensive answers.** Require at least one brought Pokémon that resists or is immune to each of their two strongest attackers' main STAB; weight leads against their likely leads' multi-hit and priority. (Would have brought Garchomp vs Miraidon.)
 2. **Draft: build around a mode.** Once a Trick Room / Tailwind / weather setter is picked, value its partners; reserve roles (speed control, Fake Out/redirect, a defensive answer to their best attacker); deny their mode-completing piece.
