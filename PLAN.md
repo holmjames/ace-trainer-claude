@@ -387,7 +387,9 @@ it: `stale_fake_out` 2/2, `sucker_punch_respect` 3/3, `break_sash_then_ko` 3/3 u
 decisions, zero fallbacks, 26 rechecks, latency median 3.1 s / p95 7.7 s. Down from 21-9 on the old numbers, but the code
 opponent received the same corrected numbers, so this measures the judge's edge over the code brain, not the fix; 30 games is
 also only ±17 points. Seven of the twelve losses had a lead fainting on turn 1 to a faster attacker the sheet either flagged as
-"RISK" at 47% or (game 17) failed to flag at all; both are fixed below. A second rerun with every fix is in progress.
+"RISK" at 47% or (game 17) failed to flag at all; both are fixed below. The second rerun (all fixes in) **ran out of Anthropic credits after 33 model decisions**: the remaining 205 decisions were
+code-only fallbacks (the chain worked, no crash, CREDITS EXHAUSTED warning printed 26 times) and the 15-15 result is just code vs
+code. It needs credits added and a rerun before it counts.
 
 **Human seat (Oct 7).** `python sim/harness.py --games 1 --p1 human --p2 fable --verbose` lets James play the agent from the
 terminal: numbered draft picks with full sets, Team Preview, and per-turn options with targets; `h` on a battle turn prints the
