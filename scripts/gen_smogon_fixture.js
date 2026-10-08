@@ -4,7 +4,11 @@
 // a dev dependency of sim/). Writes tests/fixtures/smogon_calc_full.json; tests/test_damage_vs_smogon_full.py
 // compares our estimates with it.
 //
-//   node scripts/gen_smogon_fixture.js            # ~1,500 sampled cases, deterministic
+//   node scripts/gen_smogon_fixture.js                         # live catalog (sim/cards.json) -> smogon_calc_live.json
+//   node scripts/gen_smogon_fixture.js old_pool.json full.json   # any card list -> any fixture name
+//
+// smogon_calc_full.json was generated (Oct 7) from the old guessed pool and is kept: it still exercises mechanics
+// whose cards have left the live catalog (Technician, Hadron Engine, Surging Strikes...).
 //
 // Skipped on purpose: moves whose power depends on things the calculator cannot be told here (Beat Up, Rage
 // Fist, Stomping Tantrum), variable-hit moves (the calculator assumes 3 hits; we model the item), and fixed
@@ -20,8 +24,11 @@ let seed = 20261007;
 function rand() { seed = (seed + 0x6D2B79F5) | 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
 function pick(list) { return list[Math.floor(rand() * list.length)]; }
 
-const cards = JSON.parse(fs.readFileSync(path.join(root, 'sim', 'cards.json'), 'utf8'));
-const SKIP = new Set(['Beat Up', 'Rage Fist', 'Stomping Tantrum', 'Ruination', 'Scale Shot', 'Last Respects']);
+const cardsPath = process.argv[2] ? path.resolve(process.argv[2]) : path.join(root, 'sim', 'cards.json');
+const outName = process.argv[3] || 'smogon_calc_live.json';
+const cards = JSON.parse(fs.readFileSync(cardsPath, 'utf8'));
+// Variable-hit moves are skipped: the calculator fixes the hit count, we model the item (Loaded Dice: 4-5 hits).
+const SKIP = new Set(['Beat Up', 'Rage Fist', 'Stomping Tantrum', 'Ruination', 'Scale Shot', 'Last Respects', 'Icicle Spear', 'Bullet Seed', 'Rock Blast']);
 const RUIN_THIRD = [null, null, null, null, null, null, null, null, { ability: 'Sword of Ruin', species: 'Chien-Pao' }, { ability: 'Beads of Ruin', species: 'Chi-Yu' }];
 
 function mon(card, opts) {
@@ -89,10 +96,18 @@ const forced = [
   ['Kingambit', 'Sucker Punch', ['Rillaboom', 'Garchomp'], { terrain: 'Psychic' }],
   ['Maushold', 'Population Bomb', ['Archaludon', 'Incineroar', 'Hatterene'], {}],
   ['Chien-Pao', 'Sacred Sword', ['Zamazenta', 'Kingambit'], { dBoost: 1 }],
+  // Live pool, Oct 7: Pixilate (Normal -> Fairy, x1.2), sand (Rock-type Sp. Def x1.5), Air Balloon / Levitate vs Ground.
+  ['Sylveon', 'Hyper Voice', ['Iron Hands', 'Garchomp', 'Incineroar', 'Whimsicott'], {}],
+  ['Tyranitar', 'Rock Slide', ['Gyarados', 'Tornadus', 'Arcanine'], { weather: 'Sand' }],
+  ['Thundurus', 'Thunderbolt', ['Tyranitar', 'Gyarados'], { weather: 'Sand' }],
+  ['Landorus-Therian', 'Earthquake', ['Gholdengo', 'Cresselia', 'Incineroar'], {}],
+  ['Baxcalibur', 'Glaive Rush', ['Dragonite', 'Garchomp'], {}],
+  ['Klefki', 'Foul Play', ['Iron Hands', 'Kingambit'], {}],
 ];
 for (const [aName, moveName, defenders, opts] of forced) {
   for (const dName of defenders) {
     const atk = by[aName], def = by[dName];
+    if (!atk || !def) continue; // the live catalog changes; a forced case for a card that is gone is just skipped
     const probe = new Move(gen, moveName);
     const offensive = probe.category === 'Physical' ? 'atk' : 'spa', defensive = probe.category === 'Physical' ? 'def' : 'spd';
     const attacker = mon(atk, { status: opts.status, boostedStat: 'auto' });
@@ -111,7 +126,7 @@ for (const [aName, moveName, defenders, opts] of forced) {
     });
   }
 }
-const out = path.join(root, 'tests', 'fixtures', 'smogon_calc_full.json');
+const out = path.join(root, 'tests', 'fixtures', outName);
 fs.writeFileSync(out, JSON.stringify(cases));
 console.log(`wrote ${cases.length} cases to ${path.relative(root, out)} (calc ${require(path.join(root, 'sim', 'node_modules', '@smogon/calc', 'package.json')).version})`);
 
@@ -119,8 +134,8 @@ console.log(`wrote ${cases.length} cases to ${path.relative(root, out)} (calc ${
 const F = new Field({ gameType: 'Doubles' });
 const inc = cards.find(c => c.species === 'Incineroar');
 const rb = cards.find(c => c.species === 'Raging Bolt');
-const target = mon(inc, {});
-console.log('Raging Bolt Thunderbolt w/ Booster:', calculate(gen, mon(rb, { boostedStat: 'auto' }), target, new Move(gen, 'Thunderbolt'), F).range(),
+const target = inc && mon(inc, {});
+if (rb && target) console.log('Raging Bolt Thunderbolt w/ Booster:', calculate(gen, mon(rb, { boostedStat: 'auto' }), target, new Move(gen, 'Thunderbolt'), F).range(),
   'w/o ability:', calculate(gen, mon({ ...rb, ability: 'Pressure', item: 'Leftovers' }, {}), target, new Move(gen, 'Thunderbolt'), F).range());
 const bas = cards.find(c => c.species === 'Basculegion');
-console.log('Last Respects alliesFainted 2:', calculate(gen, mon(bas, { alliesFainted: 2 }), target, new Move(gen, 'Last Respects'), F).range(), '0:', calculate(gen, mon(bas, { alliesFainted: 0 }), target, new Move(gen, 'Last Respects'), F).range());
+if (bas && target) console.log('Last Respects alliesFainted 2:', calculate(gen, mon(bas, { alliesFainted: 2 }), target, new Move(gen, 'Last Respects'), F).range(), '0:', calculate(gen, mon(bas, { alliesFainted: 0 }), target, new Move(gen, 'Last Respects'), F).range());
