@@ -357,9 +357,16 @@ class PreviewModel:
         self.theirs = list(range(len(mine), len(mine) + len(theirs)))
         self._lead_cache: dict[tuple, float] = {}
 
-    def opening(self, ours: tuple[int, int], theirs: tuple[int, int]):
+    def opening(self, ours: tuple[int, int], theirs: tuple[int, int], *, turns: int | None = None):
         units = self.board.units
-        return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs])
+        if turns is None:
+            return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs])
+        return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs], turns=turns)
+
+    def fake_out_exposed(self, ours: tuple[int, int], theirs: tuple[int, int]) -> list[tuple[str, str]]:
+        """Our speed-control setters in ``ours`` that a Fake Out user in ``theirs`` flinches (``matchup.fake_out_exposed``)."""
+        units = self.board.units
+        return self.matchup.fake_out_exposed([units[i] for i in ours], [units[j] for j in theirs])
 
     def lead_score(self, ours: tuple[int, int], theirs: tuple[int, int]) -> float:
         key = (ours, theirs)
@@ -419,6 +426,83 @@ class PreviewModel:
         _, _, _, _, lead_value = self.lead_game(four, other)
         return self.board.score(list(four), list(other)) + lead_value
 
+    def likely_leads(self, four: tuple[int, ...], likely: list[tuple[float, int]], their_fours: list[tuple[int, ...]],
+                     template: float) -> dict[tuple, float]:
+        """Their lead pairs against our ``four``, weighted by how likely each of their fours is (``likely``:
+        (weight, index into their_fours)) and, within a four, by the lead sub-game blended with the template."""
+        out: dict[tuple, float] = {}
+        for weight, j in likely:
+            for pair, w in self.their_leads(four, their_fours[j], template).items():
+                out[pair] = out.get(pair, 0.0) + weight * w
+        return out
+
+
+def choose_leads_v2(model: PreviewModel, four: tuple[int, ...], their_leads: dict[tuple, float],
+                    params: dict | None = None) -> tuple[tuple[int, int], list[str]]:
+    """Our lead pair for ``four`` against their likely leads, and the notes that explain it.
+
+    Value: the expected opening margin (turns 1-2) against their likely leads, optionally blended with the worst
+    plausible opening (``lineup_v2_lead_robust``). The lead veto (``lead_veto_w``, Oct 7 lesson: in three of the
+    four losses our lead lost a Pokémon in the opening): a pair that loses one of its two in the opening
+    (``matchup.opening``, turns 1-2, the "we lose [...]" the notes show) against either of their two likeliest
+    openings, or that leads a Tailwind / Trick Room setter their Fake Out can flinch (``matchup.fake_out_exposed``),
+    is never chosen while another pair of the same four is safe on both counts; when no pair is safe, each lead lost
+    costs ``lead_veto_w`` and an exposed setter half of it, on top of the value. (A turn-1-only horizon was measured
+    first: on the Oct 7 pools it chose pairs that survive turn 1 and lose both leads on turn 2.)"""
+    P = params or DEFAULTS
+    names = {i: u.species for i, u in enumerate(model.board.units)}
+    lead_robust = float(P.get("lineup_v2_lead_robust", 0.0))
+    plausible = [opp for opp, w in their_leads.items() if w >= 0.05] or list(their_leads)
+    if lead_robust:  # strong-player openings from their whole six count as plausible even outside their predicted four
+        plausible += [pr for pr in model.template_leads(tuple(model.theirs), list(four)) if pr not in plausible]
+
+    def lead_value(pair: tuple) -> float:
+        expected = sum(w * model.lead_score(pair, opp) for opp, w in their_leads.items())
+        if not lead_robust or not plausible:
+            return expected
+        # A lead that collapses against one plausible opening of theirs (Iron Hands into Fake Out + a Pixilate
+        # spread attacker, Oct 7) is a risk worth paying for even if their single likeliest lead is different.
+        return (1 - lead_robust) * expected + lead_robust * min(model.lead_score(pair, opp) for opp in plausible)
+
+    pairs = list(combinations(four, LEADS))
+    if not pairs:
+        return tuple(four[:LEADS]), []
+    lead_values = {pair: lead_value(pair) for pair in pairs}
+    veto_w = float(P.get("lead_veto_w", 0.0))
+    top2 = [opp for opp, _ in sorted(their_leads.items(), key=lambda t: -t[1])[:2]]
+    lost: dict[tuple, list[str]] = {}  # the worst opening (turns 1-2) against their two likeliest leads
+    exposed: dict[tuple, list[tuple[str, str]]] = {}
+    for pair in pairs:
+        worst: list[str] = []
+        for opp in top2:
+            gone = model.opening(pair, opp).ko_against
+            if len(gone) > len(worst):
+                worst = list(gone)
+        lost[pair] = worst
+        exposed[pair] = [x for opp in top2 for x in model.fake_out_exposed(pair, opp)] if veto_w else []
+    safe = [pair for pair in pairs if not lost[pair] and not exposed[pair]] if veto_w else pairs
+
+    def order_key(pair: tuple) -> tuple:
+        return (lead_values[pair], [-x for x in pair])
+
+    notes: list[str] = []
+    if safe:
+        best_pair = max(safe, key=order_key)
+        if veto_w and len(safe) < len(pairs):
+            vetoed = max((pr for pr in pairs if pr not in safe), key=order_key)
+            why = (f"loses {lost[vetoed]} in the opening" if lost[vetoed]
+                   else f"{exposed[vetoed][0][0]}'s speed control is open to {exposed[vetoed][0][1]}'s Fake Out")
+            notes.append(f"lead veto: not {names[vetoed[0]]} + {names[vetoed[1]]} ({why} against their likely leads)")
+            notes.append("leads lose nothing in the opening against their two likeliest leads")
+    else:
+        def penalised(pair: tuple) -> tuple:
+            return (lead_values[pair] - veto_w * len(lost[pair]) - 0.5 * veto_w * bool(exposed[pair]), [-x for x in pair])
+        best_pair = max(pairs, key=penalised)
+        notes.append(f"no lead pair of this four is safe against their likely leads; "
+                     f"{names[best_pair[0]]} + {names[best_pair[1]]} risks {lost[best_pair] or 'a flinched setter'}"
+                     + (f" ({exposed[best_pair][0][0]} open to {exposed[best_pair][0][1]}'s Fake Out)" if exposed[best_pair] else ""))
+    return best_pair, notes
+
 
 def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None) -> list[Candidate]:
     P = params or DEFAULTS
@@ -448,26 +532,10 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
     out: list[Candidate] = []
     for value, expected, i in ranked[:top]:
         four = our_fours[i]
-        # Leads: our pair that does best on turns 1-2 against the lead pairs their likely fours open with.
-        their_leads: dict[tuple, float] = {}
-        for weight, j in likely:
-            for pair, w in model.their_leads(four, their_fours[j], template).items():
-                their_leads[pair] = their_leads.get(pair, 0.0) + weight * w
-        lead_robust = float(P.get("lineup_v2_lead_robust", 0.0))
-        plausible = [opp for opp, w in their_leads.items() if w >= 0.05] or list(their_leads)
-        if lead_robust:  # strong-player openings from their whole six count as plausible even outside their predicted four
-            plausible += [pr for pr in model.template_leads(tuple(model.theirs), list(four)) if pr not in plausible]
-
-        def lead_value(pair: tuple) -> float:
-            expected = sum(w * model.lead_score(pair, opp) for opp, w in their_leads.items())
-            if not lead_robust or not plausible:
-                return expected
-            # A lead that collapses against one plausible opening of theirs (Iron Hands into Fake Out + a Pixilate
-            # spread attacker, Oct 7) is a risk worth paying for even if their single likeliest lead is different.
-            return (1 - lead_robust) * expected + lead_robust * min(model.lead_score(pair, opp) for opp in plausible)
-
-        lead_values = {pair: lead_value(pair) for pair in combinations(four, LEADS)}
-        best_pair = max(lead_values, key=lambda pr: (lead_values[pr], [-x for x in pr])) if lead_values else four[:LEADS]
+        # Leads: our pair that does best on turns 1-2 against the lead pairs their likely fours open with, never one
+        # the lead veto rejects (choose_leads_v2).
+        their_leads = model.likely_leads(four, likely, their_fours, template)
+        best_pair, lead_notes = choose_leads_v2(model, four, their_leads, P)
         expected_leads = sorted(their_leads.items(), key=lambda t: -t[1])[:2]
         notes = [f"v2: {100 * win(expected):.0f}% vs their likely fours ({likely_note})",
                  f"worst case {100 * win(min(payoff[i])):.0f}%"]
@@ -478,11 +546,7 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
             notes.append(f"opening vs {names[top_leads[0]]} + {names[top_leads[1]]}: margin {first.margin:+.2f}"
                          + (f", we lose {first.ko_against}" if first.ko_against else "")
                          + (f", we KO {first.ko_for}" if first.ko_for else ""))
-            avoided = [pr for pr in lead_values if pr != best_pair and model.opening(pr, top_leads).ko_against]
-            if avoided:
-                worst = min(avoided, key=lambda pr: lead_values[pr])
-                notes.append(f"avoid leading {names[worst[0]]} + {names[worst[1]]}: loses "
-                             f"{model.opening(worst, top_leads).ko_against} on turns 1-2")
+        notes.extend(lead_notes)
         out.append(Candidate([names[k] for k in four], [names[k] for k in best_pair], round(value, 3), notes))
     if out:
         out[0].notes.append(f"game value {100 * win(game_value):.0f}%")

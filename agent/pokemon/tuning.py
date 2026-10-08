@@ -54,6 +54,7 @@ DEFAULTS: dict[str, float] = {
     "lineup_v2_template": 0.5,     # v2: share of their predicted leads taken from the "Fake Out / speed control + best spread attacker" template
     "lineup_v2_lead_robust": 0.0,  # v2: weight on our lead pair's worst opening against any plausible lead of theirs (vs the expected one)
     "lineup_v2_four_template": 0.0,  # v2: share of their predicted FOUR from the same template (off: on the Oct 7 opponent's live lineups M1 38->34%, M4 24->0%, M2 unchanged)
+    "lead_veto_w": 0.5,            # v2 lead veto: a pair that loses a lead on turn 1 (or leads an exposed speed-control setter) against their two likeliest openings is never chosen while a pair of the same four is safe; with no safe pair, this much per lead lost (half for an exposed setter). 0 = off
     # battle
     "ko_bonus_guaranteed": 25.0,
     "ko_bonus_possible": 10.0,

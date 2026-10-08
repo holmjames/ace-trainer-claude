@@ -944,6 +944,29 @@ def opening(ours: list[Unit], theirs: list[Unit], *, turns: int = OPENING_TURNS)
     return result
 
 
+def fake_out_exposed(ours: list[Unit], theirs: list[Unit]) -> list[tuple[str, str]]:
+    """Our speed-control setters (Tailwind / Trick Room) that a Fake Out user among ``theirs`` can flinch on turn 1,
+    as (setter, their Fake Out user) pairs. A setter is safe when the flinch cannot land (Ghost type, Inner Focus,
+    Shield Dust, Covert Cloak, Psychic Terrain under a grounded setter, an Armor Tail / Dazzling / Queenly Majesty
+    ally), when its partner carries Quick Guard, or when its partner's own Fake Out is faster than theirs and flinches
+    their user first. Redirection does not cover it: Fake Out (+3) moves before Follow Me / Rage Powder (+2)."""
+    sim = _Opening(ours, theirs)
+    fakers = [m for m in sim.mons if m.side == 1 and any(mv["id"] == "fakeout" for mv in m.unit.mon.moves)]
+    out: list[tuple[str, str]] = []
+    for setter in (m for m in sim.mons if m.side == 0 and m.unit.roles & {"tailwind", "trickroom"}):
+        if not fakers or not sim.flinchable(setter):
+            continue
+        partner = sim.ally(setter)
+        partner_moves = {mv["id"] for mv in partner.unit.mon.moves} if partner else set()
+        if "quickguard" in partner_moves:
+            continue
+        for faker in fakers:
+            if partner and "fakeout" in partner_moves and sim.flinchable(faker) and sim.speed(partner) > sim.speed(faker):
+                continue  # our Fake Out lands first
+            out.append((setter.unit.species, faker.unit.species))
+    return out
+
+
 # -- team level ----------------------------------------------------------------------------------------------------
 #
 # A doubles game is not a string of 1-on-1 races, but the races say who can deal with whom. The team score asks the
