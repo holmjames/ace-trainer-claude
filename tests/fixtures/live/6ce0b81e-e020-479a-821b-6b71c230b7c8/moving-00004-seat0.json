@@ -1,0 +1,911 @@
+{
+ "session_id": "6ce0b81e-e020-479a-821b-6b71c230b7c8",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 4,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-66",
+  "turn": 3,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {},
+  "fields": {
+   "GRASSY_TERRAIN": 0
+  },
+  "side_conditions": {},
+  "opponent_side_conditions": {
+   "TAILWIND": 1
+  },
+  "team": {
+   "p1: Baxcalibur": {
+    "species": "baxcalibur",
+    "name": "Baxcalibur",
+    "current_hp": 191,
+    "max_hp": 191,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "thermalexchange",
+    "item": "loadeddice",
+    "types": [
+     "DRAGON",
+     "ICE"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 92,
+     "hp": 115,
+     "spa": 75,
+     "spd": 86,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "iciclespear",
+     "glaiverush",
+     "iceshard",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Salamence": {
+    "species": "salamence",
+    "name": "Salamence",
+    "current_hp": 0,
+    "max_hp": 171,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "intimidate",
+    "item": "lumberry",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 80,
+     "hp": 95,
+     "spa": 110,
+     "spd": 80,
+     "spe": 100
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": -4,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "dracometeor",
+     "hurricane",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": true,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Rillaboom": {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 193,
+    "max_hp": 205,
+    "current_hp_fraction": 0.9414634146341463,
+    "status": null,
+    "ability": "grassysurge",
+    "item": "assaultvest",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "woodhammer",
+     "grassyglide",
+     "uturn"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Tornadus": {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 186,
+    "max_hp": 186,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "prankster",
+    "item": "mentalherb",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "bleakwindstorm",
+     "taunt",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Indeedee": {
+    "species": "indeedeef",
+    "name": "Indeedee",
+    "current_hp": 177,
+    "max_hp": 177,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "psychicsurge",
+    "item": "rockyhelmet",
+    "types": [
+     "PSYCHIC",
+     "NORMAL"
+    ],
+    "base_stats": {
+     "atk": 55,
+     "def": 65,
+     "hp": 70,
+     "spa": 95,
+     "spd": 105,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "followme",
+     "helpinghand",
+     "dazzlinggleam",
+     "psychic"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Klefki": {
+    "species": "klefki",
+    "name": "Klefki",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "prankster",
+    "item": "lightclay",
+    "types": [
+     "STEEL",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 80,
+     "def": 91,
+     "hp": 57,
+     "spa": 80,
+     "spd": 87,
+     "spe": 75
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "reflect",
+     "lightscreen",
+     "dazzlinggleam",
+     "foulplay"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p2: Iron Hands": {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "quarkdrive",
+    "item": "unknown_item",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "wildcharge"
+    ],
+    "fainted": true,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Whimsicott": {
+    "species": "whimsicott",
+    "name": "Whimsicott",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": null,
+    "item": null,
+    "types": [
+     "GRASS",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 67,
+     "def": 85,
+     "hp": 60,
+     "spa": 77,
+     "spd": 75,
+     "spe": 116
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "tailwind"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Landorus": {
+    "species": "landorustherian",
+    "name": "Landorus",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "GROUND",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 90,
+     "hp": 89,
+     "spa": 105,
+     "spd": 80,
+     "spe": 91
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "uturn"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Kingambit": {
+    "species": "kingambit",
+    "name": "Kingambit",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DARK",
+     "STEEL"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 120,
+     "hp": 100,
+     "spa": 60,
+     "spd": 85,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   true
+  ],
+  "can_tera": [
+   false,
+   false
+  ],
+  "active_pokemon": [
+   {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 193,
+    "max_hp": 205,
+    "current_hp_fraction": 0.9414634146341463,
+    "status": null,
+    "ability": "grassysurge",
+    "item": "assaultvest",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "woodhammer",
+     "grassyglide",
+     "uturn"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   null
+  ],
+  "opponent_active_pokemon": [
+   null,
+   {
+    "species": "kingambit",
+    "name": "Kingambit",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DARK",
+     "STEEL"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 120,
+     "hp": 100,
+     "spa": 60,
+     "spd": 85,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [],
+   []
+  ],
+  "available_switches": [
+   [
+    {
+     "species": "baxcalibur",
+     "name": "Baxcalibur",
+     "current_hp": 191,
+     "max_hp": 191,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "thermalexchange",
+     "item": "loadeddice",
+     "types": [
+      "DRAGON",
+      "ICE"
+     ],
+     "base_stats": {
+      "atk": 145,
+      "def": 92,
+      "hp": 115,
+      "spa": 75,
+      "spd": 86,
+      "spe": 87
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "iciclespear",
+      "glaiverush",
+      "iceshard",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    },
+    {
+     "species": "indeedeef",
+     "name": "Indeedee",
+     "current_hp": 177,
+     "max_hp": 177,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "psychicsurge",
+     "item": "rockyhelmet",
+     "types": [
+      "PSYCHIC",
+      "NORMAL"
+     ],
+     "base_stats": {
+      "atk": 55,
+      "def": 65,
+      "hp": 70,
+      "spa": 95,
+      "spd": 105,
+      "spe": 85
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "followme",
+      "helpinghand",
+      "dazzlinggleam",
+      "psychic"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ],
+   [
+    {
+     "species": "baxcalibur",
+     "name": "Baxcalibur",
+     "current_hp": 191,
+     "max_hp": 191,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "thermalexchange",
+     "item": "loadeddice",
+     "types": [
+      "DRAGON",
+      "ICE"
+     ],
+     "base_stats": {
+      "atk": 145,
+      "def": 92,
+      "hp": 115,
+      "spa": 75,
+      "spd": 86,
+      "spe": 87
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "iciclespear",
+      "glaiverush",
+      "iceshard",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    },
+    {
+     "species": "indeedeef",
+     "name": "Indeedee",
+     "current_hp": 177,
+     "max_hp": 177,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "psychicsurge",
+     "item": "rockyhelmet",
+     "types": [
+      "PSYCHIC",
+      "NORMAL"
+     ],
+     "base_stats": {
+      "atk": 55,
+      "def": 65,
+      "hp": 70,
+      "spa": 95,
+      "spd": 105,
+      "spe": 85
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "followme",
+      "helpinghand",
+      "dazzlinggleam",
+      "psychic"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ]
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-6ce0b8 1 vs. able-p1-6ce0b8 1",
+   "|j|☆able-p0-6ce0b8 1",
+   "|j|☆able-p1-6ce0b8 1",
+   "|gametype|doubles",
+   "|player|p1|able-p0-6ce0b8 1|265|",
+   "|player|p2|able-p1-6ce0b8 1|102|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Baxcalibur, L50, F|",
+   "|poke|p1|Salamence, L50, F|",
+   "|poke|p1|Rillaboom, L50, F|",
+   "|poke|p1|Tornadus, L50, M|",
+   "|poke|p1|Indeedee-F, L50, F|",
+   "|poke|p1|Klefki, L50, F|",
+   "|poke|p2|Landorus-Therian, L50, M|",
+   "|poke|p2|Iron Hands, L50|",
+   "|poke|p2|Cresselia, L50, F|",
+   "|poke|p2|Kingambit, L50, M|",
+   "|poke|p2|Whimsicott, L50, F|",
+   "|poke|p2|Dragonite, L50, M|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p1-6ce0b8 1)",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p0-6ce0b8 1 also wants the timer to be on.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Rillaboom|Rillaboom, L50, F|205/205",
+   "|switch|p1b: Salamence|Salamence, L50, F|171/171",
+   "|switch|p2a: Iron Hands|Iron Hands, L50|100/100",
+   "|switch|p2b: Whimsicott|Whimsicott, L50, F|100/100",
+   "|-ability|p1b: Salamence|Intimidate|boost",
+   "|-unboost|p2a: Iron Hands|atk|1",
+   "|-unboost|p2b: Whimsicott|atk|1",
+   "|-fieldstart|move: Grassy Terrain|[from] ability: Grassy Surge|[of] p1a: Rillaboom",
+   "|turn|1",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p1a: Rillaboom|Fake Out|p2a: Iron Hands",
+   "|-damage|p2a: Iron Hands|91/100",
+   "|cant|p2a: Iron Hands|flinch",
+   "|move|p2b: Whimsicott|Tailwind|p2b: Whimsicott",
+   "|-sidestart|p2: able-p1-6ce0b8 1|move: Tailwind",
+   "|move|p1b: Salamence|Hurricane|p2b: Whimsicott",
+   "|-supereffective|p2b: Whimsicott",
+   "|-enditem|p2b: Whimsicott|Focus Sash",
+   "|-damage|p2b: Whimsicott|1/100",
+   "|",
+   "|-heal|p2b: Whimsicott|7/100|[from] Grassy Terrain",
+   "|-heal|p2a: Iron Hands|97/100|[from] Grassy Terrain",
+   "|upkeep",
+   "|turn|2",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p1a: Rillaboom|Grassy Glide|p2b: Whimsicott",
+   "|-resisted|p2b: Whimsicott",
+   "|-damage|p2b: Whimsicott|0 fnt",
+   "|faint|p2b: Whimsicott",
+   "|move|p1b: Salamence|Draco Meteor|p2a: Iron Hands",
+   "|-damage|p2a: Iron Hands|56/100",
+   "|-unboost|p1b: Salamence|spa|2",
+   "|move|p2a: Iron Hands|Wild Charge|p1b: Salamence",
+   "|-damage|p1b: Salamence|96/171",
+   "|-damage|p2a: Iron Hands|49/100|[from] Recoil",
+   "|",
+   "|-heal|p2a: Iron Hands|55/100|[from] Grassy Terrain",
+   "|upkeep",
+   "|",
+   "|switch|p2b: Landorus|Landorus-Therian, L50, M|100/100",
+   "|-ability|p2b: Landorus|Intimidate|boost",
+   "|-unboost|p1a: Rillaboom|atk|1",
+   "|-unboost|p1b: Salamence|atk|1",
+   "|turn|3",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p2b: Landorus|U-turn|p1b: Salamence",
+   "|-resisted|p1b: Salamence",
+   "|-damage|p1b: Salamence|70/171",
+   "|",
+   "|switch|p2b: Kingambit|Kingambit, L50, M|100/100|[from] U-turn",
+   "|-activate|p2b: Kingambit|ability: Supreme Overlord",
+   "|-start|p2b: Kingambit|fallen1|[silent]",
+   "|move|p1b: Salamence|Draco Meteor|p2a: Iron Hands",
+   "|-damage|p2a: Iron Hands|36/100",
+   "|-unboost|p1b: Salamence|spa|2",
+   "|move|p2a: Iron Hands|Wild Charge|p1b: Salamence",
+   "|-damage|p1b: Salamence|0 fnt",
+   "|faint|p1b: Salamence",
+   "|-damage|p2a: Iron Hands|29/100|[from] Recoil",
+   "|move|p1a: Rillaboom|Wood Hammer|p2a: Iron Hands",
+   "|-damage|p2a: Iron Hands|0 fnt",
+   "|faint|p2a: Iron Hands",
+   "|-end|p2a: Iron Hands|Quark Drive|[silent]",
+   "|-damage|p1a: Rillaboom|181/205|[from] Recoil",
+   "|",
+   "|-heal|p1a: Rillaboom|193/205|[from] Grassy Terrain",
+   "|upkeep"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 420
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "a19d889d-1667-405a-87f1-f8beae13f2e0",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "6ce0b81e-e020-479a-821b-6b71c230b7c8",
+  "state_version": 4,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "6ce0b81e-e020-479a-821b-6b71c230b7c8",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "rillaboom",
+         "name": "Rillaboom",
+         "current_hp": 193,
+         "max_hp": 205,
+         "current_hp_fraction": 0.9414634146341463,
+         "status": null,
+         "ability": "grassysurge",
+         "item": "assaultvest",
+         "types": [
+          "GRASS"
+         ],
+         "base_stats": {
+          "atk": 125,
+          "def": 90,
+          "hp": 100,
+          "spa": 60,
+          "spd": 70,
+          "spe": 85
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": -1,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "fakeout",
+          "woodhammer",
+          "grassyglide",
+          "uturn"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "pass"
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": null,
+        "force_switch": true,
+        "options": [
+         {
+          "type": "switch",
+          "species": "baxcalibur"
+         },
+         {
+          "type": "switch",
+          "species": "indeedeef"
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 4
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}

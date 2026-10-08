@@ -1,0 +1,523 @@
+{
+ "session_id": "6ce0b81e-e020-479a-821b-6b71c230b7c8",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 0,
+ "observation": {
+  "phase": "team_preview",
+  "battle_format": "gen9vgc2025regi",
+  "battle_tag": "battle-gen9vgc2025regi-66",
+  "waiting_for_action": true,
+  "your_roster": [
+   {
+    "species": "baxcalibur",
+    "name": "Baxcalibur",
+    "current_hp": 191,
+    "max_hp": 191,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "thermalexchange",
+    "item": "loadeddice",
+    "types": [
+     "DRAGON",
+     "ICE"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 92,
+     "hp": 115,
+     "spa": 75,
+     "spd": 86,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "iciclespear",
+     "glaiverush",
+     "iceshard",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "salamence",
+    "name": "Salamence",
+    "current_hp": 171,
+    "max_hp": 171,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "lumberry",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 80,
+     "hp": 95,
+     "spa": 110,
+     "spd": 80,
+     "spe": 100
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "dracometeor",
+     "hurricane",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 205,
+    "max_hp": 205,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "grassysurge",
+    "item": "assaultvest",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "woodhammer",
+     "grassyglide",
+     "uturn"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 186,
+    "max_hp": 186,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "prankster",
+    "item": "mentalherb",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "bleakwindstorm",
+     "taunt",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "indeedeef",
+    "name": "Indeedee",
+    "current_hp": 177,
+    "max_hp": 177,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "psychicsurge",
+    "item": "rockyhelmet",
+    "types": [
+     "PSYCHIC",
+     "NORMAL"
+    ],
+    "base_stats": {
+     "atk": 55,
+     "def": 65,
+     "hp": 70,
+     "spa": 95,
+     "spd": 105,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "followme",
+     "helpinghand",
+     "dazzlinggleam",
+     "psychic"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "klefki",
+    "name": "Klefki",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "prankster",
+    "item": "lightclay",
+    "types": [
+     "STEEL",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 80,
+     "def": 91,
+     "hp": 57,
+     "spa": 80,
+     "spd": 87,
+     "spe": 75
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "reflect",
+     "lightscreen",
+     "dazzlinggleam",
+     "foulplay"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_roster": [
+   {
+    "species": "landorustherian",
+    "name": "Landorus",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "GROUND",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 90,
+     "hp": 89,
+     "spa": 105,
+     "spd": 80,
+     "spe": 91
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "unknown_item",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "cresselia",
+    "name": "Cresselia",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": "levitate",
+    "item": "unknown_item",
+    "types": [
+     "PSYCHIC"
+    ],
+    "base_stats": {
+     "atk": 70,
+     "def": 110,
+     "hp": 120,
+     "spa": 75,
+     "spd": 120,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "kingambit",
+    "name": "Kingambit",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DARK",
+     "STEEL"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 120,
+     "hp": 100,
+     "spa": 60,
+     "spd": 85,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "whimsicott",
+    "name": "Whimsicott",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "GRASS",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 67,
+     "def": 85,
+     "hp": 60,
+     "spa": 77,
+     "spd": 75,
+     "spe": 116
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "dragonite",
+    "name": "Dragonite",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 95,
+     "hp": 91,
+     "spa": 100,
+     "spd": 100,
+     "spe": 80
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  ],
+  "clock": {
+   "decision_seconds_left": 85,
+   "bank_seconds_left": 420
+  }
+ },
+ "phase": "team_preview",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "a19d889d-1667-405a-87f1-f8beae13f2e0",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "6ce0b81e-e020-479a-821b-6b71c230b7c8",
+  "state_version": 0,
+  "actions": [
+   {
+    "action_id": "select_lineup",
+    "label": "Choose 4 of 6 and designate 2 leads",
+    "input": {
+     "session_id": "6ce0b81e-e020-479a-821b-6b71c230b7c8",
+     "action": {
+      "type": "select_lineup",
+      "roster": [
+       "baxcalibur",
+       "salamence",
+       "rillaboom",
+       "tornadus",
+       "indeedeef",
+       "klefki"
+      ],
+      "bring_count": 4,
+      "lead_count": 2,
+      "instructions": "Choose exactly 4 species from `roster` to bring into battle, and which 2 of those 4 lead. Submit via play_action with action={'type': 'select_lineup', 'bring': [4 species from roster], 'leads': [2 of those 4 species]}."
+     },
+     "action_id": "select_lineup",
+     "state_version": 0
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}

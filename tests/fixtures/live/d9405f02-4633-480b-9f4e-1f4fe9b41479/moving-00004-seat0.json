@@ -1,0 +1,1319 @@
+{
+ "session_id": "d9405f02-4633-480b-9f4e-1f4fe9b41479",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 4,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-72",
+  "turn": 4,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {},
+  "fields": {},
+  "side_conditions": {},
+  "opponent_side_conditions": {
+   "TAILWIND": 2
+  },
+  "team": {
+   "p1: Baxcalibur": {
+    "species": "baxcalibur",
+    "name": "Baxcalibur",
+    "current_hp": 191,
+    "max_hp": 191,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "thermalexchange",
+    "item": "loadeddice",
+    "types": [
+     "DRAGON",
+     "ICE"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 92,
+     "hp": 115,
+     "spa": 75,
+     "spd": 86,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "iciclespear",
+     "glaiverush",
+     "iceshard",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Landorus": {
+    "species": "landorustherian",
+    "name": "Landorus",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "choicescarf",
+    "types": [
+     "GROUND",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 90,
+     "hp": 89,
+     "spa": 105,
+     "spd": 80,
+     "spe": 91
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "uturn",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Sneasler": {
+    "species": "sneasler",
+    "name": "Sneasler",
+    "current_hp": 54,
+    "max_hp": 156,
+    "current_hp_fraction": 0.34615384615384615,
+    "status": null,
+    "ability": "unburden",
+    "item": "",
+    "types": [
+     "FIGHTING",
+     "POISON"
+    ],
+    "base_stats": {
+     "atk": 130,
+     "def": 60,
+     "hp": 80,
+     "spa": 40,
+     "spd": 80,
+     "spe": 120
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "closecombat",
+     "direclaw",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Garchomp": {
+    "species": "garchomp",
+    "name": "Garchomp",
+    "current_hp": 184,
+    "max_hp": 184,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "roughskin",
+    "item": "focussash",
+    "types": [
+     "DRAGON",
+     "GROUND"
+    ],
+    "base_stats": {
+     "atk": 130,
+     "def": 95,
+     "hp": 108,
+     "spa": 80,
+     "spd": 85,
+     "spe": 102
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "ironhead",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Cresselia": {
+    "species": "cresselia",
+    "name": "Cresselia",
+    "current_hp": 154,
+    "max_hp": 227,
+    "current_hp_fraction": 0.6784140969162996,
+    "status": null,
+    "ability": "levitate",
+    "item": "sitrusberry",
+    "types": [
+     "PSYCHIC"
+    ],
+    "base_stats": {
+     "atk": 70,
+     "def": 110,
+     "hp": 120,
+     "spa": 75,
+     "spd": 120,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "icywind",
+     "moonblast",
+     "helpinghand",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Lucario": {
+    "species": "lucario",
+    "name": "Lucario",
+    "current_hp": 146,
+    "max_hp": 146,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "innerfocus",
+    "item": "lifeorb",
+    "types": [
+     "FIGHTING",
+     "STEEL"
+    ],
+    "base_stats": {
+     "atk": 110,
+     "def": 70,
+     "hp": 70,
+     "spa": 115,
+     "spd": 70,
+     "spe": 90
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "closecombat",
+     "bulletpunch",
+     "poisonjab",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p2: Dragonite": {
+    "species": "dragonite",
+    "name": "Dragonite",
+    "current_hp": 63,
+    "max_hp": 100,
+    "current_hp_fraction": 0.63,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 95,
+     "hp": 91,
+     "spa": 100,
+     "spd": 100,
+     "spe": 80
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Gholdengo": {
+    "species": "gholdengo",
+    "name": "Gholdengo",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "goodasgold",
+    "item": "airballoon",
+    "types": [
+     "STEEL",
+     "GHOST"
+    ],
+    "base_stats": {
+     "atk": 60,
+     "def": 95,
+     "hp": 87,
+     "spa": 133,
+     "spd": 91,
+     "spe": 84
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 1,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "makeitrain",
+     "shadowball",
+     "nastyplot"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   false
+  ],
+  "can_tera": [
+   true,
+   true
+  ],
+  "active_pokemon": [
+   {
+    "species": "landorustherian",
+    "name": "Landorus",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "choicescarf",
+    "types": [
+     "GROUND",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 90,
+     "hp": 89,
+     "spa": 105,
+     "spd": 80,
+     "spe": 91
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "uturn",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "cresselia",
+    "name": "Cresselia",
+    "current_hp": 154,
+    "max_hp": 227,
+    "current_hp_fraction": 0.6784140969162996,
+    "status": null,
+    "ability": "levitate",
+    "item": "sitrusberry",
+    "types": [
+     "PSYCHIC"
+    ],
+    "base_stats": {
+     "atk": 70,
+     "def": 110,
+     "hp": 120,
+     "spa": 75,
+     "spd": 120,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "icywind",
+     "moonblast",
+     "helpinghand",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_active_pokemon": [
+   {
+    "species": "dragonite",
+    "name": "Dragonite",
+    "current_hp": 63,
+    "max_hp": 100,
+    "current_hp_fraction": 0.63,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 95,
+     "hp": 91,
+     "spa": 100,
+     "spd": 100,
+     "spe": 80
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "gholdengo",
+    "name": "Gholdengo",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "goodasgold",
+    "item": "airballoon",
+    "types": [
+     "STEEL",
+     "GHOST"
+    ],
+    "base_stats": {
+     "atk": 60,
+     "def": 95,
+     "hp": 87,
+     "spa": 133,
+     "spd": 91,
+     "spe": 84
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 1,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "makeitrain",
+     "shadowball",
+     "nastyplot"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [
+    {
+     "id": "earthquake",
+     "type": "GROUND",
+     "category": "PHYSICAL",
+     "base_power": 100,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "ALL_ADJACENT",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "rockslide",
+     "type": "ROCK",
+     "category": "PHYSICAL",
+     "base_power": 75,
+     "accuracy": 0.9,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "ALL_ADJACENT_FOES",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "uturn",
+     "type": "BUG",
+     "category": "PHYSICAL",
+     "base_power": 70,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 32,
+     "max_pp": 32,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "cresselia"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "dragonite"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "gholdengo"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "id": "icywind",
+     "type": "ICE",
+     "category": "SPECIAL",
+     "base_power": 55,
+     "accuracy": 0.95,
+     "priority": 0,
+     "current_pp": 23,
+     "max_pp": 24,
+     "target": "ALL_ADJACENT_FOES",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "moonblast",
+     "type": "FAIRY",
+     "category": "SPECIAL",
+     "base_power": 95,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 22,
+     "max_pp": 24,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "landorustherian"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "dragonite"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "gholdengo"
+      }
+     ]
+    },
+    {
+     "id": "helpinghand",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 5,
+     "current_pp": 32,
+     "max_pp": 32,
+     "target": "ADJACENT_ALLY",
+     "targets": [
+      -1
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "landorustherian"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ]
+  ],
+  "available_switches": [
+   [
+    {
+     "species": "sneasler",
+     "name": "Sneasler",
+     "current_hp": 54,
+     "max_hp": 156,
+     "current_hp_fraction": 0.34615384615384615,
+     "status": null,
+     "ability": "unburden",
+     "item": "",
+     "types": [
+      "FIGHTING",
+      "POISON"
+     ],
+     "base_stats": {
+      "atk": 130,
+      "def": 60,
+      "hp": 80,
+      "spa": 40,
+      "spd": 80,
+      "spe": 120
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "fakeout",
+      "closecombat",
+      "direclaw",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": true,
+     "is_terastallized": false
+    },
+    {
+     "species": "garchomp",
+     "name": "Garchomp",
+     "current_hp": 184,
+     "max_hp": 184,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "roughskin",
+     "item": "focussash",
+     "types": [
+      "DRAGON",
+      "GROUND"
+     ],
+     "base_stats": {
+      "atk": 130,
+      "def": 95,
+      "hp": 108,
+      "spa": 80,
+      "spd": 85,
+      "spe": 102
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "earthquake",
+      "rockslide",
+      "ironhead",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ],
+   [
+    {
+     "species": "sneasler",
+     "name": "Sneasler",
+     "current_hp": 54,
+     "max_hp": 156,
+     "current_hp_fraction": 0.34615384615384615,
+     "status": null,
+     "ability": "unburden",
+     "item": "",
+     "types": [
+      "FIGHTING",
+      "POISON"
+     ],
+     "base_stats": {
+      "atk": 130,
+      "def": 60,
+      "hp": 80,
+      "spa": 40,
+      "spd": 80,
+      "spe": 120
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "fakeout",
+      "closecombat",
+      "direclaw",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": true,
+     "is_terastallized": false
+    },
+    {
+     "species": "garchomp",
+     "name": "Garchomp",
+     "current_hp": 184,
+     "max_hp": 184,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "roughskin",
+     "item": "focussash",
+     "types": [
+      "DRAGON",
+      "GROUND"
+     ],
+     "base_stats": {
+      "atk": 130,
+      "def": 95,
+      "hp": 108,
+      "spa": 80,
+      "spd": 85,
+      "spe": 102
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "earthquake",
+      "rockslide",
+      "ironhead",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ]
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-d9405f 1 vs. able-p1-d9405f 1",
+   "|j|☆able-p0-d9405f 1",
+   "|j|☆able-p1-d9405f 1",
+   "|gametype|doubles",
+   "|player|p1|able-p0-d9405f 1|265|",
+   "|player|p2|able-p1-d9405f 1|102|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Baxcalibur, L50, F|",
+   "|poke|p1|Landorus-Therian, L50, M|",
+   "|poke|p1|Sneasler, L50, M|",
+   "|poke|p1|Garchomp, L50, F|",
+   "|poke|p1|Cresselia, L50, F|",
+   "|poke|p1|Lucario, L50, F|",
+   "|poke|p2|Dragonite, L50, M|",
+   "|poke|p2|Gholdengo, L50|",
+   "|poke|p2|Iron Hands, L50|",
+   "|poke|p2|Archaludon, L50, F|",
+   "|poke|p2|Iron Bundle, L50|",
+   "|poke|p2|Indeedee-F, L50, F|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p0-d9405f 1)",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p1-d9405f 1 also wants the timer to be on.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Sneasler|Sneasler, L50, M|156/156",
+   "|switch|p1b: Cresselia|Cresselia, L50, F|227/227",
+   "|switch|p2a: Dragonite|Dragonite, L50, M|100/100",
+   "|switch|p2b: Gholdengo|Gholdengo, L50|100/100",
+   "|-item|p2b: Gholdengo|Air Balloon",
+   "|turn|1",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p1a: Sneasler|Fake Out|p2a: Dragonite",
+   "|-damage|p2a: Dragonite|93/100",
+   "|move|p2b: Gholdengo|Make It Rain|p1a: Sneasler|[spread] p1a,p1b",
+   "|-crit|p1a: Sneasler",
+   "|-damage|p1a: Sneasler|2/156",
+   "|-damage|p1b: Cresselia|154/227",
+   "|-unboost|p2b: Gholdengo|spa|1",
+   "|-enditem|p1a: Sneasler|Aguav Berry|[eat]",
+   "|-heal|p1a: Sneasler|54/156|[from] item: Aguav Berry",
+   "|move|p1b: Cresselia|Icy Wind|p2b: Gholdengo|[spread] ",
+   "|-miss|p1b: Cresselia|p2a: Dragonite",
+   "|-miss|p1b: Cresselia|p2b: Gholdengo",
+   "|cant|p2a: Dragonite|flinch",
+   "|",
+   "|upkeep",
+   "|turn|2",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|move|p1a: Sneasler|Protect|p1a: Sneasler",
+   "|-singleturn|p1a: Sneasler|Protect",
+   "|move|p2b: Gholdengo|Shadow Ball|p1a: Sneasler",
+   "|-activate|p1a: Sneasler|move: Protect",
+   "|move|p1b: Cresselia|Moonblast|p2a: Dragonite",
+   "|-supereffective|p2a: Dragonite",
+   "|-damage|p2a: Dragonite|63/100",
+   "|move|p2a: Dragonite|Tailwind|p2a: Dragonite",
+   "|-sidestart|p2: able-p1-d9405f 1|move: Tailwind",
+   "|",
+   "|upkeep",
+   "|turn|3",
+   "|inactive|Time left: 55 sec this turn | 400 sec total",
+   "|",
+   "|switch|p1a: Landorus|Landorus-Therian, L50, M|164/164",
+   "|-ability|p1a: Landorus|Intimidate|boost",
+   "|-unboost|p2a: Dragonite|atk|1",
+   "|-unboost|p2b: Gholdengo|atk|1",
+   "|move|p2a: Dragonite|Protect|p2a: Dragonite",
+   "|-singleturn|p2a: Dragonite|Protect",
+   "|move|p2b: Gholdengo|Nasty Plot|p2b: Gholdengo",
+   "|-boost|p2b: Gholdengo|spa|2",
+   "|move|p1b: Cresselia|Moonblast|p2a: Dragonite",
+   "|-activate|p2a: Dragonite|move: Protect",
+   "|",
+   "|upkeep",
+   "|turn|4"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 395
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "7b981b4e-6d6f-48e3-b83f-89a6a57d46d2",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "d9405f02-4633-480b-9f4e-1f4fe9b41479",
+  "state_version": 4,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "d9405f02-4633-480b-9f4e-1f4fe9b41479",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "landorustherian",
+         "name": "Landorus",
+         "current_hp": 164,
+         "max_hp": 164,
+         "current_hp_fraction": 1.0,
+         "status": null,
+         "ability": "intimidate",
+         "item": "choicescarf",
+         "types": [
+          "GROUND",
+          "FLYING"
+         ],
+         "base_stats": {
+          "atk": 145,
+          "def": 90,
+          "hp": 89,
+          "spa": 105,
+          "spd": 80,
+          "spe": 91
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "earthquake",
+          "rockslide",
+          "uturn",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "earthquake",
+          "base_power": 100,
+          "category": "PHYSICAL",
+          "move_type": "GROUND",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "rockslide",
+          "base_power": 75,
+          "category": "PHYSICAL",
+          "move_type": "ROCK",
+          "current_pp": 16,
+          "accuracy": 0.9,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "uturn",
+          "base_power": 70,
+          "category": "PHYSICAL",
+          "move_type": "BUG",
+          "current_pp": 32,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "cresselia"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "dragonite"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "gholdengo"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "sneasler"
+         },
+         {
+          "type": "switch",
+          "species": "garchomp"
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": {
+         "species": "cresselia",
+         "name": "Cresselia",
+         "current_hp": 154,
+         "max_hp": 227,
+         "current_hp_fraction": 0.6784140969162996,
+         "status": null,
+         "ability": "levitate",
+         "item": "sitrusberry",
+         "types": [
+          "PSYCHIC"
+         ],
+         "base_stats": {
+          "atk": 70,
+          "def": 110,
+          "hp": 120,
+          "spa": 75,
+          "spd": 120,
+          "spe": 85
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "icywind",
+          "moonblast",
+          "helpinghand",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "icywind",
+          "base_power": 55,
+          "category": "SPECIAL",
+          "move_type": "ICE",
+          "current_pp": 23,
+          "accuracy": 0.95,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "moonblast",
+          "base_power": 95,
+          "category": "SPECIAL",
+          "move_type": "FAIRY",
+          "current_pp": 22,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "landorustherian"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "dragonite"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "gholdengo"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "helpinghand",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 32,
+          "accuracy": 1.0,
+          "targets": [
+           -1
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "landorustherian"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "sneasler"
+         },
+         {
+          "type": "switch",
+          "species": "garchomp"
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 4
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}
