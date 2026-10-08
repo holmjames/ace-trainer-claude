@@ -33,26 +33,20 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import data
-from .battle import FieldState, Mon, build_mon, damage_percent, effective_move, paradox_boosted_stat
+from .battle import RESIST_BERRIES, FieldState, Mon, build_mon, damage_percent, effective_move, paradox_boosted_stat
 
 SPREAD_TARGETS = {"allAdjacentFoes", "allAdjacent"}
 MAX_TURNS = 8  # a 1-on-1 race that is still open after 8 turns is a stall; it is scored on HP left
 
 # -- damage effects the shared calculator does not model yet ------------------------------------------------------
-# Verified against @smogon/calc on the live catalog in tests/test_matchup.py (fixture: scripts/gen_matchup_fixture.js).
-ATE_ABILITIES = {"pixilate": "Fairy", "aerilate": "Flying", "refrigerate": "Ice", "galvanize": "Electric"}
-ATE_POWER = 4915 / 4096  # the -ate abilities also raise the converted move's power by about 1.2x
+# (battle.damage_percent handles the -ate abilities, Adaptability, Unaware, resist berries, Freeze-Dry and Levitate /
+# Air Balloon since the Oct 8 fixes; verified against @smogon/calc on the live catalog in tests/test_matchup.py.)
 ABSORB_ABILITIES = {"flashfire": "fire", "wellbakedbody": "fire", "waterabsorb": "water", "stormdrain": "water",
                     "dryskin": "water", "voltabsorb": "electric", "lightningrod": "electric", "motordrive": "electric",
                     "sapsipper": "grass", "eartheater": "ground", "levitate": "ground"}
 MOLD_BREAKERS = {"moldbreaker", "teravolt", "turboblaze", "myceliummight"}
 RAIN_SURE_HIT = {"hurricane", "thunder", "bleakwindstorm", "wildboltstorm", "sandsearstorm"}
 WEIGHT_MOVES = {"lowkick", "grassknot"}  # power from the target's weight; the shared calculator reads their 0 as "no damage"
-RESIST_BERRIES = {"occaberry": "fire", "passhoberry": "water", "wacanberry": "electric", "rindoberry": "grass",
-                  "yacheberry": "ice", "chopleberry": "fighting", "kebiaberry": "poison", "shucaberry": "ground",
-                  "cobaberry": "flying", "payapaberry": "psychic", "tangaberry": "bug", "chartiberry": "rock",
-                  "kasibberry": "ghost", "habanberry": "dragon", "colburberry": "dark", "babiriberry": "steel",
-                  "roseliberry": "fairy", "chilanberry": "normal"}
 DAMAGING_WITHOUT_POWER = WEIGHT_MOVES | {"ruination", "beatup", "heavyslam", "heatcrash"}
 
 # -- what moves and abilities do in a race -----------------------------------------------------------------------
@@ -169,45 +163,18 @@ def unit(card: dict) -> Unit:
 
 
 def calc_hit(attacker: Mon, move: dict, defender: Mon, fs: FieldState | None, *, spread: bool) -> tuple[float, float] | None:
-    """``battle.damage_percent`` plus the effects it does not model yet, so the matchup model sees the live
-    catalog as @smogon/calc does: Pixilate-style type changes (+20% power), Adaptability (STAB 2x), immunities from
-    Levitate, Air Balloon and absorbing abilities, Low Kick's weight-based power, Freeze-Dry hitting Water types
-    super-effectively, type-resist berries (Chople Berry) and Unaware (stat stages of the other side ignored; the
-    attacker's Defense counts for Body Press). (min%, max%) of the defender's CURRENT HP, or None for a move that
-    does no damage."""
-    move = dict(move)
-    ability = data.to_id(attacker.ability)
-    target_ability = data.to_id(defender.ability)
+    """``battle.damage_percent`` (which models the -ate abilities, Adaptability, Unaware, resist berries, Freeze-Dry
+    and Levitate / Air Balloon) plus the two things it still lacks for the live catalog: Low Kick / Grass Knot power
+    from the target's weight (the move table says 0, which reads as "no damage") and immunities from absorbing
+    abilities (Flash Fire, Water Absorb, Volt Absorb...). Checked against @smogon/calc in tests/test_matchup.py.
+    (min%, max%) of the defender's CURRENT HP, or None for a move that does no damage."""
     if move.get("id") in WEIGHT_MOVES:
-        move["base_power"] = weight_power(defender)
-    if target_ability == "unaware" and any(attacker.boosts.get(k) for k in ("atk", "spa", "def")):
-        attacker = replace(attacker, boosts={k: v for k, v in attacker.boosts.items() if k not in ("atk", "spa", "def")})
-    if ability == "unaware" and any(defender.boosts.get(k) for k in ("def", "spd")):
-        defender = replace(defender, boosts={k: v for k, v in defender.boosts.items() if k not in ("def", "spd")})
-    eff = effective_move(attacker, move, defender, fs)
-    move_type = data.to_id(eff.get("type"))
-    if ability in ATE_ABILITIES and move_type == "normal" and (eff.get("base_power") or 0) > 0:
-        move["type"] = ATE_ABILITIES[ability]
-        move["base_power"] = int(round((move.get("base_power") or 0) * ATE_POWER))
-        move_type = data.to_id(move["type"])
-    if ability not in MOLD_BREAKERS:
-        if ABSORB_ABILITIES.get(target_ability) == move_type and move.get("category") in ("Physical", "Special"):
+        move = {**move, "base_power": weight_power(defender)}
+    if data.to_id(attacker.ability) not in MOLD_BREAKERS and move.get("category") in ("Physical", "Special"):
+        absorbed = ABSORB_ABILITIES.get(data.to_id(defender.ability))
+        if absorbed and data.to_id(effective_move(attacker, move, defender, fs).get("type")) == absorbed:
             return (0.0, 0.0)
-        if move_type == "ground" and data.to_id(defender.item) == "airballoon" and move.get("id") != "thousandarrows":
-            return (0.0, 0.0)
-    if move.get("id") == "freezedry" and "water" in defender.types:
-        # Freeze-Dry is 2x on Water instead of 0.5x: score it against a stand-in type Ice is 2x on.
-        defender = replace(defender, types=["grass" if t == "water" else t for t in defender.types])
-    result = damage_percent(attacker, move, defender, field=fs, spread=spread)
-    if result is None:
-        return None
-    low, high = result
-    berry = RESIST_BERRIES.get(data.to_id(defender.item))
-    if berry and berry == move_type and (berry == "normal" or data.effectiveness(move_type, defender.types) > 1):
-        low, high = low / 2, high / 2  # the berry halves this hit (and is used up; the race tracks that)
-    if ability == "adaptability" and move_type in [data.to_id(t) for t in attacker.types] and move.get("id") != "ruination":
-        low, high = low * 2 / 1.5, high * 2 / 1.5  # Adaptability makes STAB 2x instead of 1.5x
-    return (round(min(low, 999.0), 1), round(min(high, 999.0), 1))
+    return damage_percent(attacker, move, defender, field=fs, spread=spread)
 
 
 def weight_power(defender: Mon) -> int:
@@ -476,10 +443,8 @@ class _Race:
             foe.item = ""  # popped
         if foe.item == "focussash" and 0 < foe.hp < 1.5:
             foe.item = ""  # it held on at 1 HP: the sash is spent
-        if foe.item in RESIST_BERRIES:
+        if foe.item in RESIST_BERRIES:  # a resist berry halves one super-effective hit of its type, then it is eaten
             eff_type = data.to_id(effective_move(me.unit.mon, move, foe.unit.mon, None).get("type"))
-            if me.unit.ability in ATE_ABILITIES and eff_type == "normal":
-                eff_type = data.to_id(ATE_ABILITIES[me.unit.ability])
             berry = RESIST_BERRIES[foe.item]
             if berry == eff_type and (berry == "normal" or data.effectiveness(eff_type, foe.unit.types) > 1):
                 foe.item = ""  # eaten
