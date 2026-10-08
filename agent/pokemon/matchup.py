@@ -927,6 +927,26 @@ class _Opening:
             m.hp = min(100.0, m.hp + 6.25)
 
 
+def opening_plan(ours: list[Unit], theirs: list[Unit]) -> list[str]:
+    """What the opening model has each lead do on turn 1 (our two first, then theirs), as 'Species: move -> target'
+    lines: the turn-1 line Team Preview can show the model."""
+    sim = _Opening(ours, theirs)
+    lines = []
+    for m in sim.mons:
+        kind, move, target = sim.decide(m, 1)
+        if move is None:
+            lines.append(f"{m.unit.species}: nothing")
+            continue
+        what = move["id"]
+        if kind == "attack" and target is None and move.get("target") in SPREAD_TARGETS:
+            lines.append(f"{m.unit.species}: {what} (spread)")
+        elif target is not None:
+            lines.append(f"{m.unit.species}: {what} -> {target.unit.species}")
+        else:
+            lines.append(f"{m.unit.species}: {what}")
+    return lines
+
+
 _OPENINGS: dict[tuple, Opening] = {}
 
 
