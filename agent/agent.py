@@ -48,7 +48,7 @@ from agent.pokemon import battle as battle_rules
 from agent.pokemon import draft as draft_rules
 from agent.pokemon import lineup as lineup_rules
 from agent.pokemon.log import DecisionLog, git_commit
-from agent.pokemon.memory import MatchMemory, observation_dict
+from agent.pokemon.memory import MatchMemory, observation_dict, species_key
 from agent.pokemon.prompts import LINEUP_INSTRUCTIONS, SYSTEM_PROMPT
 from agent.pokemon.tuning import DEFAULTS
 
@@ -253,6 +253,7 @@ class PokemonAgent:
             break
         sheet.candidates = [c for c in sheet.candidates if "invalid" not in c]
         choice = Choice(kind=base.kind, prompt=base.prompt, schema=_TURN_SCHEMA, build=base.build, fallback=fallback)
+        roster = battle_roster(obs, template, self.memory)
         payload = {
             "decision": "doubles_turn",
             **choice.prompt,
@@ -261,15 +262,18 @@ class PokemonAgent:
                 "If the chosen option's targets list is non-empty, target must be one of those integers; "
                 "if the list is empty (or the option is a switch/pass), send target 0."
             ),
+            "battle_roster": roster,
             "turn_sheet": sheet.as_prompt(),
-            "known_sets": {"mine": self.memory.known_sets("mine"), "opponent": self.memory.known_sets("opponent")},
-            "observation": _compact(obs, _BATTLE_KEYS),
+            "known_sets": {"mine": self.memory.known_sets("mine", only=roster["ours"]["in_this_battle"]),
+                           "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])},
+            "observation": _compact(_battle_view(obs, roster), _BATTLE_KEYS),
         }
         value, answer, info = self._ask(choice, payload, kind="turn", recheck=lambda v: _lethal_recheck(v, sheet),
                                         clock=obs.get("clock"))
-        self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"))
+        forced = any(slot.get("force_switch") for slot in template.get("slots") or [])
+        self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced)
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
-                  win_condition=(answer or {}).get("win_condition"), turn_sheet=sheet.as_prompt(), **info)
+                  win_condition=(answer or {}).get("win_condition"), battle_roster=roster, turn_sheet=sheet.as_prompt(), **info)
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 
@@ -387,6 +391,98 @@ def _anthropic_sdk_version() -> str | None:
 def _stderr(line: str) -> None:
     """Agent chatter goes to stderr so the runtime's own stdout stays clean."""
     print(line, file=sys.stderr, flush=True)
+
+
+def _hp_pct(summary: dict) -> int | None:
+    frac = summary.get("current_hp_fraction")
+    if frac is None and summary.get("max_hp"):
+        frac = (summary.get("current_hp") or 0) / summary["max_hp"]
+    return int(round(100 * float(frac))) if frac is not None else None
+
+
+def battle_roster(obs: dict, template: dict, memory: MatchMemory) -> dict:
+    """Who is where, in plain words, for both sides.
+
+    The live ``team`` lists all SIX of our drafted Pokémon, including the two left at Team Preview, and can even mark
+    one of those ``active`` (Oct 7: the model planned around "Baxcalibur/Lucario can come in" — neither was brought).
+    Ours: on the field (by slot), in the back (can switch in), fainted, and NOT in this battle. Theirs: on the field,
+    seen in the back, fainted, and how many of their four we have not seen yet (and which species they could be)."""
+    key = species_key
+    team = obs.get("team") if isinstance(obs.get("team"), dict) else {}
+    by_key = {key(s.get("species")): s for s in team.values() if isinstance(s, dict) and s.get("species")}
+    on_field: list[dict] = []
+    for slot in sorted(template.get("slots") or [], key=lambda s: s.get("slot", 0)):
+        active = slot.get("active")
+        species = active.get("species") if isinstance(active, dict) else active
+        if species and not (by_key.get(key(species)) or {}).get("fainted"):
+            on_field.append({"slot": slot.get("slot", 0), "species": key(species), "hp_pct": _hp_pct(by_key.get(key(species)) or {})})
+    field_keys = {m["species"] for m in on_field}
+    fainted = sorted(k for k, s in by_key.items() if s.get("fainted"))
+    switchable = {key(o.get("species")) for slot in template.get("slots") or [] for o in slot.get("options") or []
+                  if o.get("type") == "switch" and o.get("species")}
+    for options in obs.get("available_switches") or []:
+        for o in options or []:
+            if isinstance(o, dict) and o.get("species"):
+                switchable.add(key(o["species"]))
+    # The battle state is the authority: only brought Pokémon can be on the field, offered as a switch, or faint. Our
+    # remembered lineup only fills in a bench the server is not offering this turn (a trapped slot), and only when it
+    # agrees with what the battle shows (a restart, or a lineup the server replaced, would otherwise mislead).
+    brought = {key(s) for s in memory.my_lineup}
+    if brought and (field_keys | switchable | set(fainted)) <= brought:
+        bench = sorted(brought - field_keys - set(fainted))
+    else:
+        bench = sorted(switchable - field_keys)
+    not_here = sorted(set(by_key) - field_keys - set(bench) - set(fainted))
+    ours = {
+        "on_field": on_field,
+        "in_back_can_switch_in": [{"species": k, "hp_pct": _hp_pct(by_key.get(k) or {})} for k in bench],
+        "fainted": fainted,
+        "NOT_IN_THIS_BATTLE": not_here,
+        "remaining": len(on_field) + len(bench),
+        "in_this_battle": sorted(field_keys | set(bench) | set(fainted)),
+    }
+    opp_team = obs.get("opponent_team") if isinstance(obs.get("opponent_team"), dict) else {}
+    seen = {key(s.get("species")): s for s in opp_team.values() if isinstance(s, dict) and s.get("species")}
+    opp_field = []
+    for summary in obs.get("opponent_active_pokemon") or []:
+        if isinstance(summary, dict) and summary.get("species") and not summary.get("fainted"):
+            opp_field.append({"species": key(summary["species"]), "hp_pct": _hp_pct(summary)})
+    opp_field_keys = {m["species"] for m in opp_field}
+    opp_fainted = sorted(k for k, s in seen.items() if s.get("fainted"))
+    opp_back = sorted(k for k in seen if k not in opp_field_keys and k not in opp_fainted)
+    unseen = max(0, 4 - len(seen))
+    could_be = sorted(k for k in memory.opp_cards if k not in seen) if unseen else []
+    status = {k: "on_field" for k in opp_field_keys}
+    status.update({k: "in_back" for k in opp_back})
+    status.update({k: "fainted" for k in opp_fainted})
+    for k in memory.opp_cards:
+        status.setdefault(k, "not_seen_yet (may be in their back)" if unseen else "NOT_IN_THIS_BATTLE")
+    theirs = {
+        "on_field": opp_field,
+        "seen_in_back": [{"species": k, "hp_pct": _hp_pct(seen[k])} for k in opp_back],
+        "fainted": opp_fainted,
+        "unseen_count": unseen,
+        "unseen_could_be": could_be,
+        "remaining": len(opp_field) + len(opp_back) + unseen,
+        "status": status,
+    }
+    return {"ours": ours, "theirs": theirs}
+
+
+def _battle_view(obs: dict, roster: dict) -> dict:
+    """The observation as the model sees it: our ``team`` without the two Pokémon left at Team Preview, and with
+    ``active`` matching who is actually on the field (the live flag can be wrong for benched entries)."""
+    team = obs.get("team")
+    if not isinstance(team, dict):
+        return obs
+    out_keys = set(roster["ours"]["NOT_IN_THIS_BATTLE"])
+    field_keys = {m["species"] for m in roster["ours"]["on_field"]}
+    view = {}
+    for name, summary in team.items():
+        if not isinstance(summary, dict) or species_key(summary.get("species")) in out_keys:
+            continue
+        view[name] = {**summary, "active": species_key(summary.get("species")) in field_keys}
+    return {**obs, "team": view}
 
 
 def _compact(obs: dict, keys: tuple[str, ...]) -> Any:
