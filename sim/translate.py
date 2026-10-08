@@ -144,6 +144,7 @@ def battle_state(session_id: str, snap: dict, side: str, version: int) -> GameSt
         "active_pokemon": [_mon_summary(m, full=True) for m in my_active],
         "opponent_active_pokemon": [_mon_summary(m, full=False) for m in their_active],
         "force_switch": list(force), "team": team, "opponent_team": opp,
+        "protocol_log": list(snap.get("log_tail") or []),  # the live server sends the Showdown protocol log too (Choice-lock inference)
     }
     legal = [{"action_id": "doubles_turn", "label": "Doubles turn",
               "input": {"session_id": session_id, "action_id": "doubles_turn", "state_version": version, "action": template}}]

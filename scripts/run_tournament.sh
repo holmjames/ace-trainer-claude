@@ -34,6 +34,9 @@ while true; do
   echo "[$(date +%H:%M:%S)] starting runtime (attempt $attempt)" | tee -a "$LOG"
   # caffeinate -dims: no display sleep, no idle sleep, no disk sleep, no system sleep while it runs.
   $KEEPAWAKE "$PY" -m agent --tournament "$@" 2>&1 | tee -a "$LOG"
-  echo "[$(date +%H:%M:%S)] runtime exited; restarting in 5 s (Ctrl+C to stop)" | tee -a "$LOG"
+  rc=${PIPESTATUS[0]}
+  # >128 means a signal killed it (e.g. 143 = SIGTERM, 137 = SIGKILL); the runtime prints nothing then.
+  why="exit code $rc"; [ "$rc" -gt 128 ] && why="killed by signal $((rc - 128)) (exit code $rc)"
+  echo "[$(date +%H:%M:%S)] runtime exited ($why); restarting in 5 s (Ctrl+C to stop)" | tee -a "$LOG"
   sleep 5
 done
