@@ -15,14 +15,16 @@ Room, because speed control is what turns many doubles matchups around.
 The result for an ordered pair is a ``Duel``: ``margin`` > 0 means A wins with that fraction of its HP left,
 < 0 means B wins with that fraction left. ``margin(A, B) == -margin(B, A)`` by construction.
 
-Team level (``team_features`` / ``evaluate``): the drafter and Team Preview combine those pairwise margins with
-the doubles factors a 1-on-1 race cannot see (Fake Out, redirection, spread moves, Intimidate on both foes,
-speed control, screens, sleep) into one number, the log-odds that our team beats theirs. The weights come from
-``data/draft_model.json`` (fitted on simulator games by ``scripts/fit_draft_model.py``); built-in defaults are
-used when the file is missing.
+Leads (``opening``): turns 1-2 of two leads against two, a small doubles turn loop with Fake Out, Prankster
+Tailwind, redirection, sleep and spread moves, so Team Preview can see a lead pair that gets destroyed.
 
-Everything is cached per card fingerprint, so a full 18-card pool costs well under a second the first time and
-nothing after that.
+Team level (``Board``): the drafter and Team Preview combine the pairwise margins with the doubles factors a
+1-on-1 race cannot see (Fake Out, redirection, spread moves, Intimidate, speed control, screens, sleep) into one
+number, the log-odds that our team beats theirs. The weights come from ``data/draft_model.json`` (fitted on
+simulator games by ``scripts/fit_draft_model.py``); built-in defaults are used when the file is missing.
+
+Everything is cached per card fingerprint, so a full 18-card pool costs about 0.05 s the first time and nothing
+after that.
 """
 
 from __future__ import annotations
@@ -67,13 +69,13 @@ SETUP_MOVES = {"nastyplot": {"spa": 2}, "calmmind": {"spa": 1, "spd": 1}, "sword
                "shellsmash": {"atk": 2, "spa": 2, "spe": 2, "def": -1, "spd": -1}, "coil": {"atk": 1, "def": 1}}
 FIRST_TURN_ONLY = {"fakeout", "firstimpression"}  # Fake Out is a doubles tempo tool, valued at team level instead
 PINCH_BERRIES = {"aguavberry", "wikiberry", "figyberry", "magoberry", "iapapaberry"}
-INTIMIDATE_IMMUNE = {"innerfocus", "owntempo", "oblivious", "scrappy", "guarddog", "clearbody", "whitesmoke",
-                     "fullmetalbody", "hypercutter", "mirrorarmor"}
+INTIMIDATE_IMMUNE = {"innerfocus", "owntempo", "oblivious", "scrappy", "clearbody", "whitesmoke", "fullmetalbody",
+                     "hypercutter", "mirrorarmor"}
 WEATHER_SETTERS = {"drizzle": "rain", "drought": "sun", "orichalcumpulse": "sun", "sandstream": "sand", "snowwarning": "snow"}
 TERRAIN_SETTERS = {"grassysurge": "grassy", "psychicsurge": "psychic", "electricsurge": "electric", "mistysurge": "misty",
                    "hadronengine": "electric"}
 
-# Doubles roles a 1-on-1 race cannot see. The team level weighs them (see ``team_features``).
+# Doubles roles a 1-on-1 race cannot see. The team level weighs them (see ``Board.features``).
 ROLE_MOVES = {
     "fakeout": {"fakeout"},
     "tailwind": {"tailwind"},
@@ -209,17 +211,20 @@ def pair_field(a: Unit, b: Unit) -> tuple[str | None, str | None]:
     return pick(a.weather, b.weather), pick(a.terrain, b.terrain)
 
 
+def intimidated(me: Unit) -> dict[str, int]:
+    """What one Intimidate does to ``me``: -1 Attack, unless an ability or Clear Amulet stops or turns it."""
+    if me.ability in INTIMIDATE_IMMUNE or me.item == "clearamulet":
+        return {}
+    if me.ability in ("defiant", "guarddog"):
+        return {"atk": 1}  # Defiant: -1 then +2; Guard Dog: raised instead
+    if me.ability == "competitive":
+        return {"atk": -1, "spa": 2}
+    return {"atk": -1}
+
+
 def entry_stages(me: Unit, foe: Unit) -> dict[str, int]:
     """Stat stages ``me`` starts a race with: the foe's Intimidate, and our own Download."""
-    stages: dict[str, int] = {}
-    if foe.ability == "intimidate" and me.ability not in INTIMIDATE_IMMUNE and me.item != "clearamulet":
-        stages["atk"] = -1
-        if me.ability == "defiant":
-            stages["atk"] = 1  # -1, then +2
-        elif me.ability == "competitive":
-            stages["spa"] = 2
-        elif me.ability == "guarddog":
-            stages["atk"] = 1
+    stages: dict[str, int] = dict(intimidated(me)) if foe.ability == "intimidate" else {}
     if me.ability == "download" and foe.mon.stats:
         # Download: +1 Attack when the foe's Defense is the lower of its two defenses, else +1 Special Attack.
         key = "atk" if foe.mon.stats.get("def", 0) < foe.mon.stats.get("spd", 0) else "spa"
@@ -554,6 +559,391 @@ def beats(a: Unit, b: Unit, threshold: float = 0.2) -> bool:
     return duel(a, b).margin >= threshold
 
 
+# -- the opening: two leads against two leads, turns 1-2 ---------------------------------------------------------
+#
+# Team Preview's sharpest question is "what happens on turns 1 and 2 if we lead these two into theirs?" A 1-on-1 race
+# cannot see Fake Out on our best attacker, a Prankster Tailwind that lets their partner move first the same turn,
+# Follow Me soaking the hit meant for its partner, Spore, or one spread move landing on both of our leads. This is a
+# deliberately small doubles turn loop with one plain policy for both sides (what strong players and the search bot do
+# with these leads): Fake Out the most dangerous foe it can flinch, set Tailwind / screens / Trick Room on turn 1,
+# redirect when the partner is in danger, put the biggest threat to sleep, otherwise take the attack (and target)
+# that does the most, preferring knock-outs. Every damage number goes through ``calc_hit``.
+
+OPENING_TURNS = 2
+STATUS_PRIORITY_MOVES = {"tailwind", "reflect", "lightscreen", "auroraveil", "thunderwave", "willowisp", "taunt",
+                         "encore", "spore", "sleeppowder", "yawn", "followme", "ragepowder", "trickroom"}
+
+
+@dataclass
+class Opening:
+    """Turns 1-2 when our two leads meet their two, from our side: ``margin`` > 0 means we come out ahead
+    (HP dealt minus HP taken, with knock-outs counted extra)."""
+
+    margin: float
+    ko_for: list[str] = field(default_factory=list)  # their leads we knock out
+    ko_against: list[str] = field(default_factory=list)  # ours they knock out
+    events: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _Active:
+    unit: Unit
+    side: int  # 0 ours, 1 theirs
+    hp: float = 100.0
+    stages: dict[str, int] = field(default_factory=dict)
+    item: str = ""
+    status: str | None = None
+    asleep: bool = False
+    flinched: bool = False
+    acted: bool = False
+
+    @property
+    def alive(self) -> bool:
+        return self.hp > 0
+
+
+class _Opening:
+    def __init__(self, ours: list[Unit], theirs: list[Unit]) -> None:
+        self.mons = [_Active(u, 0, item=u.item) for u in ours] + [_Active(u, 1, item=u.item) for u in theirs]
+        everyone = sorted(self.mons, key=lambda m: -m.unit.mon.stat("spe"))  # abilities activate fastest first
+        self.weather = self.terrain = None
+        for m in everyone:  # the slowest setter's weather / terrain is the one that stays
+            self.weather = m.unit.weather or self.weather
+            self.terrain = m.unit.terrain or self.terrain
+        for m in self.mons:
+            foes = [f.unit for f in self.mons if f.side != m.side]
+            for foe in foes:  # every opposing Intimidate lands (two of them stack)
+                if foe.ability == "intimidate":
+                    for stat, delta in intimidated(m.unit).items():
+                        m.stages[stat] = max(-6, min(6, m.stages.get(stat, 0) + delta))
+            if m.unit.ability == "download" and foes:  # Download reads both foes' defenses together
+                defense = sum(f.mon.stats.get("def", 0) for f in foes)
+                special = sum(f.mon.stats.get("spd", 0) for f in foes)
+                key = "atk" if defense < special else "spa"
+                m.stages[key] = m.stages.get(key, 0) + 1
+        self.tailwind = [False, False]
+        self.screens: list[set[str]] = [set(), set()]
+        self.trick_room = False
+        self.redirect: list[_Active | None] = [None, None]
+        self.memo: dict[tuple, tuple[float, int, float]] = {}
+        self.events: list[str] = []
+        self.tie_first = 0
+
+    def foes(self, m: _Active) -> list[_Active]:
+        return [f for f in self.mons if f.side != m.side and f.alive]
+
+    def ally(self, m: _Active) -> _Active | None:
+        return next((a for a in self.mons if a.side == m.side and a is not m and a.alive), None)
+
+    def mon_view(self, m: _Active, *, full: bool | None = None) -> Mon:
+        whole = m.hp >= 99.95 if full is None else full
+        view = replace(m.unit.mon, boosts=dict(m.stages), status=m.status, item=m.item or None,
+                       hp_fraction=1.0 if whole else 0.5, side="mine" if m.side == 0 else "theirs")
+        return view
+
+    def hit(self, att: _Active, move: dict, dfn: _Active, spread: bool) -> tuple[float, int]:
+        """(expected % of the defender's max HP, priority)."""
+        ruin = tuple(sorted(m.unit.ability for m in self.mons if m.alive and m.unit.ability.endswith("ofruin")))
+        key = (att.unit.key, move["id"], dfn.unit.key, tuple(sorted(att.stages.items())), tuple(sorted(dfn.stages.items())),
+               dfn.hp >= 99.95, dfn.item, att.item, att.status, spread, self.weather, self.terrain,
+               tuple(sorted(self.screens[dfn.side])), ruin)
+        cached = self.memo.get(key)
+        if cached is None:
+            a_mon, d_mon = self.mon_view(att), self.mon_view(dfn)
+            others = [self.mon_view(m) for m in self.mons if m.alive and m is not att and m is not dfn]
+            fs = FieldState(weather=self.weather, terrain=self.terrain, actives=[a_mon, d_mon] + others,
+                            my_side=set(self.screens[0]), their_side=set(self.screens[1]))
+            for view in fs.actives:
+                view.boosted_stat = paradox_boosted_stat(view, fs)
+            eff = effective_move(a_mon, move, d_mon, fs)
+            if move["id"] == "ruination":
+                dmg = 0.0 if data.effectiveness("dark", d_mon.types) == 0 else -50.0
+            else:
+                est = calc_hit(a_mon, move, d_mon, fs, spread=spread)
+                dmg = ((est[0] + est[1]) / 2 * d_mon.hp_fraction * accuracy(move, self.weather)) if est else 0.0
+            cached = (dmg, int(eff.get("priority") or 0), data.expected_hits(move, item=a_mon.item))
+            self.memo[key] = cached
+        dmg, priority, _ = cached
+        if dmg < 0:
+            dmg = dfn.hp / 2  # Ruination
+        return dmg, priority
+
+    def speed(self, m: _Active) -> float:
+        view = replace(m.unit.mon, boosts=dict(m.stages), status=m.status, item=m.item or None)
+        view.boosted_stat = paradox_boosted_stat(view, FieldState(weather=self.weather, terrain=self.terrain, actives=[view]))
+        value = view.stat("spe")
+        if m.unit.ability == "unburden" and m.unit.item and not m.item:
+            value *= 2
+        return value * (2 if self.tailwind[m.side] else 1)
+
+    # -- what each Pokémon does --------------------------------------------------------------------------------------
+
+    def targets_of(self, m: _Active, move: dict) -> list[_Active]:
+        if move.get("target") in SPREAD_TARGETS:
+            victims = self.foes(m)
+            if move.get("target") == "allAdjacent" and self.ally(m):
+                victims = victims + [self.ally(m)]
+            return victims
+        return self.foes(m)
+
+    def attack_value(self, m: _Active, move: dict, target: _Active | None) -> float:
+        spread_move = move.get("target") in SPREAD_TARGETS
+        victims = self.targets_of(m, move) if spread_move else [target]
+        spread = spread_move and len(victims) > 1
+        value = 0.0
+        for v in victims:
+            if v is None:
+                continue
+            dmg, _ = self.hit(m, move, v, spread)
+            gain = min(dmg, v.hp) + (40.0 if dmg >= v.hp else 0.0)
+            value += -gain if v.side == m.side else gain
+        return value
+
+    def threat(self, foe: _Active, to_side: int) -> float:
+        """How much damage ``foe`` can put into side ``to_side`` this turn (its best attack)."""
+        best = 0.0
+        for move in foe.unit.attacks:
+            spread_move = move.get("target") in SPREAD_TARGETS
+            victims = [v for v in self.mons if v.side == to_side and v.alive]
+            if spread_move:
+                best = max(best, sum(min(self.hit(foe, move, v, len(victims) > 1)[0], v.hp) for v in victims))
+            else:
+                best = max([best] + [min(self.hit(foe, move, v, False)[0], v.hp) + (40 if self.hit(foe, move, v, False)[0] >= v.hp else 0) for v in victims])
+        return best
+
+    def flinchable(self, target: _Active) -> bool:
+        u = target.unit
+        if "ghost" in u.types or u.ability in ("innerfocus", "shielddust") or target.item == "covertcloak":
+            return False
+        if self.terrain == "psychic" and replace(u.mon, item=target.item or None).grounded:
+            return False
+        return not any(f.unit.ability in ("armortail", "dazzling", "queenlymajesty") for f in self.mons if f.side == target.side and f.alive)
+
+    def decide(self, m: _Active, turn: int) -> tuple[str, dict | None, _Active | None]:
+        ids = {mv["id"]: mv for mv in m.unit.mon.moves}
+        foes = self.foes(m)
+        ally = self.ally(m)
+        if turn == 1 and "fakeout" in ids:
+            options = [f for f in foes if self.flinchable(f)]
+            if options:
+                return ("fakeout", ids["fakeout"], max(options, key=lambda f: (self.threat(f, m.side), -self.mons.index(f))))
+        if turn == 1 and "tailwind" in ids and not self.tailwind[m.side]:
+            return ("tailwind", ids["tailwind"], None)
+        if "trickroom" in ids and not self.trick_room:
+            mine = sum(self.speed(x) for x in self.mons if x.side == m.side and x.alive)
+            theirs = sum(self.speed(x) for x in foes)
+            if mine < theirs:
+                return ("trickroom", ids["trickroom"], None)
+        if turn == 1 and ids.keys() & {"reflect", "lightscreen"} and not self.screens[m.side]:
+            physical = sum(1 for f in foes for mv in f.unit.attacks if mv.get("category") == "Physical")
+            special = sum(1 for f in foes for mv in f.unit.attacks if mv.get("category") == "Special")
+            pick = "reflect" if ("reflect" in ids and (physical >= special or "lightscreen" not in ids)) else "lightscreen"
+            return ("screen", ids[pick], None)
+        redirect = next((ids[k] for k in ("followme", "ragepowder") if k in ids), None)
+        if redirect and ally and turn == 1 and any(self.threat(f, m.side) >= 50 for f in foes):
+            return ("redirect", redirect, None)
+        sleep = next((ids[k] for k in ("spore", "sleeppowder") if k in ids), None)
+        if sleep is not None:
+            options = [f for f in foes if not f.asleep and f.status is None and self.sleepable(f)]
+            if options:
+                return ("sleep", sleep, max(options, key=lambda f: (self.threat(f, m.side), -self.mons.index(f))))
+        if "willowisp" in ids and turn == 1:
+            options = [f for f in foes if f.status is None and "fire" not in f.unit.types and not f.asleep
+                       and sum(1 for mv in f.unit.attacks if mv.get("category") == "Physical") * 2 > len(f.unit.attacks)]
+            if options:
+                return ("burn", ids["willowisp"], max(options, key=lambda f: self.threat(f, m.side)))
+        best: tuple[float, dict | None, _Active | None] = (0.0, None, None)
+        for move in m.unit.attacks:
+            if move.get("target") in SPREAD_TARGETS:
+                value = self.attack_value(m, move, None)
+                if value > best[0]:
+                    best = (value, move, None)
+            else:
+                for f in foes:
+                    value = self.attack_value(m, move, f)
+                    if value > best[0]:
+                        best = (value, move, f)
+        if best[1] is None:
+            return ("idle", None, None)
+        return ("attack", best[1], best[2])
+
+    def sleepable(self, f: _Active) -> bool:
+        u = f.unit
+        if "grass" in u.types or f.item == "safetygoggles" or u.ability in ("overcoat", "insomnia", "vitalspirit", "sweetveil", "magicbounce", "goodasgold"):
+            return False
+        return not (self.terrain in ("electric", "misty") and replace(u.mon, item=f.item or None).grounded)
+
+    def priority(self, m: _Active, action: tuple) -> int:
+        kind, move, target = action
+        if move is None:
+            return 0
+        if kind in ("tailwind", "screen", "sleep", "burn", "redirect", "trickroom") and move["id"] in STATUS_PRIORITY_MOVES:
+            base = int(move.get("priority") or 0)
+            return base + (1 if m.unit.ability == "prankster" and kind != "trickroom" else 0)
+        if kind == "attack" and target is not None:
+            return self.hit(m, move, target, False)[1]
+        return int(move.get("priority") or 0)
+
+    # -- one turn ------------------------------------------------------------------------------------------------------
+
+    def run_turn(self, turn: int) -> None:
+        plans = {id(m): self.decide(m, turn) for m in self.mons if m.alive and not m.asleep}
+        for m in self.mons:
+            m.flinched = m.acted = False
+        self.redirect = [None, None]
+        pending = [m for m in self.mons if id(m) in plans]
+        while pending:
+            def order_key(m: _Active) -> tuple:
+                speed = self.speed(m)
+                if self.trick_room:
+                    speed = -speed
+                tie = 1 if m.side == self.tie_first else 0
+                return (self.priority(m, plans[id(m)]), speed, tie)
+            m = max(pending, key=order_key)
+            pending.remove(m)
+            if m.alive and not m.flinched:
+                self.execute(m, plans[id(m)], plans)
+            m.acted = True
+        for m in self.mons:
+            self.end_of_turn(m, turn)
+
+    def execute(self, m: _Active, action: tuple, plans: dict) -> None:
+        kind, move, target = action
+        if kind == "idle" or move is None:
+            return
+        if kind == "tailwind":
+            self.tailwind[m.side] = True
+            return
+        if kind == "trickroom":
+            self.trick_room = not self.trick_room
+            return
+        if kind == "screen":
+            self.screens[m.side].add(move["id"])
+            return
+        if kind == "redirect":
+            self.redirect[m.side] = m
+            return
+        if target is not None and not target.alive:
+            alternatives = self.foes(m)
+            target = alternatives[0] if alternatives else None
+        if kind in ("sleep", "burn"):
+            if target is None or target.status is not None or target.unit.ability == "goodasgold":
+                return
+            if m.unit.ability == "prankster" and "dark" in target.unit.types:
+                return
+            if kind == "sleep" and self.sleepable(target):
+                target.asleep, target.status = True, "slp"
+                self.events.append(f"{m.unit.species} puts {target.unit.species} to sleep")
+            elif kind == "burn" and "fire" not in target.unit.types and target.unit.ability not in ("thermalexchange", "waterveil"):
+                target.status = "brn"
+            return
+        # attacks (Fake Out included)
+        spread_move = move.get("target") in SPREAD_TARGETS
+        if not spread_move:
+            guard = self.redirect[1 - m.side]
+            if guard is not None and guard.alive and not (move["id"] == "fakeout" and False):
+                powder = any(mv["id"] == "ragepowder" for mv in guard.unit.mon.moves) and not any(mv["id"] == "followme" for mv in guard.unit.mon.moves)
+                immune = powder and ("grass" in m.unit.types or m.item == "safetygoggles" or m.unit.ability == "overcoat")
+                if not immune and m.unit.ability not in ("stalwart", "propellertail"):
+                    target = guard
+            if target is None:
+                return
+            if move["id"] == "suckerpunch":
+                plan = plans.get(id(target))
+                if target.acted or plan is None or plan[0] not in ("attack", "fakeout"):
+                    return  # Sucker Punch fails unless the target is about to attack
+            victims = [target]
+        else:
+            victims = self.targets_of(m, move)
+        spread = spread_move and len(victims) > 1
+        for v in victims:
+            dmg, _ = self.hit(m, move, v, spread)
+            if dmg <= 0:
+                continue
+            dealt = min(dmg, v.hp)
+            v.hp -= dmg
+            if v.item == "airballoon":
+                v.item = ""
+            if v.item == "focussash" and 0 < v.hp < 1.5:
+                v.item = ""
+            if v.item in RESIST_BERRIES:
+                eff_type = data.to_id(effective_move(m.unit.mon, move, v.unit.mon, None).get("type"))
+                berry = RESIST_BERRIES[v.item]
+                if berry == eff_type and (berry == "normal" or data.effectiveness(eff_type, v.unit.types) > 1):
+                    v.item = ""
+            if move["id"] == "fakeout" and v.alive and not v.acted and self.flinchable(v):
+                v.flinched = True
+            for stat, delta in TARGET_STAGES.get(move["id"], {}).items():
+                if v.alive and v.unit.ability not in ("clearbody", "whitesmoke", "fullmetalbody") and v.item != "clearamulet":
+                    v.stages[stat] = max(-6, min(6, v.stages.get(stat, 0) + delta))
+            if v.unit.ability == "stamina" and move.get("category") == "Physical" and v.alive:
+                v.stages["def"] = min(6, v.stages.get("def", 0) + 1)
+            ratio = (v.unit.maxhp / m.unit.maxhp) if m.unit.maxhp else 1.0
+            if move["id"] in RECOIL:
+                m.hp -= RECOIL[move["id"]] * dealt * ratio
+            if move["id"] in DRAIN:
+                m.hp = min(100.0, m.hp + DRAIN[move["id"]] * dealt * ratio)
+            if "contact" in (move.get("flags") or []) and v.item == "rockyhelmet":
+                m.hp -= 100 / 6
+            if "contact" in (move.get("flags") or []) and v.unit.ability in ("roughskin", "ironbarbs"):
+                m.hp -= 12.5
+            if v.hp <= 0:
+                self.events.append(f"{m.unit.species}'s {move['id']} KOs {v.unit.species}")
+            _Race._berry(v)  # type: ignore[arg-type]  (same fields: hp, item)
+        for stat, delta in SELF_STAGES.get(move["id"], {}).items():
+            m.stages[stat] = max(-6, min(6, m.stages.get(stat, 0) + delta))
+        if m.item == "lifeorb" and any(True for _ in victims):
+            m.hp -= 10.0
+        _Race._berry(m)  # type: ignore[arg-type]
+
+    def end_of_turn(self, m: _Active, turn: int) -> None:
+        if not m.alive:
+            return
+        if m.status == "brn":
+            m.hp -= 6.25
+        if m.item in ("flameorb", "toxicorb") and m.status is None and turn == 1 and "fire" not in m.unit.types:
+            m.status = "brn" if m.item == "flameorb" else "tox"
+        if self.weather == "sand" and not set(m.unit.types) & {"rock", "ground", "steel"}:
+            m.hp -= 6.25
+        if m.item == "leftovers":
+            m.hp = min(100.0, m.hp + 6.25)
+        if self.terrain == "grassy" and replace(m.unit.mon, item=m.item or None).grounded:
+            m.hp = min(100.0, m.hp + 6.25)
+
+
+_OPENINGS: dict[tuple, Opening] = {}
+
+
+def opening(ours: list[Unit], theirs: list[Unit], *, turns: int = OPENING_TURNS) -> Opening:
+    """Turns 1-2 of our two leads against their two (cached). Speed ties are played both ways and averaged."""
+    key = (tuple(u.key for u in ours), tuple(u.key for u in theirs), turns)
+    cached = _OPENINGS.get(key)
+    if cached is not None:
+        return cached
+    results = []
+    speeds = [u.mon.stat("spe") for u in ours], [u.mon.stat("spe") for u in theirs]
+    tie_possible = any(abs(a * x - b * y) < 1e-9 for a in speeds[0] for b in speeds[1] for x in (1, 2) for y in (1, 2))
+    for tie_first in ((0, 1) if tie_possible else (0,)):
+        sim = _Opening(ours, theirs)
+        sim.tie_first = tie_first
+        for turn in range(1, turns + 1):
+            if not any(m.alive for m in sim.mons if m.side == 0) or not any(m.alive for m in sim.mons if m.side == 1):
+                break
+            sim.run_turn(turn)
+        dealt = sum(100.0 - max(0.0, m.hp) for m in sim.mons if m.side == 1)
+        taken = sum(100.0 - max(0.0, m.hp) for m in sim.mons if m.side == 0)
+        ko_for = [m.unit.species for m in sim.mons if m.side == 1 and not m.alive]
+        ko_against = [m.unit.species for m in sim.mons if m.side == 0 and not m.alive]
+        margin = (dealt - taken) / 200.0 + 0.25 * (len(ko_for) - len(ko_against))
+        results.append(Opening(round(margin, 4), ko_for, ko_against, sim.events))
+    result = results[0] if len(results) == 1 or results[0].margin == results[1].margin else Opening(
+        round((results[0].margin + results[1].margin) / 2, 4), results[0].ko_for, results[0].ko_against, results[0].events)
+    _OPENINGS[key] = result
+    if len(_OPENINGS) > 20000:
+        _OPENINGS.clear()
+    return result
+
+
 # -- team level ----------------------------------------------------------------------------------------------------
 #
 # A doubles game is not a string of 1-on-1 races, but the races say who can deal with whom. The team score asks the
@@ -607,7 +997,7 @@ class Board:
     """Every pairwise race among a fixed set of cards, laid out by index so a draft search can score thousands of
     team pairs per second. ``score(us, them)`` takes index lists and returns the log-odds that ``us`` wins."""
 
-    def __init__(self, units: list[Unit], model: dict | None = None) -> None:
+    def __init__(self, units: list[Unit], model: dict | None = None, *, card_weight: float = 1.0) -> None:
         self.units = list(units)
         self.model = model or load_model()
         n = len(self.units)
@@ -631,7 +1021,9 @@ class Board:
         self.has_tw = [("tailwind" in r) for r in self.roles]
         self.has_tr = [("trickroom" in r) for r in self.roles]
         cards = self.model.get("cards") or {}
-        self.resid = [float((cards.get(u.key) or {}).get("s", 0.0)) for u in self.units]
+        # Per-card residual strength from the fit ("wins more than its matchups explain"), scaled by card_weight
+        # (0 = judge cards on matchups alone, e.g. to check how much of the edge depends on the simulator's habits).
+        self.resid = [card_weight * float((cards.get(u.key) or {}).get("s", 0.0)) for u in self.units]
         w = self.model.get("weights") or {}
         self.w = [float(w.get(f, 0.0)) for f in FEATURES]
         self.alpha_tw = float(self.model.get("alpha_tw", 0.5))

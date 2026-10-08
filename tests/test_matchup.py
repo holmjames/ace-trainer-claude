@@ -155,3 +155,47 @@ def test_model_file_loads_or_defaults():
     model = matchup.load_model()
     assert set(model["weights"]) >= set(matchup.MATCHUP_FEATURES)
     assert 0.0 < matchup.win_probability(0.5) < 1.0 and matchup.win_probability(0.0) == 0.5
+
+
+# -- the opening (turns 1-2 of two leads against two) -------------------------------------------------------------
+
+
+def lead(*species: str) -> list[matchup.Unit]:
+    return [u(s) for s in species]
+
+
+def test_openings_are_antisymmetric():
+    units = [matchup.unit(c) for c in CATALOG.values()]
+    rng = random.Random(5)
+    for _ in range(25):
+        a, b, c, d = rng.sample(units, 4)
+        assert matchup.opening([a, b], [c, d]).margin == pytest.approx(-matchup.opening([c, d], [a, b]).margin)
+
+
+def test_opening_sees_the_lead_that_gets_destroyed():
+    # Live match 1aef9227: Iron Hands into Fake Out + Pixilate Hyper Voice. Sylveon's Hyper Voice is a Fairy move now.
+    result = matchup.opening(lead("Iron Hands", "Archaludon"), lead("Incineroar", "Sylveon"))
+    assert "Iron Hands" in result.ko_against
+    # Tornadus + Iron Hands into Iron Hands + Sylveon loses both leads (match 7ce71025's opponent leads).
+    assert set(matchup.opening(lead("Tornadus", "Iron Hands"), lead("Iron Hands", "Sylveon")).ko_against) == {"Tornadus", "Iron Hands"}
+
+
+def test_fake_out_and_its_immunities_change_the_opening():
+    incineroar = next(c for c in CATALOG.values() if c["species"] == "Incineroar")
+    no_fake_out = matchup.unit({**incineroar, "moves": [m for m in incineroar["moves"] if m != "Fake Out"] + ["Protect"]})
+    with_it = matchup.opening(lead("Incineroar", "Kingambit"), lead("Flutter Mane", "Chien-Pao")).margin
+    without = matchup.opening([no_fake_out, u("Kingambit")], lead("Flutter Mane", "Chien-Pao")).margin
+    assert with_it >= without
+    sim = matchup._Opening(lead("Indeedee-F", "Iron Hands"), lead("Incineroar", "Rillaboom"))
+    assert sim.terrain == "psychic"
+    assert not sim.flinchable(sim.mons[1])  # grounded in Psychic Terrain: Fake Out cannot touch it
+    ghost = matchup._Opening(lead("Gholdengo", "Iron Hands"), lead("Incineroar", "Rillaboom"))
+    assert not ghost.flinchable(ghost.mons[0])  # Fake Out is a Normal move
+
+
+def test_prankster_tailwind_helps_the_partner_the_same_turn():
+    tornadus = next(c for c in CATALOG.values() if c["species"] == "Tornadus")
+    slow_setter = matchup.unit({**tornadus, "ability": "Defiant"})
+    prankster = matchup.opening(lead("Tornadus", "Great Tusk"), lead("Flutter Mane", "Sylveon")).margin
+    plain = matchup.opening([slow_setter, u("Great Tusk")], lead("Flutter Mane", "Sylveon")).margin
+    assert prankster >= plain

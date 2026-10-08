@@ -9,8 +9,8 @@ margin, best-four strength, spread pressure, speed control, doubles roles) plus 
 and fit a logistic regression: P(p1 wins) = sigmoid(w . features). Two models are fitted:
 
 - ``draft``: six against six (the rosters), used to score finished drafts in the draft search;
-- ``preview``: four against four (what each side brought), with the same features for the two leads on top,
-  used at Team Preview.
+- ``preview``: four against four (what each side brought) plus the margin of the opening (turns 1-2 of the two
+  leads each side sent out, ``matchup.opening``), used at Team Preview.
 
 The per-card terms ("this card wins more than its matchups explain") are kept only for cards in the catalog,
 keyed by the card's fingerprint, and shrunk toward zero by a stronger penalty than the matchup weights, so the
@@ -122,13 +122,13 @@ class Encoder:
         self.by_species = {data.to_id(u.species): i for i, u in enumerate(self.units)}
         model = {**matchup.DEFAULT_MODEL, "alpha_tw": alpha_tw, "alpha_tr": alpha_tr, "answer_cap": cap, "cards": {}}
         self.board = matchup.Board(self.units, model)
-        self.n_feat = len(matchup.FEATURES) * (2 if kind == "preview" else 1)
+        self.n_feat = len(matchup.FEATURES) + (1 if kind == "preview" else 0)
         self.dim = self.n_feat + len(self.units)
 
     def names(self) -> list[str]:
         base = list(matchup.FEATURES)
         if self.kind == "preview":
-            base += [f"lead_{f}" for f in matchup.FEATURES]
+            base.append("opening")  # turns 1-2 of the two leads each side opened with (matchup.opening)
         return base + [f"card:{u.species}" for u in self.units]
 
     def row(self, game: dict, *, use_cards: bool = True, use_matchup: bool = True) -> list[tuple[int, float]] | None:
@@ -141,8 +141,8 @@ class Encoder:
         out: list[tuple[int, float]] = []
         if use_matchup:
             feats = self.board.features(p1, p2)
-            if self.kind == "preview":
-                feats = feats + self.board.features(p1[:2], p2[:2])  # leads are listed first
+            if self.kind == "preview":  # leads are listed first
+                feats = feats + [matchup.opening([self.units[i] for i in p1[:2]], [self.units[i] for i in p2[:2]]).margin]
             out += [(k, v) for k, v in enumerate(feats) if v]
         if use_cards:
             for i in p1:
@@ -186,9 +186,9 @@ def fit_kind(games: list[dict], cards: list[dict], kind: str, *, alpha_tw: float
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("files", nargs="+")
-    parser.add_argument("--alpha-tw", type=float, default=0.5)
-    parser.add_argument("--alpha-tr", type=float, default=0.5)
-    parser.add_argument("--cap", type=float, default=0.5)
+    parser.add_argument("--alpha-tw", type=float, default=0.25)
+    parser.add_argument("--alpha-tr", type=float, default=0.25)
+    parser.add_argument("--cap", type=float, default=0.3)
     parser.add_argument("--l2-feat", type=float, default=2.0)
     parser.add_argument("--l2-card", type=float, default=40.0)
     parser.add_argument("--holdout", type=float, default=0.2)
@@ -216,11 +216,11 @@ def main(argv: list[str] | None = None) -> int:
         residuals = sorted(((w[enc.n_feat + i], u) for i, u in enumerate(enc.units)), key=lambda t: -t[0])
         print(f"  [{kind}] card residuals: " + ", ".join(f"{u.species} {v:+.2f}" for v, u in residuals))
         section = {"alpha_tw": args.alpha_tw, "alpha_tr": args.alpha_tr, "answer_cap": args.cap,
-                   "weights": {k: v for k, v in weights.items() if not k.startswith("lead_")},
+                   "weights": {k: v for k, v in weights.items() if k != "opening"},
                    "cards": {u.key: {"species": u.species, "s": round(v, 4)} for v, u in residuals},
                    "fit": {**fitted["results"], "games": len(games), "l2_feat": args.l2_feat, "l2_card": args.l2_card}}
         if kind == "preview":
-            section["lead_weights"] = {k[len("lead_"):]: v for k, v in weights.items() if k.startswith("lead_")}
+            section["opening_weight"] = weights.get("opening", 0.0)
         blob[kind] = section
     if args.write:
         out = ROOT / "data" / "draft_model.json"

@@ -62,14 +62,17 @@ def test_v2_pick_is_legal_deterministic_and_fast():
 
 
 def test_v2_does_not_pass_the_card_that_beat_us():
-    # Live, our greedy scorer passed Gholdengo twice (picks 4 and 5) and had no answer to it. With their Incineroar
-    # and Dragonite in, Gholdengo and the cards that answer it are still on the table: v2 must not leave it to them.
+    # Live (match 0a2b7c2a) our greedy scorer passed Gholdengo at picks 4 and 5 and then had no answer to it.
+    # Same position: we hold Landorus-Therian, they hold Incineroar and Dragonite. Gholdengo must be ours by pick 5.
     memory = memory_for(POOL_0A2B, mine=["Landorus-Therian"], theirs=["Incineroar", "Dragonite"])
-    pick = draft.choose_pick(offered(memory), memory, V2)
-    board = matchup.Board([matchup.unit(CATALOG[s]) for s in POOL_0A2B])
-    gholdengo = board.index(matchup.unit(CATALOG["Gholdengo"]).key)
-    chosen = board.index(matchup.unit(CATALOG[pick.species]).key)
-    assert pick.species == "Gholdengo" or board.base[chosen][gholdengo] > 0, pick.notes
+    pick4 = draft.choose_pick(offered(memory), memory, V2)
+    memory.my_cards[species_key(pick4.species)] = CATALOG[pick4.species]
+    pick5 = draft.choose_pick(offered(memory), memory, V2)
+    assert "Gholdengo" in (pick4.species, pick5.species), (pick4.notes, pick5.notes)
+    old = draft.choose_pick(offered(memory_for(POOL_0A2B, mine=["Landorus-Therian"], theirs=["Incineroar", "Dragonite"])),
+                            memory_for(POOL_0A2B, mine=["Landorus-Therian"], theirs=["Incineroar", "Dragonite"]),
+                            tuning.merged({"draft_v2": 0}))
+    assert old.species == "Baxcalibur"  # what the old scorer did live
 
 
 def test_v2_respects_the_item_clause_in_its_lookahead():
@@ -115,3 +118,18 @@ def test_v2_handles_unknown_cards_and_a_thin_pool():
     legal = offered(memory)
     pick = draft.choose_pick(legal, memory, V2)
     assert pick.action in legal
+
+
+def test_reply_depth_two_branches_their_snake_double_and_stays_fast():
+    memory = memory_for(POOL_0A2B)
+    started = time.perf_counter()
+    pick = draft.choose_pick(offered(memory), memory, tuning.merged({"draft_v2": 1, "draft_reply_depth": 2}))
+    assert time.perf_counter() - started < 2.0
+    assert pick.action in offered(memory)
+
+
+def test_frozen_v1_version_keeps_the_old_drafting():
+    from agent.versions import draft_v1
+
+    agent = draft_v1.create_agent()
+    assert agent.params["draft_v2"] == 0 and agent.params["lineup_v2"] == 0

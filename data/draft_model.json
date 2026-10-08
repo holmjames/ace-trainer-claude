@@ -5,19 +5,19 @@
   "answer_cap": 0.3,
   "cards": {
    "02c6a06c2bfa222f": {
-    "s": -0.0985,
+    "s": -0.0982,
     "species": "Gyarados"
    },
    "051fc5f98fabe2b3": {
-    "s": 0.0183,
+    "s": 0.0162,
     "species": "Garchomp"
    },
    "15487bb500a457ef": {
-    "s": 0.0149,
+    "s": 0.0169,
     "species": "Basculegion"
    },
    "20b0320ddcfd4770": {
-    "s": -0.0593,
+    "s": -0.0595,
     "species": "Landorus-Therian"
    },
    "21fd44fce73fad72": {
@@ -25,35 +25,35 @@
     "species": "Ursaluna"
    },
    "27b60111e8b294e2": {
-    "s": 0.0914,
+    "s": 0.0908,
     "species": "Iron Hands"
    },
    "2c6fec9b0ab0a26b": {
-    "s": -0.0041,
+    "s": -0.0043,
     "species": "Kingambit"
    },
    "312845d6dd4fd4ca": {
-    "s": 0.0443,
+    "s": 0.0442,
     "species": "Porygon2"
    },
    "3cfa0a38c58d20bf": {
-    "s": -0.1043,
+    "s": -0.1042,
     "species": "Hatterene"
    },
    "3f1d7ce13382df60": {
-    "s": 0.0583,
+    "s": 0.0581,
     "species": "Incineroar"
    },
    "430e45ecb5658e64": {
-    "s": 0.2239,
+    "s": 0.224,
     "species": "Flutter Mane"
    },
    "55c1981c1f1122d5": {
-    "s": 0.0255,
+    "s": 0.0252,
     "species": "Scream Tail"
    },
    "58891eb4203684cc": {
-    "s": -0.0671,
+    "s": -0.0669,
     "species": "Thundurus"
    },
    "5a547cb8823f3b94": {
@@ -61,11 +61,11 @@
     "species": "Gholdengo"
    },
    "5dc4c0b6a0c09bc4": {
-    "s": -0.0333,
+    "s": -0.0337,
     "species": "Dondozo"
    },
    "60de9722f4a4ca15": {
-    "s": 0.1226,
+    "s": 0.1227,
     "species": "Tornadus"
    },
    "7491cb6c9b8d0a91": {
@@ -73,7 +73,7 @@
     "species": "Klefki"
    },
    "7d468f4e4e5c213a": {
-    "s": 0.1302,
+    "s": 0.1303,
     "species": "Rillaboom"
    },
    "8e6590f4a99e9239": {
@@ -81,19 +81,19 @@
     "species": "Indeedee-F"
    },
    "91c8d605d7f6719b": {
-    "s": 0.0362,
+    "s": 0.0361,
     "species": "Arcanine"
    },
    "92f5140e46e3ddfc": {
-    "s": -0.1674,
+    "s": -0.168,
     "species": "Dragonite"
    },
    "954b2eb13493448a": {
-    "s": 0.0216,
+    "s": 0.0221,
     "species": "Grimmsnarl"
    },
    "965a4305ad7f06c4": {
-    "s": 0.1398,
+    "s": 0.1399,
     "species": "Milotic"
    },
    "9a7dc0e843d87a16": {
@@ -101,11 +101,11 @@
     "species": "Amoonguss"
    },
    "9b505f56f12bf2fc": {
-    "s": -0.0046,
+    "s": -0.0044,
     "species": "Wo-Chien"
    },
    "a85d10631f5df737": {
-    "s": -0.0746,
+    "s": -0.0744,
     "species": "Tyranitar"
    },
    "a9744802cf0fb160": {
@@ -113,11 +113,11 @@
     "species": "Pelipper"
    },
    "aacfd8c5f76f3af4": {
-    "s": -0.079,
+    "s": -0.0792,
     "species": "Cresselia"
    },
    "ae2d73cb0b629684": {
-    "s": -0.0489,
+    "s": -0.0486,
     "species": "Great Tusk"
    },
    "aed48d7a47e86e64": {
@@ -125,7 +125,7 @@
     "species": "Whimsicott"
    },
    "b8b180d62a6cb163": {
-    "s": -0.1925,
+    "s": -0.1929,
     "species": "Baxcalibur"
    },
    "c252dfd224760990": {
@@ -133,31 +133,31 @@
     "species": "Chien-Pao"
    },
    "cba2ab53f96c2adf": {
-    "s": 0.2545,
+    "s": 0.2542,
     "species": "Torkoal"
    },
    "cee8f88f11b9d6ad": {
-    "s": -0.0759,
+    "s": -0.0692,
     "species": "Sylveon"
    },
    "daaa4d53ff9bcdcc": {
-    "s": -0.1817,
+    "s": -0.1819,
     "species": "Sableye"
    },
    "dfa45c41049d4280": {
-    "s": -0.2214,
+    "s": -0.2215,
     "species": "Iron Bundle"
    },
    "e0bc05d9481b55c4": {
-    "s": -0.1212,
+    "s": -0.1213,
     "species": "Lucario"
    },
    "e894f332ae57c339": {
-    "s": 0.2166,
+    "s": 0.2168,
     "species": "Sneasler"
    },
    "eaab0456b7a7f78f": {
-    "s": -0.1929,
+    "s": -0.1928,
     "species": "Ting-Lu"
    },
    "ee5d8935feb5551c": {
@@ -165,7 +165,7 @@
     "species": "Salamence"
    },
    "fd3c6d42a0f64875": {
-    "s": 0.3415,
+    "s": 0.3363,
     "species": "Archaludon"
    }
   },
@@ -173,7 +173,7 @@
    "cards only": {
     "n_test": 3200,
     "n_train": 12800,
-    "seconds": 0.3,
+    "seconds": 0.4,
     "test_accuracy": 0.6353,
     "test_logloss": 0.6402,
     "train_logloss": 0.6403
@@ -184,7 +184,7 @@
    "matchup + cards": {
     "n_test": 3200,
     "n_train": 12800,
-    "seconds": 1.2,
+    "seconds": 1.5,
     "test_accuracy": 0.6412,
     "test_logloss": 0.6309,
     "train_logloss": 0.6318
@@ -192,36 +192,36 @@
    "matchup only": {
     "n_test": 3200,
     "n_train": 12800,
-    "seconds": 0.4,
-    "test_accuracy": 0.6153,
-    "test_logloss": 0.6517,
-    "train_logloss": 0.6523
+    "seconds": 0.7,
+    "test_accuracy": 0.6175,
+    "test_logloss": 0.6515,
+    "train_logloss": 0.6521
    }
   },
   "weights": {
-   "answers": 0.2152,
-   "backup": 0.0925,
-   "mean": 0.5796,
-   "ohko": -0.0105,
-   "role_burn_para": 0.0291,
-   "role_disrupt": 0.0841,
-   "role_fakeout": -0.3222,
-   "role_helpinghand": -0.0483,
-   "role_intimidate": 0.0507,
+   "answers": 0.2226,
+   "backup": 0.0907,
+   "mean": 0.5819,
+   "ohko": -0.0103,
+   "role_burn_para": 0.029,
+   "role_disrupt": 0.084,
+   "role_fakeout": -0.3216,
+   "role_helpinghand": -0.0484,
+   "role_intimidate": 0.0506,
    "role_pivot": -0.1597,
-   "role_prankster": 0.0159,
-   "role_priority": -0.0638,
-   "role_redirect": -0.0594,
-   "role_screens": -0.2064,
+   "role_prankster": 0.0158,
+   "role_priority": -0.0628,
+   "role_redirect": -0.0595,
+   "role_screens": -0.2065,
    "role_sleep": -0.1027,
    "role_speed_drop": -0.079,
-   "role_tailwind": -0.0832,
-   "role_trickroom": -0.0424,
+   "role_tailwind": -0.0834,
+   "role_trickroom": -0.0422,
    "role_wideguard": 0.0,
-   "spread": 0.1609,
-   "top4": 0.9851,
-   "tr_gain": -0.0616,
-   "tw_gain": -0.089
+   "spread": 0.1613,
+   "top4": 0.9808,
+   "tr_gain": -0.0654,
+   "tw_gain": -0.0826
   }
  },
  "note": "Fitted by scripts/fit_draft_model.py on simulator games (code brain on both sides). Weights are log-odds per unit of each team feature in agent/pokemon/matchup.py; 'cards' are per-card residual strengths keyed by card fingerprint.",
@@ -231,67 +231,67 @@
   "answer_cap": 0.3,
   "cards": {
    "02c6a06c2bfa222f": {
-    "s": -0.0915,
+    "s": -0.0898,
     "species": "Gyarados"
    },
    "051fc5f98fabe2b3": {
-    "s": -0.1243,
+    "s": -0.1265,
     "species": "Garchomp"
    },
    "15487bb500a457ef": {
-    "s": 0.0765,
+    "s": 0.1028,
     "species": "Basculegion"
    },
    "20b0320ddcfd4770": {
-    "s": -0.0988,
+    "s": -0.0842,
     "species": "Landorus-Therian"
    },
    "21fd44fce73fad72": {
-    "s": -0.1557,
+    "s": -0.1524,
     "species": "Ursaluna"
    },
    "27b60111e8b294e2": {
-    "s": -0.1517,
+    "s": -0.1427,
     "species": "Iron Hands"
    },
    "2c6fec9b0ab0a26b": {
-    "s": 0.1473,
+    "s": 0.1448,
     "species": "Kingambit"
    },
    "312845d6dd4fd4ca": {
-    "s": 0.1452,
+    "s": 0.1455,
     "species": "Porygon2"
    },
    "3cfa0a38c58d20bf": {
-    "s": -0.1884,
+    "s": -0.1851,
     "species": "Hatterene"
    },
    "3f1d7ce13382df60": {
-    "s": 0.0498,
+    "s": 0.0529,
     "species": "Incineroar"
    },
    "430e45ecb5658e64": {
-    "s": -0.0336,
+    "s": 0.0054,
     "species": "Flutter Mane"
    },
    "55c1981c1f1122d5": {
-    "s": 0.0796,
+    "s": 0.0705,
     "species": "Scream Tail"
    },
    "58891eb4203684cc": {
-    "s": -0.0286,
+    "s": -0.0371,
     "species": "Thundurus"
    },
    "5a547cb8823f3b94": {
-    "s": 0.2889,
+    "s": 0.2935,
     "species": "Gholdengo"
    },
    "5dc4c0b6a0c09bc4": {
-    "s": -0.0069,
+    "s": -0.012,
     "species": "Dondozo"
    },
    "60de9722f4a4ca15": {
-    "s": 0.1517,
+    "s": 0.1528,
     "species": "Tornadus"
    },
    "7491cb6c9b8d0a91": {
@@ -299,99 +299,99 @@
     "species": "Klefki"
    },
    "7d468f4e4e5c213a": {
-    "s": 0.0786,
+    "s": 0.044,
     "species": "Rillaboom"
    },
    "8e6590f4a99e9239": {
-    "s": 0.0155,
+    "s": 0.0259,
     "species": "Indeedee-F"
    },
    "91c8d605d7f6719b": {
-    "s": 0.1411,
+    "s": 0.1767,
     "species": "Arcanine"
    },
    "92f5140e46e3ddfc": {
-    "s": -0.3724,
+    "s": -0.3547,
     "species": "Dragonite"
    },
    "954b2eb13493448a": {
-    "s": 0.0127,
+    "s": 0.0206,
     "species": "Grimmsnarl"
    },
    "965a4305ad7f06c4": {
-    "s": 0.3062,
+    "s": 0.2995,
     "species": "Milotic"
    },
    "9a7dc0e843d87a16": {
-    "s": -0.0191,
+    "s": -0.0285,
     "species": "Amoonguss"
    },
    "9b505f56f12bf2fc": {
-    "s": 0.0226,
+    "s": 0.0227,
     "species": "Wo-Chien"
    },
    "a85d10631f5df737": {
-    "s": 0.0504,
+    "s": 0.066,
     "species": "Tyranitar"
    },
    "a9744802cf0fb160": {
-    "s": -0.0321,
+    "s": -0.0694,
     "species": "Pelipper"
    },
    "aacfd8c5f76f3af4": {
-    "s": -0.0769,
+    "s": -0.1096,
     "species": "Cresselia"
    },
    "ae2d73cb0b629684": {
-    "s": -0.0766,
+    "s": -0.0678,
     "species": "Great Tusk"
    },
    "aed48d7a47e86e64": {
-    "s": -0.0865,
+    "s": -0.1172,
     "species": "Whimsicott"
    },
    "b8b180d62a6cb163": {
-    "s": -0.0895,
+    "s": -0.0993,
     "species": "Baxcalibur"
    },
    "c252dfd224760990": {
-    "s": -0.0807,
+    "s": -0.0862,
     "species": "Chien-Pao"
    },
    "cba2ab53f96c2adf": {
-    "s": 0.1656,
+    "s": 0.1524,
     "species": "Torkoal"
    },
    "cee8f88f11b9d6ad": {
-    "s": 0.1258,
+    "s": 0.1257,
     "species": "Sylveon"
    },
    "daaa4d53ff9bcdcc": {
-    "s": -0.1114,
+    "s": -0.0937,
     "species": "Sableye"
    },
    "dfa45c41049d4280": {
-    "s": -0.1794,
+    "s": -0.2013,
     "species": "Iron Bundle"
    },
    "e0bc05d9481b55c4": {
-    "s": 0.0707,
+    "s": 0.0708,
     "species": "Lucario"
    },
    "e894f332ae57c339": {
-    "s": 0.1233,
+    "s": 0.1404,
     "species": "Sneasler"
    },
    "eaab0456b7a7f78f": {
-    "s": -0.5219,
+    "s": -0.5094,
     "species": "Ting-Lu"
    },
    "ee5d8935feb5551c": {
-    "s": 0.0157,
+    "s": -0.0126,
     "species": "Salamence"
    },
    "fd3c6d42a0f64875": {
-    "s": 0.5384,
+    "s": 0.5462,
     "species": "Archaludon"
    }
   },
@@ -399,7 +399,7 @@
    "cards only": {
     "n_test": 3200,
     "n_train": 12800,
-    "seconds": 0.2,
+    "seconds": 0.3,
     "test_accuracy": 0.645,
     "test_logloss": 0.6219,
     "train_logloss": 0.6202
@@ -410,69 +410,45 @@
    "matchup + cards": {
     "n_test": 3200,
     "n_train": 12800,
-    "seconds": 1.7,
-    "test_accuracy": 0.6672,
-    "test_logloss": 0.6008,
-    "train_logloss": 0.6006
+    "seconds": 1.1,
+    "test_accuracy": 0.6697,
+    "test_logloss": 0.6002,
+    "train_logloss": 0.5988
    },
    "matchup only": {
     "n_test": 3200,
     "n_train": 12800,
-    "seconds": 1.0,
-    "test_accuracy": 0.66,
-    "test_logloss": 0.6193,
-    "train_logloss": 0.6233
+    "seconds": 0.5,
+    "test_accuracy": 0.655,
+    "test_logloss": 0.6208,
+    "train_logloss": 0.6235
    }
   },
-  "lead_weights": {
-   "answers": -0.0227,
-   "backup": -0.0663,
-   "mean": 0.1172,
-   "ohko": 0.0735,
-   "role_burn_para": -0.0055,
-   "role_disrupt": -0.0625,
-   "role_fakeout": 0.1969,
-   "role_helpinghand": -0.2158,
-   "role_intimidate": 0.2611,
-   "role_pivot": -0.3317,
-   "role_prankster": 0.1011,
-   "role_priority": 0.1235,
-   "role_redirect": 0.1493,
-   "role_screens": -0.0844,
-   "role_sleep": 0.0038,
-   "role_speed_drop": 0.1205,
-   "role_tailwind": -0.2215,
-   "role_trickroom": -0.0043,
-   "role_wideguard": 0.0,
-   "spread": -0.0501,
-   "top4": 0.2344,
-   "tr_gain": -0.2222,
-   "tw_gain": 0.074
-  },
+  "opening_weight": 0.3282,
   "weights": {
-   "answers": 0.3127,
-   "backup": 0.1024,
-   "mean": 0.5196,
-   "ohko": -0.053,
-   "role_burn_para": -0.2888,
-   "role_disrupt": 0.1979,
-   "role_fakeout": -0.1452,
-   "role_helpinghand": -0.0785,
-   "role_intimidate": -0.2008,
-   "role_pivot": -0.1634,
-   "role_prankster": -0.0664,
-   "role_priority": -0.1264,
-   "role_redirect": -0.0705,
-   "role_screens": -0.1204,
-   "role_sleep": -0.0361,
-   "role_speed_drop": -0.0368,
-   "role_tailwind": 0.0608,
-   "role_trickroom": -0.165,
+   "answers": 0.3254,
+   "backup": 0.0988,
+   "mean": 0.4922,
+   "ohko": -0.0466,
+   "role_burn_para": -0.2303,
+   "role_disrupt": 0.1686,
+   "role_fakeout": -0.0571,
+   "role_helpinghand": -0.114,
+   "role_intimidate": -0.0797,
+   "role_pivot": -0.3432,
+   "role_prankster": -0.0722,
+   "role_priority": -0.074,
+   "role_redirect": -0.0527,
+   "role_screens": -0.1274,
+   "role_sleep": -0.04,
+   "role_speed_drop": -0.0156,
+   "role_tailwind": -0.009,
+   "role_trickroom": -0.1632,
    "role_wideguard": 0.0,
-   "spread": 0.4809,
-   "top4": 1.0391,
-   "tr_gain": -0.0643,
-   "tw_gain": -0.2456
+   "spread": 0.4733,
+   "top4": 0.9844,
+   "tr_gain": -0.1117,
+   "tw_gain": -0.1903
   }
  }
 }

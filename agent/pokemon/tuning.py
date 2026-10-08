@@ -32,6 +32,8 @@ DEFAULTS: dict[str, float] = {
     "draft_v2": 0.0,               # 1 = counter-aware drafter (matchup model + lookahead over their next picks); 0 = the greedy scorer above
     "draft_lookahead": 3.0,        # v2: how many of the opponent's best replies to try at their next pick (0 = greedy rollout only)
     "draft_minimax": 0.5,          # v2: weight on their most damaging reply vs the average of those tried (1 = pure worst case)
+    "draft_card_w": 1.0,           # v2: weight on the fitted per-card strengths (0 = matchups and roles only)
+    "draft_reply_depth": 1.0,      # v2: their consecutive picks to branch on (2 = both picks of a snake double; else greedy)
     # lineup
     "lineup_offense_w": 6.0,
     "lineup_resist_w": 1.5,
@@ -48,6 +50,7 @@ DEFAULTS: dict[str, float] = {
     "lead_ohko_w": 0.0,            # penalty per lead a faster opposing set OHKOs at full HP (real damage model, Intimidate applied); 0 = off
     "lineup_v2": 0.0,              # 1 = Team Preview from the matchup model (their likely four and leads); 0 = the scorer above
     "lineup_v2_robust": 0.25,      # v2: weight on our four's worst case against any four they could bring (rest: their likely mix)
+    "lineup_v2_template": 0.5,     # v2: share of their predicted leads taken from the "Fake Out / speed control + best spread attacker" template
     # battle
     "ko_bonus_guaranteed": 25.0,
     "ko_bonus_possible": 10.0,
