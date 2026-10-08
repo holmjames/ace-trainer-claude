@@ -168,7 +168,8 @@ def test_the_ranking_is_the_pick_order_and_stays_fast():
     assert time.perf_counter() - started < 2.0
     assert len(ranked) == 18 and len({s.card_id for s in ranked}) == 18
     assert [s.score for s in ranked] == sorted((s.score for s in ranked), reverse=True)
-    assert draft.choose_pick(offered(memory), memory, tuning.DEFAULTS).card_id == ranked[0].card_id
+    chosen = draft.choose_pick(offered(memory), memory, tuning.DEFAULTS)  # the best, or a tie within the secret-seed window
+    assert matchup.win_probability(ranked[0].score) - matchup.win_probability(chosen.score) <= tuning.DEFAULTS["draft_tiebreak_eps"]
 
 
 # -- B3: the opponent's replies in the lookahead come from two readings of the opponent -----------------------------
