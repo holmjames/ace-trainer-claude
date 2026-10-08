@@ -84,6 +84,15 @@ SCENARIOS = [
     LiveScenario("m1_t10_no_stall", "d9405f02", 10,
                  "Same, two turns later: still nothing to wait for.",
                  lambda p, t: move_of(p, 1) not in ("protect", "helpinghand"), "slot 1 does not Protect or Helping Hand"),
+    LiveScenario("m1_t6_no_fake_out_into_ghost", "d9405f02", 6,
+                 "Fresh Sneasler + Cresselia vs Dragonite and Gholdengo (a Ghost). The code's top candidate live was Fake Out "
+                 "into Gholdengo (immune); Close Combat and Dire Claw do nothing to it either.",
+                 lambda p, t: not (move_of(p, 0) in ("fakeout", "closecombat", "direclaw") and target_species(p, 0, t) == "gholdengo"),
+                 "slot 0 does not aim Fake Out / Close Combat / Dire Claw at Gholdengo"),
+    LiveScenario("m4_t1_no_earthquake_into_balloon", "0a2b7c2a", 1,
+                 "Scarf Landorus + Tornadus vs Dragonite (Flying) and Gholdengo (Air Balloon): Earthquake hits neither, and the "
+                 "Scarf would lock it in. Rock Slide breaks Multiscale, pops the Balloon and can flinch.",
+                 lambda p, t: move_of(p, 0) != "earthquake", "slot 0 does not Earthquake"),
     LiveScenario("m3_t3_remove_whimsicott", "7ce71025", 3,
                  "Great Tusk + Hatterene vs Whimsicott 9% and a FRESH Incineroar (Fake Out). Live: Tusk 'outspeeds and KOs "
                  "Whimsicott', got Faked Out, and Moonblast KO'd it; Hatterene's Mystical Fire went into Incineroar (resisted). "
