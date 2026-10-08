@@ -152,6 +152,155 @@ undisclosed components.
 - `scripts/`: build, check, dry-run, tally and scenario tools. `tests/` is the
   test suite (`pytest`, no network).
 
+## What I built on top of the starter
+
+The upstream starter (UCLA-Trustworthy-AI-Lab/altruagent-starter) provides the
+runtime that talks to the platform (`altruagent/`), the example agents
+(`examples/`, including the LLM example and its Pokémon validators), and the
+check scripts. Everything that plays Pokémon is this fork's: `agent/pokemon/`,
+`agent/llm/`, `agent/versions/`, `agent/arena.py`, `data/`, `sim/`, most of
+`scripts/`, and their tests. The placeholder `agent/agent.py` became the agent
+described here. All of it is described from the code as it stands; file names
+link to where each piece lives.
+
+**No model was trained.** No weights were changed, no fine-tune was made, and
+nothing in this repo learns between matches. The agent is an existing model
+(`claude-opus-5-5`, with `claude-sonnet-5-5` as the fallback) behind a harness
+of code that does the arithmetic and limits the model to choosing among
+computed options. The only numbers that were adjusted are the weights in
+`agent/pokemon/tuning.py`, which were set by hand after self-play runs in the
+local simulator and then frozen; that is parameter tuning of hand-written
+scoring rules, not training.
+
+### Decision logic (`agent/agent.py`, `agent/pokemon/`)
+
+`PokemonAgent.choose_action` routes each server request by its first legal
+action and wraps everything in a guard: an exception anywhere costs one turn
+(the starter's always-legal smoke move is played) and never the match.
+
+- **Draft** (`agent/pokemon/draft.py`): code only, because the draft clock is
+  15 seconds. Every offered card is scored on raw quality (base stat total and
+  real speed after EVs and nature), offense into the opponent's drafted cards
+  using its actual moves and the type chart, defense against the attacks their
+  sets carry, fit with our own picks (new coverage types, shared weaknesses,
+  support moves once we have attackers), and denial when our top two cards are
+  close. Both players' picks are public and every card is a complete set, which
+  is what makes the opponent-aware terms possible.
+- **Team Preview** (`agent/pokemon/lineup.py`): code scores all 15 ways to bring
+  four of six against the opponent's known six, with lead-pair penalties for
+  known super-effective, 4x, and spread moves into the leads. The ranked
+  shortlist goes to the model with the numbers attached; the top one is the
+  fallback.
+- **Battle turns** (`agent/pokemon/battle.py`): code builds a "turn sheet" for
+  the model before every doubles turn: speed order, a damage estimate for every
+  move into every target as a percentage of remaining HP (stat stages, items,
+  abilities, weather, terrain, screens, STAB, multi-hit counts, and Focus Sash
+  are in the number), what the opponent's known sets can do to us, warnings
+  (LETHAL, FAKE OUT, DOUBLE-TARGET, flinch risk, moves that FAIL or are
+  BLOCKED), switch previews, turns left on Tailwind and Trick Room, Choice lock
+  tracking, and a short ranked list of complete two-slot turns. The top
+  candidate is also the deterministic fallback.
+- **The model call** (`PokemonAgent._ask`): structured JSON output validated
+  against the server's legal options by the starter's validators. An invalid
+  answer is retried once with the error quoted. A valid answer that leaves a
+  slot in a LETHAL range gets one recheck with the warning quoted, and the
+  model's second answer stands. The agent reads the server's clock and makes no
+  second model call once 10 seconds have passed, skips the model entirely when
+  fewer than 25 seconds are left on the decision or 90 seconds in the bank, and
+  plays the computed move whenever the whole model chain fails.
+- **Arithmetic** (`agent/pokemon/data.py`): the type chart, stat formula,
+  natures, and lookups into Showdown's species and move tables, vendored by
+  `scripts/build_dex.py`. The damage model is checked against the Smogon
+  damage calculator in `tests/test_damage_vs_smogon*.py`.
+
+### Prompts (`agent/pokemon/prompts.py`)
+
+One static system prompt, identical bytes every turn so the API can cache it:
+what each field of the request means, that the computed numbers already
+include boosts and items, how to read the warnings, when Protect and switching
+are worth it, how a strong opponent plays (Fake Out on the first turn out,
+double-targeting, Protect timing), and an instruction to name the win
+condition and plan two turns before answering. The Team Preview instructions
+are a second short constant. Everything that changes per decision is the JSON
+user message built in `agent/agent.py`: the battle roster in plain words (who
+is on the field, in the back, fainted, or left at Team Preview), both sides'
+exact known sets, the server's per-slot options with named targets, the turn
+sheet, and the trimmed observation.
+
+### Model chain (`agent/llm/anthropic_provider.py`)
+
+`AnthropicProvider` implements the starter's provider protocol over the
+official SDK with a hard per-call timeout; `FallbackProvider` tries a chain in
+order. Defaults: Opus 5.5 at 18 seconds, then Sonnet 5.5 at 8 seconds, effort
+`low`, so the worst case fits inside Showdown's 55-second decision clock. The
+SDK's own retries are off; the agent owns retries and fallback. The key is
+read from the environment by the SDK and never stored, printed, or logged.
+
+### Memory (`agent/pokemon/memory.py`)
+
+`MatchMemory` lives on the agent object, so it lasts exactly one match and
+dies with the process. It keeps the full drafted sets on both sides (the
+server's "unknown_item" and empty move lists never overwrite what a card
+says), our lineup, which Pokémon came in this turn on each side (so Fake Out
+odds are right), the battle's protocol log read for Protect streaks, lost
+items, Choice locks, Unburden and Paradox boosts, each opponent's last move,
+and last turn's HP to infer who Protected. It also counts model calls,
+fallbacks, and latencies for the log. Nothing is read from earlier matches.
+
+### Tools
+
+- `sim/`: a local Pokémon Showdown engine bridge (`bridge.js`) and
+  `translate.py`, which rebuilds the live server's exact payloads from the
+  engine's protocol log so offline games run the same agent code paths as real
+  matches. `sim/harness.py` plays N games between any two player specs with
+  seats alternating; `sim/sweep.py` plays tuned variants against the baseline.
+  `sim/human.py` is a terminal seat for a person.
+- `agent/versions/`: the ablations and stand-ins the harness can seat:
+  code-only (no model calls), naive battle (the starter's smoke move each
+  turn), random draft, a tuned variant from `AGENT_TUNE`, a different judging
+  model, and a sparring partner (the starter's LLM example on a Claude model).
+  `agent/arena.py` seats two versions in one Testing match.
+- `scripts/`: hand-built and live-captured scenario evals with known-good
+  answers (`scenarios.py`, `live_scenarios.py`), a grader for every turn where
+  the model overrode the code's top candidate (`grade_overrides.py`), a loss
+  to scenario converter, a post-mortem transcript builder, draft and lineup
+  replays that ask how winnable a real match was, the tally over match logs,
+  a nightly regression script, and the tournament-day launcher.
+- `agent/pokemon/log.py`: one JSON line per decision with what the model saw
+  and answered; anything key-shaped is redacted before writing.
+
+### Measured against the starter baseline
+
+`sim/harness.py` plays this agent against `examples.smoke_agent`, the
+starter's own Pokémon-capable agent: the first legal draft pick, the first four
+of the roster at Team Preview, and each turn the first move into the first
+opponent. It has no model, no randomness, and no memory. Seats alternate every
+game. Run on the commit this README
+describes, on a local Showdown engine:
+
+```bash
+python sim/harness.py --games 1000 --p1 code  --p2 examples.smoke_agent --seed 22   # code-only, free
+python sim/harness.py --games 20   --p1 fable --p2 examples.smoke_agent --seed 7    # full agent, model calls
+```
+
+Results, run 2026-10-08 at commit `cfc85a1` (seats alternate; the engine, the
+opponent, and the seed are the same in both runs):
+
+| Player | Games | Wins | Win rate |
+|---|---|---|---|
+| Code-only brain (`code`), no model calls | 1,000 | 919 | 92% |
+| Full agent (`fable`: Opus 5.5, Sonnet 5.5 fallback) | 20 | 19 | 95% |
+
+The 20-game run made 151 model decisions (20 Team Previews, 131 battle turns) with
+0 fallbacks to the computed move. Twenty games is too few to separate the full
+agent from the code-only brain; the point of the run is that the model layer
+did not make it worse against this opponent, not that it is 3 points better.
+
+The smoke agent is a floor, not a peer. The sparring partner
+(`agent.versions.sparring`, the starter's LLM example on Sonnet 5.5) is the
+closer stand-in for a real entrant, and the ablation versions above measure
+what each piece of the code brain is worth.
+
 ## Requirements
 
 - Python 3.11+
