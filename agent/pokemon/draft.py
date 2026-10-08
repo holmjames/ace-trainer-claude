@@ -31,6 +31,8 @@ a counter-picking opponent (the Oct 7 opponent), which the score above never ask
 
 from __future__ import annotations
 
+import random
+import secrets
 from dataclasses import dataclass, field
 from itertools import combinations
 
@@ -392,6 +394,60 @@ def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory, params: d
 FIRST_SLOTS = (0, 3, 4, 7, 8, 11)  # 0-based pick indices of the first drafter (picks 1, 4, 5, 8, 9, 12)
 _BOARDS: dict[tuple, object] = {}  # (card fingerprints, knobs) -> matchup.Board, reused across a match's picks
 
+# -- secret tie-breaks ------------------------------------------------------------------------------------------------
+#
+# The draft and Team Preview are deterministic from public state, so a reader of this public repository could
+# precompute our choices. Among candidates the model cannot tell apart (within ``draft_tiebreak_eps`` /
+# ``lineup_tiebreak_eps`` of the best, about the model's own noise), the choice follows a seed drawn from ``secrets``
+# at the match's first decision, never from public state. The seed is written into the decision notes (so the
+# decision log carries it and a post-mortem can replay the choice); it is kept on the match memory and, for Team
+# Preview, found again through the match's card dict.
+
+_SEEDS: dict[int, int] = {}  # id(memory.my_cards) -> this match's seed
+
+
+def tiebreak_seed(my_cards: dict, memory: MatchMemory | None = None) -> int:
+    """This match's secret tie-break seed: the one the memory already carries, else a fresh ``secrets`` draw."""
+    key = id(my_cards)
+    seed = getattr(memory, "tiebreak_seed", None) if memory is not None else None
+    if seed is None:
+        seed = _SEEDS.get(key)
+    if seed is None:
+        seed = secrets.randbits(64)
+    if len(_SEEDS) > 256:
+        _SEEDS.clear()
+    _SEEDS[key] = seed
+    if memory is not None and getattr(memory, "tiebreak_seed", None) != seed:
+        try:
+            memory.tiebreak_seed = seed
+        except Exception:  # noqa: BLE001 — a memory that refuses the attribute still gets the registry
+            pass
+    return seed
+
+
+def known_seed(my_cards: dict) -> int | None:
+    """The match's seed if a draft decision registered one for these cards, else None (a Team Preview outside a
+    match, as in the simulator's lineup replays, stays deterministic)."""
+    return _SEEDS.get(id(my_cards))
+
+
+def tiebreak(values: list[float], eps: float, seed: int | None, context: str) -> int:
+    """The index of the chosen candidate: the best, unless others are within ``eps`` win chance of it, in which case
+    one of those is drawn with ``random.Random(f"{seed}:{context}")`` (the same answer for the same seed and
+    context; a different seed may choose differently only inside the window). ``values`` are log-odds."""
+    from . import matchup
+
+    if not values:
+        raise ValueError("no candidates")
+    best = max(values)
+    if seed is None or eps <= 0:
+        return values.index(best)
+    top = matchup.win_probability(best)
+    tied = [i for i, v in enumerate(values) if top - matchup.win_probability(v) <= eps]
+    if len(tied) == 1:
+        return tied[0]
+    return random.Random(f"{seed}:{context}").choice(tied)
+
 
 def pick_order(picks_made: int, we_are_first: bool) -> list[str]:
     """Who picks next, from pick index ``picks_made`` to the end: 'us' / 'them'."""
@@ -664,9 +720,19 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
 
 
 def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> ScoredCard:
-    """Counter-aware pick: the offered card whose rest-of-draft lookahead gives our finished team the best odds."""
+    """Counter-aware pick: the offered card whose rest-of-draft lookahead gives our finished team the best odds;
+    among cards within ``draft_tiebreak_eps`` of the best, the match's secret seed decides (``tiebreak``)."""
+    from . import matchup
+
     P = params or DEFAULTS
     ranked = rank_picks_v2(legal_actions, memory, P)
     if not ranked:
         return choose_pick(legal_actions, memory, {**P, "draft_v2": 0.0})
-    return ranked[0]
+    seed = tiebreak_seed(memory.my_cards, memory)
+    picks_made = len(memory.my_cards) + len(memory.opp_cards)
+    eps = float(P.get("draft_tiebreak_eps", 0.0))
+    chosen = ranked[tiebreak([s.score for s in ranked], eps, seed, f"pick:{picks_made}")]
+    best = ranked[0]
+    tied = [s.species for s in ranked if s is not chosen and matchup.win_probability(best.score) - matchup.win_probability(s.score) <= eps]
+    chosen.notes.append(f"tie-break seed {seed:#x}" + (f": {chosen.species} over {tied} (within {100 * eps:.0f}% win chance)" if tied else ""))
+    return chosen

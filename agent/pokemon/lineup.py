@@ -16,7 +16,7 @@ from itertools import combinations
 
 from . import data
 from .battle import FieldState, build_mon, damage_percent, hit_profile
-from .draft import Profile, hit_quality, profile
+from .draft import Profile, hit_quality, known_seed, profile, tiebreak
 from .tuning import DEFAULTS
 
 log = logging.getLogger(__name__)
@@ -267,7 +267,7 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
     if P.get("lineup_v2", 0) and len(mine) >= BRING and len([t for t in theirs if t.moves]) >= LEADS \
             and all(p.moves for p in mine):
         try:
-            return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P)
+            return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P, seed=known_seed(my_cards))
         except Exception as exc:  # noqa: BLE001 — a bug in v2 must not cost Team Preview: fall through to the scorer below
             v2_note = f"Team Preview v2 failed ({type(exc).__name__}: {exc}); old scorer used"
             log.warning("Team Preview v2 failed (%s: %s); the old scorer picks the lineup", type(exc).__name__, exc)
@@ -449,7 +449,7 @@ class PreviewModel:
 
 
 def choose_leads_v2(model: PreviewModel, four: tuple[int, ...], their_leads: dict[tuple, float],
-                    params: dict | None = None) -> tuple[tuple[int, int], list[str]]:
+                    params: dict | None = None, seed: int | None = None) -> tuple[tuple[int, int], list[str]]:
     """Our lead pair for ``four`` against their likely leads, and the notes that explain it.
 
     Value: the expected opening margin (turns 1-2) against their likely leads, optionally blended with the worst
@@ -496,9 +496,16 @@ def choose_leads_v2(model: PreviewModel, four: tuple[int, ...], their_leads: dic
     def order_key(pair: tuple) -> tuple:
         return (lead_values[pair], [-x for x in pair])
 
+    eps = float(P.get("lineup_tiebreak_eps", 0.0))
+
+    def pick(candidates: list[tuple], value) -> tuple:
+        """The best candidate, or one within eps of it by the match's secret seed (draft.tiebreak)."""
+        ordered = sorted(candidates, key=order_key, reverse=True)
+        return ordered[tiebreak([value(pr) for pr in ordered], eps, seed, f"leads:{four}")]
+
     notes: list[str] = []
     if safe:
-        best_pair = max(safe, key=order_key)
+        best_pair = pick(safe, lambda pr: lead_values[pr])
         if veto_w and len(safe) < len(pairs):
             vetoed = max((pr for pr in pairs if pr not in safe), key=order_key)
             why = (f"loses {lost[vetoed]} in the opening" if lost[vetoed]
@@ -506,16 +513,19 @@ def choose_leads_v2(model: PreviewModel, four: tuple[int, ...], their_leads: dic
             notes.append(f"lead veto: not {names[vetoed[0]]} + {names[vetoed[1]]} ({why} against their likely leads)")
             notes.append("leads lose nothing in the opening against their two likeliest leads")
     else:
-        def penalised(pair: tuple) -> tuple:
-            return (lead_values[pair] - veto_w * len(lost[pair]) - 0.5 * veto_w * bool(exposed[pair]), [-x for x in pair])
-        best_pair = max(pairs, key=penalised)
+        def penalised(pair: tuple) -> float:
+            return lead_values[pair] - veto_w * len(lost[pair]) - 0.5 * veto_w * bool(exposed[pair])
+        best_pair = pick(sorted(pairs, key=lambda pr: (penalised(pr), [-x for x in pr]), reverse=True), penalised)
         notes.append(f"no lead pair of this four is safe against their likely leads; "
                      f"{names[best_pair[0]]} + {names[best_pair[1]]} risks {lost[best_pair] or 'a flinched setter'}"
                      + (f" ({exposed[best_pair][0][0]} open to {exposed[best_pair][0][1]}'s Fake Out)" if exposed[best_pair] else ""))
     return best_pair, notes
 
 
-def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None) -> list[Candidate]:
+def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None,
+                 seed: int | None = None) -> list[Candidate]:
+    """Our best fours (first = the one we bring if the model does not answer) and their leads. ``seed`` (the match's
+    secret tie-break seed, draft.tiebreak_seed) decides among fours and lead pairs the model cannot tell apart."""
     P = params or DEFAULTS
     model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)))
     win = model.matchup.win_probability
@@ -538,6 +548,10 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
         worst = min(payoff[i])
         ranked.append(((1 - robust) * expected + robust * worst, expected, i))
     ranked.sort(key=lambda t: (-t[0], t[2]))
+    eps = float(P.get("lineup_tiebreak_eps", 0.0))
+    first = tiebreak([t[0] for t in ranked[:top]], eps, seed, "four") if ranked else 0
+    if first:
+        ranked.insert(0, ranked.pop(first))  # the seed's choice leads the shortlist (it is the fallback lineup)
     likely = sorted(((q[j], j) for j in range(len(their_fours)) if q[j] > 0), reverse=True)
     likely_note = "; ".join(f"{[names[k] for k in their_fours[j]]} {100 * w:.0f}%" for w, j in likely[:2])
     out: list[Candidate] = []
@@ -546,7 +560,7 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
         # Leads: our pair that does best on turns 1-2 against the lead pairs their likely fours open with, never one
         # the lead veto rejects (choose_leads_v2).
         their_leads = model.likely_leads(four, likely, their_fours, template)
-        best_pair, lead_notes = choose_leads_v2(model, four, their_leads, P)
+        best_pair, lead_notes = choose_leads_v2(model, four, their_leads, P, seed=seed)
         expected_leads = sorted(their_leads.items(), key=lambda t: -t[1])[:2]
         notes = [f"v2: {100 * win(expected):.0f}% vs their likely fours ({likely_note})",
                  f"worst case {100 * win(min(payoff[i])):.0f}%"]
@@ -561,4 +575,7 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
         out.append(Candidate([names[k] for k in four], [names[k] for k in best_pair], round(value, 3), notes))
     if out:
         out[0].notes.append(f"game value {100 * win(game_value):.0f}%")
+        if seed is not None:
+            out[0].notes.append(f"tie-break seed {seed:#x}" + (f": this four over {[c.bring for c in out[1:] if abs(win(c.score) - win(out[0].score)) <= eps]}"
+                                                               if first else ""))
     return out

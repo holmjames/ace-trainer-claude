@@ -231,3 +231,31 @@ def test_the_lead_template_gives_two_support_users_a_share():
               and s.idx["Ting-Lu"] not in p}
     assert double and all(prior[p] > 0 for p in double) and abs(sum(prior[p] for p in double) - 0.25) < 1e-9
     assert abs(sum(prior.values()) - 1.0) < 1e-9
+
+
+# -- Secret tie-breaks at Team Preview --------------------------------------------------------------------------------
+
+
+def test_the_preview_follows_the_match_seed_and_varies_only_inside_the_window():
+    from agent.pokemon import draft, matchup
+
+    our_six, their_six, _, _ = LIVE["W bcbaabe2"]
+    mine, theirs, roster = rosters(our_six, their_six)
+    assert not any(n.startswith("tie-break seed") for n in lineup.shortlist(mine, theirs, roster, params=V2)[0].notes)  # no match: no seed
+    seed = draft.tiebreak_seed(mine)  # what the match's first draft decision registers
+    a = lineup.shortlist(mine, theirs, roster, params=V2)
+    b = lineup.shortlist(mine, theirs, roster, params=V2)  # the same card dict: the same seed, the same answer
+    assert [c.as_payload() for c in a] == [c.as_payload() for c in b]
+    assert any(n.startswith(f"tie-break seed {seed:#x}") for n in a[0].notes), a[0].notes
+    profiles_m = [lineup.profile({**c, "species": c.get("species")}) for c in mine.values()]
+    profiles_t = [lineup.profile(c) for c in theirs.values()]
+    fixed = [lineup.shortlist_v2(profiles_m, profiles_t, params=V2, seed=s)[0] for s in range(10)]
+    win = matchup.win_probability
+    scores = sorted({c.score for c in lineup.shortlist_v2(profiles_m, profiles_t, params=V2, seed=None)}, reverse=True)
+    within = [s for s in scores if win(scores[0]) - win(s) <= V2["lineup_tiebreak_eps"]]
+    assert all(c.score in within for c in fixed)  # never a four outside the window
+    assert lineup.shortlist_v2(profiles_m, profiles_t, params=V2, seed=3)[0].as_payload() == \
+        lineup.shortlist_v2(profiles_m, profiles_t, params=V2, seed=3)[0].as_payload()
+    s = Session("W bcbaabe2")
+    leads = {lineup.choose_leads_v2(s.model, s.four, s.their_leads, V2, seed=k)[0] for k in range(6)}
+    assert all(not s.lost(p) for p in leads)  # the seed never picks outside the safe set

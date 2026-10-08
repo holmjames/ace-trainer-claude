@@ -352,3 +352,52 @@ def test_a_finished_draft_is_worth_the_four_it_would_bring():
     weaker = board.index(matchup.unit(CATALOG["Sableye"]).key)
     swapped = [weaker if i == bench else i for i in ours]
     assert search.finished(swapped, theirs)[0] >= value - 0.3  # same best four, only their likeliest fours may shift
+
+
+# -- Secret tie-breaks (Oct 8): a reader of the public repo cannot precompute our choices --------------------------
+
+
+def test_tiebreak_is_deterministic_per_seed_and_varies_only_inside_the_window():
+    values = [1.00, 0.98, 0.50]  # log-odds: the first two are 0.4 points of win chance apart, the third far behind
+    assert draft.tiebreak(values, 0.01, None, "x") == 0  # no seed: always the best
+    assert draft.tiebreak(values, 0.0, 7, "x") == 0  # eps 0: always the best
+    assert all(draft.tiebreak(values, 0.01, 7, "pick:3") == draft.tiebreak(values, 0.01, 7, "pick:3") for _ in range(5))
+    choices = {draft.tiebreak(values, 0.01, seed, "pick:3") for seed in range(40)}
+    assert choices == {0, 1}  # both tied candidates get chosen across seeds, the distant third never
+    assert {draft.tiebreak(values, 0.001, seed, "pick:3") for seed in range(40)} == {0}  # a tighter window: no tie
+    assert {draft.tiebreak(values, 0.01, 7, f"pick:{n}") for n in range(40)} == {0, 1}  # the context matters too
+
+
+def test_the_seed_is_secret_per_match_kept_on_the_memory_and_written_into_the_notes():
+    memory = memory_for(POOLS["L3"][2])
+    other = memory_for(POOLS["L3"][2])
+    first = draft.choose_pick(offered(memory), memory, tuning.DEFAULTS)
+    seed = memory.tiebreak_seed
+    assert isinstance(seed, int) and seed.bit_length() <= 64
+    assert any(n.startswith(f"tie-break seed {seed:#x}") for n in first.notes), first.notes
+    assert draft.tiebreak_seed(memory.my_cards) == seed  # Team Preview finds the same seed through the match's cards
+    assert draft.choose_pick(offered(memory), memory, tuning.DEFAULTS).card_id == first.card_id  # same match: same answer
+    assert draft.tiebreak_seed(other.my_cards, other) != seed  # another match: another draw
+
+
+def test_a_fixed_seed_reproduces_the_pick_and_seeds_differ_only_when_the_gap_is_inside_eps():
+    from agent.pokemon import matchup
+
+    pool = POOL_W1
+    mine, theirs = ["Iron Hands", "Archaludon", "Arcanine", "Wo-Chien"], ["Incineroar", "Dragonite", "Salamence", "Ting-Lu", "Basculegion"]
+    memory = memory_for(pool, mine, theirs)
+    ranked = draft.rank_picks_v2(offered(memory), memory, tuning.DEFAULTS)
+    gap = matchup.win_probability(ranked[0].score) - matchup.win_probability(ranked[1].score)
+    picks = set()
+    for seed in range(12):
+        m, m2 = memory_for(pool, mine, theirs), memory_for(pool, mine, theirs)
+        m.tiebreak_seed = m2.tiebreak_seed = seed
+        pick = draft.choose_pick(offered(m), m, tuning.DEFAULTS).species
+        assert draft.choose_pick(offered(m2), m2, tuning.DEFAULTS).species == pick  # a fixed seed reproduces the pick
+        picks.add(pick)
+    eps = tuning.DEFAULTS["draft_tiebreak_eps"]
+    if gap <= eps:
+        assert len(picks) >= 2 and picks <= {s.species for s in ranked if matchup.win_probability(ranked[0].score) - matchup.win_probability(s.score) <= eps}
+    else:
+        assert picks == {ranked[0].species}
+    assert ranked[0].species in {s.species for s in ranked[:3]}
