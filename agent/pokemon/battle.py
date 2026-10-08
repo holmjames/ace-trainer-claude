@@ -1421,10 +1421,11 @@ def _endgame(sheet: "TurnSheet", slots: list[dict], ours: dict[int, "Mon"], thei
 # -- candidates --------------------------------------------------------------------------------------
 
 
-def _expected(row: dict, priority: int, P: dict | None = None) -> float:
+def _expected(row: dict, priority: int, P: dict | None = None, threat: float = 0.0) -> float:
     """Expected value of a hit in 'damage points': the average roll, CAPPED at the target's remaining HP (a 999% hit
     takes one Pokémon, exactly like a 101% one — uncapped, both slots piled into a 9% Whimsicott on Oct 7), plus a KO
-    bonus and a little for priority."""
+    bonus and a little for priority. ``threat`` is what the target would do to us (``threat_weight``): it scales the
+    KO bonus once the KO-credit item lands."""
     P = P or DEFAULTS
     lo, hi = row["damage_pct_of_current_hp"]
     if hi <= 0:
@@ -1435,35 +1436,51 @@ def _expected(row: dict, priority: int, P: dict | None = None) -> float:
     return damage + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0)) + P["priority_w"] * priority
 
 
-def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None = None) -> tuple[dict | None, dict | None, float]:
+def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None = None,
+                 threats: dict[str, float] | None = None) -> tuple[dict | None, dict | None, float]:
+    """Highest expected damage (option, target_row, expected%) among a slot's move options. A spread move (rows with
+    target 0) counts the damage to every opposing Pokémon it hits (its summary row carries the per-target ``rows``, so
+    a KO is read per foe, never from the summed range) and is charged for damage to our own ally. With
+    ``avoid_target`` only single-target rows into the other foes count: spread rows carry target 0 and slipped
+    through the filter, so focus_fire / finish_the_other vanished whenever a slot held Rock Slide / Dazzling Gleam /
+    Bleakwind Storm (Oct 7 match 3 turn 3; Oct 8 practice turn 6). ``threats`` (species_key -> weight) scales each
+    KO bonus by the threat removed."""
     P = P or DEFAULTS
-    """Highest expected damage (option, target_row, expected%) among a slot's move options.
-    A spread move (rows with target 0) counts the damage to every opposing Pokémon it hits and is
-    charged for damage to our own ally."""
+    threats = threats or {}
     best: tuple[dict | None, dict | None, float] = (None, None, -1.0)
     for option in entry.get("options") or []:
         if option.get("fails"):
             continue
         priority = option.get("priority") or 0
-        rows = [r for r in option.get("targets") or [] if r["target"] != avoid_target]
+        rows = option.get("targets") or []
         foe_rows = [r for r in rows if r["side"] == "theirs"]
         spread_rows = [r for r in foe_rows if r["target"] == 0]
-        if spread_rows:
+        if spread_rows and avoid_target is None:
             ally_hit = sum(_expected(r, 0, P) for r in rows if r["side"] == "mine")
-            expected = sum(_expected(r, priority, P) for r in spread_rows) - P["ally_damage_w"] * ally_hit
+            expected = sum(_expected(r, priority, P, threats.get(species_key(r["species"]), 0.0)) for r in spread_rows) - P["ally_damage_w"] * ally_hit
             if expected > best[2]:
                 summary = {"target": 0, "species": " + ".join(r["species"] for r in spread_rows), "side": "theirs",
                            "damage_pct_of_current_hp": [round(sum(r["damage_pct_of_current_hp"][0] for r in spread_rows), 1),
                                                         round(sum(r["damage_pct_of_current_hp"][1] for r in spread_rows), 1)],
-                           "ally_damage_pct": round(ally_hit, 1) if ally_hit else 0}
+                           "ally_damage_pct": round(ally_hit, 1) if ally_hit else 0, "spread": True, "rows": spread_rows}
                 best = (option, summary, expected)
         for row in foe_rows:
-            if row["target"] == 0:
+            if row["target"] == 0 or row["target"] == avoid_target:
                 continue
-            expected = _expected(row, priority, P)
+            expected = _expected(row, priority, P, threats.get(species_key(row["species"]), 0.0))
             if expected > best[2]:
                 best = (option, row, expected)
     return best
+
+
+def kos_a_foe(row: dict | None, *, min_chance: float = 1.0) -> bool:
+    """Does this chosen row take a foe out: a single-target row at a guaranteed KO, or a spread summary with ANY per-
+    target row at one. The summary's own range is the SUM over its targets, which read as a single-target KO (Oct 8:
+    fake_out_setup dropped to its 'a KO is already there' base on a 60% + 50% spread)."""
+    if not row:
+        return False
+    rows = row.get("rows") or [row]
+    return any(r.get("side") == "theirs" and ko_probability(r) >= min_chance for r in rows if r.get("damage_pct_of_current_hp"))
 
 
 def _option_index(slot: dict, kind: str, **match: Any) -> int | None:
@@ -1638,8 +1655,12 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if s0 is None or s1 is None:
             return
         cand = {"name": name, "slot_0": s0, "slot_1": s1, "why": why, "score": round(score, 1)}
-        if not any(c["slot_0"] == s0 and c["slot_1"] == s1 for c in candidates):
-            candidates.append(cand)
+        for existing in candidates:
+            if existing["slot_0"] == s0 and existing["slot_1"] == s1:
+                if cand["score"] > existing["score"]:
+                    existing.update(cand)  # the same turn, better explained and better scored: keep that one (D1j)
+                return
+        candidates.append(cand)
 
     def slot_template(number: int) -> dict | None:
         return next((s for s in slots if s.get("slot", 0) == number), None)
@@ -2107,7 +2128,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             continue
         answers = {number: {"option": fake, "target": target}, other: partner}
         why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (f"sets {setup_name}" if setup_name else "attacks")
-        attacks_ko = any(b[1] and b[1].get("damage_pct_of_current_hp", [0, 0])[0] >= 100 for b in best.values())
+        attacks_ko = any(kos_a_foe(b[1]) for b in best.values())  # per foe: a spread's summed range is not a KO (D1j)
         lethal_first = lethal_by_target.get(target, 0.0)  # chance this target KOs one of our slots before it moves
         base = P["fakeout_base"] if (not attacks_ko or lethal_first) else 15
         # Flinching the Pokémon that threatens a KO on us this turn is worth extra: it can't act. When that KO would land
