@@ -1,0 +1,1516 @@
+{
+ "session_id": "d74bfb88-f684-4ef0-86c2-0f3391fd3bff",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 11,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-210",
+  "turn": 10,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {
+   "SANDSTORM": 9
+  },
+  "fields": {
+   "GRASSY_TERRAIN": 6
+  },
+  "side_conditions": {},
+  "opponent_side_conditions": {},
+  "team": {
+   "p2: Iron Hands": {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 259,
+    "max_hp": 259,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "assaultvest",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "closecombat",
+     "wildcharge",
+     "drainpunch"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p2: Basculegion": {
+    "species": "basculegion",
+    "name": "Basculegion",
+    "current_hp": 196,
+    "max_hp": 196,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "adaptability",
+    "item": "lifeorb",
+    "types": [
+     "WATER",
+     "GHOST"
+    ],
+    "base_stats": {
+     "atk": 112,
+     "def": 65,
+     "hp": 120,
+     "spa": 80,
+     "spd": 75,
+     "spe": 78
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "wavecrash",
+     "aquajet",
+     "liquidation",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p2: Baxcalibur": {
+    "species": "baxcalibur",
+    "name": "Baxcalibur",
+    "current_hp": 191,
+    "max_hp": 191,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "thermalexchange",
+    "item": "loadeddice",
+    "types": [
+     "DRAGON",
+     "ICE"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 92,
+     "hp": 115,
+     "spa": 75,
+     "spd": 86,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "iciclespear",
+     "glaiverush",
+     "iceshard",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Arcanine": {
+    "species": "arcanine",
+    "name": "Arcanine",
+    "current_hp": 0,
+    "max_hp": 197,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "intimidate",
+    "item": "safetygoggles",
+    "types": [
+     "FIRE"
+    ],
+    "base_stats": {
+     "atk": 110,
+     "def": 80,
+     "hp": 90,
+     "spa": 100,
+     "spd": 80,
+     "spe": 95
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "flareblitz",
+     "extremespeed",
+     "snarl",
+     "protect"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Gyarados": {
+    "species": "gyarados",
+    "name": "Gyarados",
+    "current_hp": 75,
+    "max_hp": 202,
+    "current_hp_fraction": 0.3712871287128713,
+    "status": null,
+    "ability": "intimidate",
+    "item": "",
+    "types": [
+     "WATER",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 79,
+     "hp": 95,
+     "spa": 60,
+     "spd": 100,
+     "spe": 81
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "waterfall",
+     "earthquake",
+     "taunt",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Tyranitar": {
+    "species": "tyranitar",
+    "name": "Tyranitar",
+    "current_hp": 55,
+    "max_hp": 207,
+    "current_hp_fraction": 0.26570048309178745,
+    "status": "BRN",
+    "ability": "sandstream",
+    "item": "chopleberry",
+    "types": [
+     "ROCK",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 110,
+     "hp": 100,
+     "spa": 95,
+     "spd": 100,
+     "spe": 61
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "rockslide",
+     "knockoff",
+     "lowkick",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p1: Flutter Mane": {
+    "species": "fluttermane",
+    "name": "Flutter Mane",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "protosynthesis",
+    "item": null,
+    "types": [
+     "GHOST",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 55,
+     "def": 55,
+     "hp": 55,
+     "spa": 135,
+     "spd": 135,
+     "spe": 135
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "shadowball",
+     "moonblast",
+     "protect"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Incineroar": {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 99,
+    "max_hp": 100,
+    "current_hp_fraction": 0.99,
+    "status": null,
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "knockoff",
+     "flareblitz"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Amoonguss": {
+    "species": "amoonguss",
+    "name": "Amoonguss",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": null,
+    "item": "rockyhelmet",
+    "types": [
+     "GRASS",
+     "POISON"
+    ],
+    "base_stats": {
+     "atk": 85,
+     "def": 70,
+     "hp": 114,
+     "spa": 85,
+     "spd": 80,
+     "spe": 30
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "pollenpuff"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Rillaboom": {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 83,
+    "max_hp": 100,
+    "current_hp_fraction": 0.83,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "woodhammer",
+     "uturn",
+     "fakeout"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   false
+  ],
+  "can_tera": [
+   true,
+   true
+  ],
+  "active_pokemon": [
+   {
+    "species": "gyarados",
+    "name": "Gyarados",
+    "current_hp": 75,
+    "max_hp": 202,
+    "current_hp_fraction": 0.3712871287128713,
+    "status": null,
+    "ability": "intimidate",
+    "item": "",
+    "types": [
+     "WATER",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 79,
+     "hp": 95,
+     "spa": 60,
+     "spd": 100,
+     "spe": 81
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "waterfall",
+     "earthquake",
+     "taunt",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "tyranitar",
+    "name": "Tyranitar",
+    "current_hp": 55,
+    "max_hp": 207,
+    "current_hp_fraction": 0.26570048309178745,
+    "status": "BRN",
+    "ability": "sandstream",
+    "item": "chopleberry",
+    "types": [
+     "ROCK",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 110,
+     "hp": 100,
+     "spa": 95,
+     "spd": 100,
+     "spe": 61
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "rockslide",
+     "knockoff",
+     "lowkick",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_active_pokemon": [
+   {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 83,
+    "max_hp": 100,
+    "current_hp_fraction": 0.83,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "woodhammer",
+     "uturn",
+     "fakeout"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 99,
+    "max_hp": 100,
+    "current_hp_fraction": 0.99,
+    "status": null,
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "knockoff",
+     "flareblitz"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [
+    {
+     "id": "waterfall",
+     "type": "WATER",
+     "category": "PHYSICAL",
+     "base_power": 80,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 21,
+     "max_pp": 24,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "tyranitar"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "incineroar"
+      }
+     ]
+    },
+    {
+     "id": "earthquake",
+     "type": "GROUND",
+     "category": "PHYSICAL",
+     "base_power": 100,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "ALL_ADJACENT",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "taunt",
+     "type": "DARK",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 32,
+     "max_pp": 32,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "tyranitar"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "incineroar"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 14,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "id": "rockslide",
+     "type": "ROCK",
+     "category": "PHYSICAL",
+     "base_power": 75,
+     "accuracy": 0.9,
+     "priority": 0,
+     "current_pp": 15,
+     "max_pp": 16,
+     "target": "ALL_ADJACENT_FOES",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "knockoff",
+     "type": "DARK",
+     "category": "PHYSICAL",
+     "base_power": 65,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 32,
+     "max_pp": 32,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "gyarados"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "incineroar"
+      }
+     ]
+    },
+    {
+     "id": "lowkick",
+     "type": "FIGHTING",
+     "category": "PHYSICAL",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 32,
+     "max_pp": 32,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "gyarados"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "incineroar"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 15,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ]
+  ],
+  "available_switches": [
+   [
+    {
+     "species": "baxcalibur",
+     "name": "Baxcalibur",
+     "current_hp": 191,
+     "max_hp": 191,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "thermalexchange",
+     "item": "loadeddice",
+     "types": [
+      "DRAGON",
+      "ICE"
+     ],
+     "base_stats": {
+      "atk": 145,
+      "def": 92,
+      "hp": 115,
+      "spa": 75,
+      "spd": 86,
+      "spe": 87
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "iciclespear",
+      "glaiverush",
+      "iceshard",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": true,
+     "is_terastallized": false
+    }
+   ],
+   [
+    {
+     "species": "baxcalibur",
+     "name": "Baxcalibur",
+     "current_hp": 191,
+     "max_hp": 191,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "thermalexchange",
+     "item": "loadeddice",
+     "types": [
+      "DRAGON",
+      "ICE"
+     ],
+     "base_stats": {
+      "atk": 145,
+      "def": 92,
+      "hp": 115,
+      "spa": 75,
+      "spd": 86,
+      "spe": 87
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "iciclespear",
+      "glaiverush",
+      "iceshard",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": true,
+     "is_terastallized": false
+    }
+   ]
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-d74bfb 1 vs. able-p1-d74bfb 1",
+   "|j|☆able-p0-d74bfb 1",
+   "|j|☆able-p1-d74bfb 1",
+   "|gametype|doubles",
+   "|player|p1|able-p0-d74bfb 1|266|",
+   "|player|p2|able-p1-d74bfb 1|101|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Flutter Mane, L50|",
+   "|poke|p1|Incineroar, L50, F|",
+   "|poke|p1|Chien-Pao, L50|",
+   "|poke|p1|Rillaboom, L50, M|",
+   "|poke|p1|Amoonguss, L50, M|",
+   "|poke|p1|Pelipper, L50, F|",
+   "|poke|p2|Iron Hands, L50|",
+   "|poke|p2|Basculegion, L50, M|",
+   "|poke|p2|Baxcalibur, L50, F|",
+   "|poke|p2|Arcanine, L50, M|",
+   "|poke|p2|Gyarados, L50, F|",
+   "|poke|p2|Tyranitar, L50, F|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p0-d74bfb 1)",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p1-d74bfb 1 also wants the timer to be on.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Flutter Mane|Flutter Mane, L50|100/100",
+   "|switch|p1b: Incineroar|Incineroar, L50, F|100/100",
+   "|switch|p2a: Gyarados|Gyarados, L50, F|202/202",
+   "|switch|p2b: Tyranitar|Tyranitar, L50, F|207/207",
+   "|-ability|p2a: Gyarados|Intimidate|boost",
+   "|-unboost|p1a: Flutter Mane|atk|1",
+   "|-unboost|p1b: Incineroar|atk|1",
+   "|-weather|Sandstorm|[from] ability: Sand Stream|[of] p2b: Tyranitar",
+   "|-ability|p1b: Incineroar|Intimidate|boost",
+   "|-unboost|p2a: Gyarados|atk|1",
+   "|-unboost|p2b: Tyranitar|atk|1",
+   "|-enditem|p1a: Flutter Mane|Booster Energy",
+   "|-activate|p1a: Flutter Mane|ability: Protosynthesis|[fromitem]",
+   "|-start|p1a: Flutter Mane|protosynthesisspe",
+   "|turn|1",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|-end|p1a: Flutter Mane|Protosynthesis|[silent]",
+   "|switch|p1a: Amoonguss|Amoonguss, L50, M|100/100",
+   "|switch|p1b: Rillaboom|Rillaboom, L50, M|100/100",
+   "|-fieldstart|move: Grassy Terrain|[from] ability: Grassy Surge|[of] p1b: Rillaboom",
+   "|move|p2a: Gyarados|Waterfall|p1a: Amoonguss",
+   "|-resisted|p1a: Amoonguss",
+   "|-damage|p1a: Amoonguss|89/100",
+   "|-damage|p2a: Gyarados|169/202|[from] item: Rocky Helmet|[of] p1a: Amoonguss",
+   "|move|p2b: Tyranitar|Rock Slide|p1a: Amoonguss|[spread] p1a,p1b",
+   "|-damage|p1a: Amoonguss|75/100",
+   "|-damage|p1b: Rillaboom|84/100",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p1b: Rillaboom|78/100|[from] Sandstorm",
+   "|-damage|p2a: Gyarados|157/202|[from] Sandstorm",
+   "|-damage|p1a: Amoonguss|70/100|[from] Sandstorm",
+   "|-heal|p1b: Rillaboom|84/100|[from] Grassy Terrain",
+   "|-heal|p1a: Amoonguss|75/100|[from] Grassy Terrain",
+   "|upkeep",
+   "|turn|2",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|switch|p2b: Arcanine|Arcanine, L50, M|197/197",
+   "|-ability|p2b: Arcanine|Intimidate|boost",
+   "|-unboost|p1a: Amoonguss|atk|1",
+   "|-unboost|p1b: Rillaboom|atk|1",
+   "|move|p2a: Gyarados|Protect|p2a: Gyarados",
+   "|-singleturn|p2a: Gyarados|Protect",
+   "|move|p1b: Rillaboom|Wood Hammer|p2b: Arcanine",
+   "|-resisted|p2b: Arcanine",
+   "|-damage|p2b: Arcanine|140/197",
+   "|-damage|p1b: Rillaboom|75/100|[from] Recoil",
+   "|move|p1a: Amoonguss|Pollen Puff|p1b: Rillaboom",
+   "|-heal|p1b: Rillaboom|100/100",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p1b: Rillaboom|95/100|[from] Sandstorm",
+   "|-damage|p2a: Gyarados|145/202|[from] Sandstorm",
+   "|-damage|p1a: Amoonguss|70/100|[from] Sandstorm",
+   "|-heal|p1b: Rillaboom|100/100|[from] Grassy Terrain",
+   "|-heal|p2b: Arcanine|152/197|[from] Grassy Terrain",
+   "|-heal|p1a: Amoonguss|75/100|[from] Grassy Terrain",
+   "|upkeep",
+   "|turn|3",
+   "|inactive|Time left: 55 sec this turn | 410 sec total",
+   "|",
+   "|switch|p2a: Baxcalibur|Baxcalibur, L50, F|191/191",
+   "|switch|p1a: Incineroar|Incineroar, L50, F|100/100",
+   "|-ability|p1a: Incineroar|Intimidate|boost",
+   "|-unboost|p2a: Baxcalibur|atk|1",
+   "|-unboost|p2b: Arcanine|atk|1",
+   "|move|p1b: Rillaboom|U-turn|p2b: Arcanine",
+   "|-resisted|p2b: Arcanine",
+   "|-damage|p2b: Arcanine|134/197",
+   "|",
+   "|switch|p1b: Amoonguss|Amoonguss, L50, M|100/100|[from] U-turn",
+   "|move|p2b: Arcanine|Flare Blitz|p1b: Amoonguss",
+   "|-supereffective|p1b: Amoonguss",
+   "|-damage|p1b: Amoonguss|40/100",
+   "|-damage|p2b: Arcanine|102/197|[from] item: Rocky Helmet|[of] p1b: Amoonguss",
+   "|-damage|p2b: Arcanine|58/197|[from] Recoil",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p2a: Baxcalibur|180/191|[from] Sandstorm",
+   "|-damage|p1b: Amoonguss|34/100|[from] Sandstorm",
+   "|-heal|p2a: Baxcalibur|191/191|[from] Grassy Terrain",
+   "|-heal|p2b: Arcanine|70/197|[from] Grassy Terrain",
+   "|-heal|p1b: Amoonguss|40/100|[from] Grassy Terrain",
+   "|upkeep",
+   "|turn|4",
+   "|inactive|Time left: 55 sec this turn | 405 sec total",
+   "|",
+   "|move|p2b: Arcanine|Protect|p2b: Arcanine",
+   "|-singleturn|p2b: Arcanine|Protect",
+   "|move|p2a: Baxcalibur|Icicle Spear|p1b: Amoonguss",
+   "|-supereffective|p1b: Amoonguss",
+   "|-damage|p1b: Amoonguss|23/100",
+   "|-supereffective|p1b: Amoonguss",
+   "|-damage|p1b: Amoonguss|9/100",
+   "|-supereffective|p1b: Amoonguss",
+   "|-damage|p1b: Amoonguss|0 fnt",
+   "|faint|p1b: Amoonguss",
+   "|-hitcount|p1: Amoonguss|3",
+   "|move|p1a: Incineroar|Knock Off|p2b: Arcanine",
+   "|-activate|p2b: Arcanine|move: Protect",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p2a: Baxcalibur|180/191|[from] Sandstorm",
+   "|-heal|p2a: Baxcalibur|191/191|[from] Grassy Terrain",
+   "|-heal|p2b: Arcanine|82/197|[from] Grassy Terrain",
+   "|upkeep",
+   "|",
+   "|switch|p1b: Flutter Mane|Flutter Mane, L50|100/100",
+   "|turn|5",
+   "|inactive|Time left: 55 sec this turn | 400 sec total",
+   "|",
+   "|switch|p2b: Tyranitar|Tyranitar, L50, F|207/207",
+   "|move|p2a: Baxcalibur|Protect|p2a: Baxcalibur",
+   "|-singleturn|p2a: Baxcalibur|Protect",
+   "|move|p1b: Flutter Mane|Shadow Ball|p2b: Tyranitar",
+   "|-resisted|p2b: Tyranitar",
+   "|-damage|p2b: Tyranitar|189/207",
+   "|-unboost|p2b: Tyranitar|spd|1",
+   "|move|p1a: Incineroar|Flare Blitz|p2b: Tyranitar",
+   "|-resisted|p2b: Tyranitar",
+   "|-damage|p2b: Tyranitar|151/207",
+   "|-status|p2b: Tyranitar|brn",
+   "|-damage|p1a: Incineroar|94/100|[from] Recoil",
+   "|",
+   "|-weather|none",
+   "|-heal|p2b: Tyranitar|163/207 brn|[from] Grassy Terrain",
+   "|-heal|p1a: Incineroar|99/100|[from] Grassy Terrain",
+   "|-damage|p2b: Tyranitar|151/207 brn|[from] brn",
+   "|-fieldend|move: Grassy Terrain",
+   "|upkeep",
+   "|turn|6",
+   "|inactive|Time left: 55 sec this turn | 390 sec total",
+   "|",
+   "|switch|p2a: Gyarados|Gyarados, L50, F|145/202",
+   "|-ability|p2a: Gyarados|Intimidate|boost",
+   "|-unboost|p1a: Incineroar|atk|1",
+   "|-unboost|p1b: Flutter Mane|atk|1",
+   "|switch|p1a: Rillaboom|Rillaboom, L50, M|100/100",
+   "|-fieldstart|move: Grassy Terrain|[from] ability: Grassy Surge|[of] p1a: Rillaboom",
+   "|move|p2b: Tyranitar|Protect|p2b: Tyranitar",
+   "|-singleturn|p2b: Tyranitar|Protect",
+   "|move|p1b: Flutter Mane|Moonblast|p2b: Tyranitar",
+   "|-activate|p2b: Tyranitar|move: Protect",
+   "|",
+   "|-heal|p2b: Tyranitar|163/207 brn|[from] Grassy Terrain",
+   "|-damage|p2b: Tyranitar|151/207 brn|[from] brn",
+   "|upkeep",
+   "|turn|7",
+   "|inactive|Time left: 55 sec this turn | 370 sec total",
+   "|",
+   "|switch|p2b: Arcanine|Arcanine, L50, M|82/197",
+   "|-ability|p2b: Arcanine|Intimidate|boost",
+   "|-unboost|p1a: Rillaboom|atk|1",
+   "|-unboost|p1b: Flutter Mane|atk|1",
+   "|move|p2a: Gyarados|Protect|p2a: Gyarados",
+   "|-singleturn|p2a: Gyarados|Protect",
+   "|move|p1a: Rillaboom|Fake Out|p2a: Gyarados",
+   "|-activate|p2a: Gyarados|move: Protect",
+   "|move|p1b: Flutter Mane|Shadow Ball|p2b: Arcanine",
+   "|-damage|p2b: Arcanine|0 fnt",
+   "|faint|p2b: Arcanine",
+   "|",
+   "|upkeep",
+   "|inactive|Time left: 55 sec this turn | 360 sec total",
+   "|",
+   "|switch|p2b: Baxcalibur|Baxcalibur, L50, F|191/191",
+   "|turn|8",
+   "|inactive|Time left: 55 sec this turn | 355 sec total",
+   "|",
+   "|move|p1b: Flutter Mane|Protect|p1b: Flutter Mane",
+   "|-singleturn|p1b: Flutter Mane|Protect",
+   "|move|p2b: Baxcalibur|Protect|p2b: Baxcalibur",
+   "|-singleturn|p2b: Baxcalibur|Protect",
+   "|move|p1a: Rillaboom|Wood Hammer|p2b: Baxcalibur",
+   "|-activate|p2b: Baxcalibur|move: Protect",
+   "|move|p2a: Gyarados|Waterfall|p1b: Flutter Mane",
+   "|-activate|p1b: Flutter Mane|move: Protect",
+   "|",
+   "|upkeep",
+   "|turn|9",
+   "|inactive|Time left: 55 sec this turn | 350 sec total",
+   "|",
+   "|switch|p2b: Tyranitar|Tyranitar, L50, F|151/207 brn",
+   "|-weather|Sandstorm|[from] ability: Sand Stream|[of] p2b: Tyranitar",
+   "|move|p1b: Flutter Mane|Moonblast|p2b: Tyranitar",
+   "|-supereffective|p2b: Tyranitar",
+   "|-damage|p2b: Tyranitar|55/207 brn",
+   "|move|p1a: Rillaboom|Wood Hammer|p2a: Gyarados",
+   "|-damage|p2a: Gyarados|37/202",
+   "|-enditem|p2a: Gyarados|Sitrus Berry|[eat]",
+   "|-heal|p2a: Gyarados|87/202|[from] item: Sitrus Berry",
+   "|-damage|p1a: Rillaboom|83/100|[from] Recoil",
+   "|move|p2a: Gyarados|Waterfall|p1b: Flutter Mane",
+   "|-damage|p1b: Flutter Mane|0 fnt",
+   "|faint|p1b: Flutter Mane",
+   "|-end|p1b: Flutter Mane|Protosynthesis|[silent]",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p1a: Rillaboom|77/100|[from] Sandstorm",
+   "|-damage|p2a: Gyarados|75/202|[from] Sandstorm",
+   "|-heal|p1a: Rillaboom|83/100|[from] Grassy Terrain",
+   "|-heal|p2b: Tyranitar|67/207 brn|[from] Grassy Terrain",
+   "|-damage|p2b: Tyranitar|55/207 brn|[from] brn",
+   "|upkeep",
+   "|",
+   "|switch|p1b: Incineroar|Incineroar, L50, F|99/100",
+   "|-ability|p1b: Incineroar|Intimidate|boost",
+   "|-unboost|p2a: Gyarados|atk|1",
+   "|-unboost|p2b: Tyranitar|atk|1",
+   "|turn|10"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 350
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "02ef2590-f823-4e68-85ed-de891e74558a",
+  "position": 1
+ },
+ "legal_actions": {
+  "session_id": "d74bfb88-f684-4ef0-86c2-0f3391fd3bff",
+  "state_version": 11,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "d74bfb88-f684-4ef0-86c2-0f3391fd3bff",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "gyarados",
+         "name": "Gyarados",
+         "current_hp": 75,
+         "max_hp": 202,
+         "current_hp_fraction": 0.3712871287128713,
+         "status": null,
+         "ability": "intimidate",
+         "item": "",
+         "types": [
+          "WATER",
+          "FLYING"
+         ],
+         "base_stats": {
+          "atk": 125,
+          "def": 79,
+          "hp": 95,
+          "spa": 60,
+          "spd": 100,
+          "spe": 81
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": -1,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "waterfall",
+          "earthquake",
+          "taunt",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "waterfall",
+          "base_power": 80,
+          "category": "PHYSICAL",
+          "move_type": "WATER",
+          "current_pp": 21,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "tyranitar"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "incineroar"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "earthquake",
+          "base_power": 100,
+          "category": "PHYSICAL",
+          "move_type": "GROUND",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "taunt",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "DARK",
+          "current_pp": 32,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "tyranitar"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "incineroar"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 14,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "baxcalibur"
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": {
+         "species": "tyranitar",
+         "name": "Tyranitar",
+         "current_hp": 55,
+         "max_hp": 207,
+         "current_hp_fraction": 0.26570048309178745,
+         "status": "BRN",
+         "ability": "sandstream",
+         "item": "chopleberry",
+         "types": [
+          "ROCK",
+          "DARK"
+         ],
+         "base_stats": {
+          "atk": 134,
+          "def": 110,
+          "hp": 100,
+          "spa": 95,
+          "spd": 100,
+          "spe": 61
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": -1,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "rockslide",
+          "knockoff",
+          "lowkick",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "rockslide",
+          "base_power": 75,
+          "category": "PHYSICAL",
+          "move_type": "ROCK",
+          "current_pp": 15,
+          "accuracy": 0.9,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "knockoff",
+          "base_power": 65,
+          "category": "PHYSICAL",
+          "move_type": "DARK",
+          "current_pp": 32,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "gyarados"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "incineroar"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "lowkick",
+          "base_power": 0,
+          "category": "PHYSICAL",
+          "move_type": "FIGHTING",
+          "current_pp": 32,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "gyarados"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "incineroar"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 15,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "baxcalibur"
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 11
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}
