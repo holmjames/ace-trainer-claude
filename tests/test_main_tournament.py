@@ -277,6 +277,7 @@ def _check(monkeypatch, capsys, official, argv=("--check-tournament",)):
     # The real probe makes a model call and fails without a provider (no key here): tests/test_reliability_f.py
     # covers it with a mocked provider; the CLI tests see a canned answer.
     monkeypatch.setattr(agent_main, "_probe_model", lambda contestant: ("model probe: claude-test-model 123 ms", False))
+    monkeypatch.setattr(agent_main, "_installed_versions", lambda: {"anthropic": "1.12.0", "httpx": "0.28.1"})  # the pins
     code = agent_main.main(list(argv))
     return code, capsys.readouterr().out
 
@@ -291,6 +292,7 @@ def test_check_tournament_success(env, monkeypatch, capsys):
         "✓ Tournament agent authenticated",
         "✓ Assignment discovery available (0 active assignment(s))",
         "✓ Agent ready (agent.agent:create_agent)",
+        "✓ Installed anthropic 1.12.0, httpx 0.28.1 (as pinned in pyproject.toml)",
         "✓ model probe: claude-test-model 123 ms",
         "✓ Ready to play Testing and tournament games",
     ]
@@ -300,6 +302,7 @@ def test_check_tournament_success(env, monkeypatch, capsys):
 def test_check_tournament_fails_when_the_model_probe_fails(env, monkeypatch, capsys):
     _install(monkeypatch, FakeOfficial(assignments_result=[]))
     monkeypatch.setattr(agent_main, "_mark", lambda symbol, fallback: symbol)
+    monkeypatch.setattr(agent_main, "_installed_versions", lambda: {"anthropic": "1.12.0", "httpx": "0.28.1"})
     monkeypatch.setattr(agent_main, "_probe_model", lambda contestant: ("model probe failed through FallbackProvider(['m']): m: request failed (HTTP 401)", True))
 
     code = agent_main.main(["--check-tournament"])

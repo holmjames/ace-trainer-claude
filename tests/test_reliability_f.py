@@ -636,3 +636,49 @@ def test_launcher_runs_detached_survives_its_terminal_and_stops_on_request(tmp_p
     assert not pid_file.exists()
     assert "fake runtime: signal, exiting" in _log_text(tmp_path) and "Stopping." in _log_text(tmp_path)
     assert _launcher(env, "--stop").returncode == 1
+
+
+# -- F6: the versions we tested are the versions that play ---------------------------------------------------------
+
+
+def test_pyproject_pins_the_installed_model_stack_and_the_preflight_warns_on_a_mismatch(monkeypatch):
+    import importlib.metadata
+
+    import agent.__main__ as agent_main
+
+    pins = agent_main._pinned_versions()
+    assert pins == {"anthropic": "1.12.0", "httpx": "0.28.1"}
+    assert agent_main._installed_versions() == {name: importlib.metadata.version(name) for name in ("anthropic", "httpx")}
+
+    monkeypatch.setattr(agent_main, "_installed_versions", lambda: dict(pins))
+    assert agent_main._versions_line() == ("Installed anthropic 1.12.0, httpx 0.28.1 (as pinned in pyproject.toml)", False)
+    monkeypatch.setattr(agent_main, "_installed_versions", lambda: {"anthropic": "1.13.0", "httpx": None})
+    line, mismatch = agent_main._versions_line()
+    assert mismatch and "anthropic 1.13.0 installed, pyproject pins 1.12.0" in line and "httpx MISSING installed, pyproject pins 0.28.1" in line
+
+
+def test_preflight_prints_the_version_warning_but_still_passes(env_free_check):
+    code, out = env_free_check({"anthropic": "1.13.0", "httpx": "0.28.1"})
+    assert code == 0
+    assert any(line.startswith("! Installed anthropic 1.13.0, httpx 0.28.1: anthropic 1.13.0 installed, pyproject pins 1.12.0") for line in out.splitlines()), out
+
+
+@pytest.fixture
+def env_free_check(monkeypatch, capsys):
+    """Run --check-tournament with a fake control plane, a canned probe, and the given installed versions."""
+    import agent.__main__ as agent_main
+    from test_main_tournament import KEY, FakeOfficial, _install
+
+    def run(installed: dict):
+        for name in ("ALTRUAGENT_CLAIM_TOKEN", "ALTRUAGENT_API_KEY"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("ALTRUAGENT_OFFICIAL_AGENT_KEY", KEY)
+        monkeypatch.setenv("ALTRUAGENT_CONTROL_URL", "https://control.example.test")
+        _install(monkeypatch, FakeOfficial(assignments_result=[]))
+        monkeypatch.setattr(agent_main, "_mark", lambda symbol, fallback: symbol)
+        monkeypatch.setattr(agent_main, "_probe_model", lambda contestant: ("model probe: claude-test-model 1 ms", False))
+        monkeypatch.setattr(agent_main, "_installed_versions", lambda: installed)
+        code = agent_main.main(["--check-tournament"])
+        return code, capsys.readouterr().out
+
+    return run

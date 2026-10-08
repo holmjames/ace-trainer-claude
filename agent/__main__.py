@@ -169,6 +169,10 @@ def _check_tournament(agent_spec: str) -> int:
             return fail(f"Agent {agent_spec} could not be created: {exc}")
         ok(f"Agent ready ({agent_spec})")
 
+        # The versions the tests and the live matches ran on (pyproject pins) are the versions that must play.
+        line, mismatch = _versions_line()
+        print(f"{_mark('!', '[WARN]')} {line}" if mismatch else f"{ok_mark} {line}")
+
         # The model must answer before a tournament day starts: a reverted .env or an exhausted key would otherwise
         # play every game code-only without anyone noticing (the runtime only logs it per call).
         line, failed = _probe_model(contestant)
@@ -179,6 +183,50 @@ def _check_tournament(agent_spec: str) -> int:
         return 0
     finally:
         official.close()
+
+
+PINNED_PACKAGES = ("anthropic", "httpx")
+
+
+def _installed_versions() -> dict[str, str | None]:
+    from importlib.metadata import PackageNotFoundError, version
+
+    out: dict[str, str | None] = {}
+    for name in PINNED_PACKAGES:
+        try:
+            out[name] = version(name)
+        except PackageNotFoundError:
+            out[name] = None
+    return out
+
+
+def _pinned_versions() -> dict[str, str | None]:
+    """The ``==`` pins in pyproject.toml for the packages we care about (None when a package is not pinned)."""
+    import re
+    import tomllib
+    from pathlib import Path
+
+    pins: dict[str, str | None] = {name: None for name in PINNED_PACKAGES}
+    try:
+        data = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+        for requirement in data.get("project", {}).get("dependencies", []):
+            m = re.match(r"\s*([A-Za-z0-9_.\-]+)\s*==\s*([^\s;,]+)", str(requirement))
+            if m and m.group(1).lower() in pins:
+                pins[m.group(1).lower()] = m.group(2)
+    except (OSError, ValueError):
+        pass
+    return pins
+
+
+def _versions_line() -> tuple[str, bool]:
+    """``(message, mismatch)``: the installed anthropic/httpx versions against the pyproject pins."""
+    installed, pinned = _installed_versions(), _pinned_versions()
+    shown = ", ".join(f"{name} {installed.get(name) or 'MISSING'}" for name in PINNED_PACKAGES)
+    problems = [f"{name} {installed.get(name) or 'MISSING'} installed, pyproject pins {pinned[name]}"
+                for name in PINNED_PACKAGES if pinned.get(name) and installed.get(name) != pinned[name]]
+    if problems:
+        return f"Installed {shown}: " + "; ".join(problems) + " (the tournament would run on untested versions)", True
+    return f"Installed {shown} (as pinned in pyproject.toml)", False
 
 
 def _probe_model(contestant: object) -> tuple[str, bool]:
