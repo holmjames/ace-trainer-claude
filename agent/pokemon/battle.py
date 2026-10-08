@@ -585,7 +585,10 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         if not species:
             continue
         key = species_key(species)
-        mon = build_mon(_find_summary(obs.get("team"), species), memory.my_cards.get(key), side="mine", position=slot.get("slot"))
+        summary = _find_summary(obs.get("team"), species)
+        if summary.get("fainted") or (summary.get("current_hp_fraction") == 0 and "current_hp_fraction" in summary):
+            continue  # a fainted Pokémon can still be named in its slot (the simulator does this): it is not an ally
+        mon = build_mon(summary, memory.my_cards.get(key), side="mine", position=slot.get("slot"))
         if mon:
             mon.tailwind = my_tailwind
             mon.paradox_stat = memory.paradox_active.get("mine:" + key)
