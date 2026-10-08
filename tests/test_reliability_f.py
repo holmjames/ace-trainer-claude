@@ -682,3 +682,41 @@ def env_free_check(monkeypatch, capsys):
         return code, capsys.readouterr().out
 
     return run
+
+
+# -- public reason: no JSON debris reaches the public reasoning_summary ------------------------------------------------
+
+
+def test_clean_reason_strips_the_debris_seen_live_and_keeps_whole_sentences():
+    from agent.agent import REASONING_CHAR_LIMIT, clean_reason
+
+    # The four shapes from match bcbaabe2 (4 of 19 answers) and three more from the Oct 7 logs.
+    assert clean_reason("Body Presses OPPONENT tinglu for a likely KO.\n") == "Body Presses OPPONENT tinglu for a likely KO."
+    assert clean_reason("Moonblast for a likely KO while its Protect is unreliable.]") == "Moonblast for a likely KO while its Protect is unreliable."
+    assert clean_reason("Archaludon Body Presses OPPONENT rillaboom.)") == "Archaludon Body Presses OPPONENT rillaboom."
+    assert clean_reason("Protect is unreliable this turn.ewhere.") == "Protect is unreliable this turn."
+    assert clean_reason('Lead Incineroar to Intimidate their physical attackers."}') == "Lead Incineroar to Intimidate their physical attackers."
+    assert clean_reason("Moonblast also covers us if it Protects this turn.}") == "Moonblast also covers us if it Protects this turn."
+    assert clean_reason("Tailwind lets Great Tusk move first.'] Hmm") == "Tailwind lets Great Tusk move first."
+    # Untouched when clean; balanced parentheses and quotes inside stay; a genuine unfinished last sentence stays.
+    assert clean_reason("Protect slot 0 (Fake Out is live) and Moonblast OPPONENT gyarados.") == "Protect slot 0 (Fake Out is live) and Moonblast OPPONENT gyarados."
+    assert clean_reason('Taunt the "support" first.') == 'Taunt the "support" first.'
+    assert clean_reason("Protect slot 0. Moonblast into OPPONENT gyarados for the KO this turn") == "Protect slot 0. Moonblast into OPPONENT gyarados for the KO this turn"
+    assert clean_reason("Attack with Moonblast; Protect the other slot") == "Attack with Moonblast; Protect the other slot"
+    assert clean_reason("") == "" and clean_reason(None) == ""
+    # Over the limit: the last full sentence that fits, never a cut word.
+    long = "Protect slot 0 because Kingambit's Sucker Punch is lethal. " * 6
+    cleaned = clean_reason(long)
+    assert len(cleaned) <= REASONING_CHAR_LIMIT and cleaned.endswith("lethal.") and cleaned.count("lethal.") == 4
+    no_sentence = "a" * 10 + " " + "word " * 80
+    cut = clean_reason(no_sentence.strip())
+    assert len(cut) <= REASONING_CHAR_LIMIT and cut.endswith("…") and not cut.endswith("wor…")
+
+
+def test_the_public_reason_the_runtime_sends_is_cleaned(tmp_path):
+    answer = {"slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 1}, "win_condition": "w",
+              "reasoning_summary": "Fake Out OPPONENT a, Wood Hammer OPPONENT b.]\n"}
+    agent = PokemonAgent(_FakeProvider(answer), version="reason", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
+    decision = agent.choose_action(_doubles(GOOD_SLOTS), CTX)
+    assert decision.reasoning_summary == "Fake Out OPPONENT a, Wood Hammer OPPONENT b."
+    assert decision.action["slot_0"] == {"type": "move", "move_id": "fakeout", "target": 1}

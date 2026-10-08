@@ -31,6 +31,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -195,7 +196,7 @@ class PokemonAgent:
         elapsed_ms = int((time.monotonic() - started) * 1000)
         self.memory.latencies_ms.append(elapsed_ms)
         self._say(f"[agent] {state.phase}: {summary} ({elapsed_ms} ms)")
-        return WithReasoning(decision, summary[:REASONING_CHAR_LIMIT])
+        return WithReasoning(decision, clean_reason(summary))
 
     def _last_resort(self, state: GameState, context: DecisionContext, log: "_SafeLog", exc: BaseException):
         """The guard's own guard. A crash here would hand the runner a DecisionError: the worker dies, the seat sits
@@ -481,6 +482,36 @@ class PokemonAgent:
             )
         except (OSError, TypeError, ValueError):
             pass
+
+
+_REASON_TRAILING_DEBRIS = re.compile(r"""[\s"'\]\[}{]+$""")  # JSON remnants after the model's last sentence
+_REASON_GLUED_JUNK = re.compile(r"(?<=[.!?])[a-z]{1,10}\.$")  # "...this turn.ewhere." -> "...this turn."
+_REASON_LAST_SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
+_REASON_FRAGMENT_LIMIT = 24  # a tail this short after the last full sentence is debris ("'] Hmm", "}"), not a sentence
+
+
+def clean_reason(text: Any, limit: int = REASONING_CHAR_LIMIT) -> str:
+    """The public reasoning_summary, cleaned: the model's JSON is parsed by the provider but its text sometimes carries
+    the tail of the structured answer (4 of 19 answers in match bcbaabe2: ".ewhere.", ".]", ".)", a trailing newline).
+    Strips trailing non-sentence debris and whitespace, and ends at the last full sentence within ``limit`` chars.
+    Only the public text changes; the action is untouched."""
+    s = re.sub(r"\s+", " ", str(text or "")).strip()
+    s = _REASON_TRAILING_DEBRIS.sub("", s)
+    if s.endswith(")") and s.count("(") < s.count(")"):
+        s = s[:-1].rstrip()
+    s = _REASON_GLUED_JUNK.sub("", s)
+    if len(s) > limit:
+        cut = s[:limit]
+        ends = [m.end() for m in _REASON_LAST_SENTENCE_END.finditer(cut)]
+        s = cut[:ends[-1]] if ends else cut.rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    if s and s[-1] not in ".!?":
+        last = max(s.rfind(mark) for mark in ".!?")  # wherever the last sentence ended, even before a stray quote
+        if last > 0 and len(s) - last - 1 <= _REASON_FRAGMENT_LIMIT:
+            s = s[:last + 1]
+    s = _REASON_TRAILING_DEBRIS.sub("", s)
+    if s.endswith(")") and s.count("(") < s.count(")"):
+        s = s[:-1].rstrip()
+    return s
 
 
 class _SafeLog:
