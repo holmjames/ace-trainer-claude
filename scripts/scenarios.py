@@ -71,6 +71,7 @@ CARDS = {
     "kommoo": card("Kommo-o", ["Clanging Scales", "Aura Sphere", "Flamethrower", "Protect"], ability="Overcoat", nature="Timid", evs={"spa": 252, "spe": 252}, item="Throat Spray"),
     "chiyu": card("Chi-Yu", ["Heat Wave", "Dark Pulse", "Overheat", "Snarl"], ability="Beads of Ruin", nature="Timid", evs={"spa": 252, "spe": 252}, item="Choice Scarf"),
     "arcaninehisui": card("Arcanine-Hisui", ["Rock Slide", "Flare Blitz", "Extreme Speed", "Protect"], ability="Intimidate", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Clear Amulet"),
+    "screamtail": card("Scream Tail", ["Dazzling Gleam", "Encore", "Wish", "Protect"], ability="Protosynthesis", nature="Bold", evs={"hp": 252, "def": 252, "spd": 4}, item="Covert Cloak"),
     "urshifu": card("Urshifu", ["Wicked Blow", "Close Combat", "Sucker Punch", "Detect"], ability="Unseen Fist", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Focus Sash"),
 }
 MINE_DEFAULT = ["rillaboom", "incineroar", "garchomp", "fluttermane", "amoonguss", "whimsicott"]
@@ -193,6 +194,14 @@ HARD: list[Scenario] = [
         mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
         accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and (move_of(p, "slot_1") in ("dazzlinggleam", "moonblast", "shadowball", "protect") or p["slot_1"].get("type") == "switch"),
         accept_text="Garchomp must Protect or pivot to Incineroar (Chien-Pao speed-ties/outspeeds it and Icicle Crash is 4x). Flutter Mane either breaks the sash with Dazzling Gleam, or, since Sword of Ruin makes Kingambit's Sucker Punch and Chien-Pao's Icicle Crash both lethal to it, Protects or pivots out. Attacking with Garchomp just loses it.",
+    ),
+    Scenario(
+        "no_suicide_pivot", "Scarf Urshifu (59%) + Miraidon (29%) vs our sash-broken Garchomp + Scream Tail; only Iron Bundle on the bench. Unseen Fist pierces Protect, and Iron Bundle dies on entry to Close Combat.",
+        ("garchomp", "screamtail"), ("urshifurapidstrike", "miraidon"), hard=True, turn=2, my_hp={"garchomp": 0.6}, their_hp={"urshifurapidstrike": 0.59, "miraidon": 0.29},
+        my_bench=("ironbundle",), mine=["garchomp", "screamtail", "ironbundle", "rillaboom", "amoonguss", "whimsicott"],
+        theirs=["urshifurapidstrike", "miraidon", "kingambit", "pelipper", "dragonite", "gholdengo"],
+        accept=lambda p: p["slot_0"].get("type") != "switch" and move_of(p, "slot_1") == "dazzlinggleam",
+        accept_text="Garchomp cannot be saved (slower than Scarf Urshifu, Protect is pierced) and Iron Bundle would be KO'd on entry, so switching only donates a Pokémon. Stay in and attack; Scream Tail's Dazzling Gleam KOs both weakened opponents if it moves (lost sparring game 7, Oct 7).",
     ),
     Scenario(
         "repeat_protect_pinned", "Garchomp Protected LAST turn and Chien-Pao's 4x Icicle Crash still KOs it before it moves; Incineroar waits on the bench. A second Protect works 1 time in 3.",

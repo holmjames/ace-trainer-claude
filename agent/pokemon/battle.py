@@ -135,6 +135,7 @@ def build_mon(summary: dict, card: dict | None, *, side: str, position: int | No
 
 
 PROTECT_LIKE = {"protect", "detect", "wideguard", "quickguard", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "kingsshield", "obstruct"}
+CHOICE_ITEMS = {"choicescarf", "choiceband", "choicespecs"}
 RUIN_ABILITIES = {"swordofruin": ("def", "Physical"), "beadsofruin": ("spd", "Special"),
                   "vesselofruin": ("spa", "Special"), "tabletsofruin": ("atk", "Physical")}
 PARADOX_BOOST = 5325 / 4096  # Hadron Engine / Orichalcum Pulse offensive boost; terrain base-power boost is 1.3 too
@@ -447,6 +448,7 @@ class TurnSheet:
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)  # lethal threats that act before our slot can
     choice_locks: dict = field(default_factory=dict)  # slot -> {move_id: [opponents it does nothing to]}
+    bench_hp: dict = field(default_factory=dict)  # species_key -> hp fraction of our benched Pokémon (for switch-in checks)
     field: "FieldState | None" = None
 
     def as_prompt(self) -> dict:
@@ -663,14 +665,31 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 entry["options"].append(row)
         sheet.our_options.append(entry)
 
+    # Our bench's HP, for "would the switch-in survive its entry?" checks.
+    team = obs.get("team")
+    if isinstance(team, dict):
+        for summary in team.values():
+            if isinstance(summary, dict) and summary.get("species") and not summary.get("active"):
+                frac = summary.get("current_hp_fraction")
+                if frac is None and summary.get("max_hp"):
+                    frac = (summary.get("current_hp") or 0) / summary["max_hp"]
+                sheet.bench_hp[species_key(summary["species"])] = float(frac if frac is not None else 1.0)
+
     # Opponent threats from their KNOWN sets.
     for position, opp in sorted(theirs.items()):
         threat = {"position": position, "species": opp.species, "hp_pct": round(opp.hp_fraction * 100), "status": opp.status,
                   "item": opp.item, "ability": opp.ability, "known_moves": [m["id"] for m in opp.moves], "hits": []}
         opp_fresh = species_key(opp.species) in set(memory.opp_fresh_active) or obs.get("turn") in (None, 1)
+        # A Choice item locks its holder into the last move it used (live server: read from the protocol log).
+        locked = memory.opp_last_move.get(species_key(opp.species)) if data.to_id(opp.item) in CHOICE_ITEMS else None
+        if locked:
+            threat["locked_move"] = locked
+            threat["note"] = f"Choice-locked into {locked} until it switches out: its other moves cannot be used this turn."
         our_priority_block = any(data.to_id(m.ability) in ("armortail", "dazzling", "queenlymajesty") for m in ours.values()) \
             or (fs.terrain == "psychic" and any(m.grounded for m in ours.values()))
         for move in opp.moves:
+            if locked and move["id"] != locked:
+                continue  # Choice-locked: only the locked move can come out
             if (move.get("base_power") or 0) <= 0 and move["id"] not in ("ruination", "beatup", "heavyslam", "heatcrash"):
                 continue
             if move["id"] in ("fakeout", "firstimpression") and not opp_fresh:
@@ -691,7 +710,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 if data.expected_hits(move, item=opp.item) > 1:
                     hit["multi_hit"] = True  # breaks Focus Sash
                 threat["hits"].append(hit)
-        if "fakeout" in threat["known_moves"]:
+        if "fakeout" in threat["known_moves"] and not locked:
             if opp_fresh and not our_priority_block:
                 threat["note"] = "FRESH: its Fake Out works THIS turn (priority +3): expect a flinch on one of our slots, so a setup move (Trick Room/Tailwind) from the slot it targets fails."
             elif opp_fresh:
@@ -1120,8 +1139,25 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     + (f" (Protect used {streak} turn(s) in a row already: only 1 in {3 ** streak} to work)" if streak else ""),
                     best[other][2] + bonus)
             if slot and best[other][0] and (protect is None or streak >= 1):
-                # No Protect, or Protect is a coin we already flipped: offer the switch so the judge sees the alternative.
-                switch = best_switch(slot, theirs, memory)[0] if memory is not None else _option_index(slot, "switch")
+                # No Protect, or Protect is a coin we already flipped: offer the switch so the judge sees the alternative,
+                # unless the switch-in is KO'd on entry by the same attacker (a pivot that just donates a Pokémon).
+                switch, switch_species = best_switch(slot, theirs, memory) if memory is not None else (_option_index(slot, "switch"), None)
+                if switch is not None and switch_species and attacker is not None and memory is not None:
+                    incoming = build_mon({"species": switch_species, "current_hp_fraction": sheet.bench_hp.get(species_key(switch_species), 1.0)},
+                                         memory.my_cards.get(species_key(switch_species)), side="mine", position=endangered)
+                    entry_moves = [m for m in attacker.moves if (m.get("base_power") or 0) > 0 and (not threat.get("locked_move") or m["id"] == threat["locked_move"])]
+                    killers = []
+                    for m in entry_moves:
+                        est = damage_percent(attacker, m, incoming, field=sheet.field) if incoming is not None else None
+                        if est is not None and est[0] >= 100:
+                            killers.append(m["id"])
+                    if killers:
+                        note = (f"No safe pivot for slot {endangered}: {switch_species} would be KO'd on entry by {threat['species']}'s {killers[0]}"
+                                + (f" (it is Choice-locked into {threat['locked_move']})" if threat.get("locked_move") else "")
+                                + ". Switching just donates a Pokémon; attack (or Protect, if it works) instead.")
+                        if note not in sheet.warnings:
+                            sheet.warnings.append(note)
+                        switch = None
                 if switch is not None:
                     answers = {endangered: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
                     add("switch_threatened", answers[0], answers[1],

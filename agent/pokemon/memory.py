@@ -142,6 +142,7 @@ class MatchMemory:
             self.fresh_active = [a for a in actives if a not in self.last_active] if (self.last_active or turn not in (None, 1)) else list(actives)
             self.last_active = actives
         self.observe_opponent_hp(obs)  # uses last turn's opp_last_active, so it runs before the update below
+        self.observe_protocol(obs)
         opp_actives = []
         for entry in obs.get("opponent_active_pokemon") or []:
             key = species_key(entry.get("species") if isinstance(entry, dict) else entry)
@@ -160,6 +161,7 @@ class MatchMemory:
                         self.opp_lineup_seen.append(key)
 
     last_payload: dict | None = None
+    opp_last_move: dict[str, str | None] = field(default_factory=dict)  # species_key -> last move it used since it last switched in (live server protocol log)
     last_opp_hp: dict[str, float] = field(default_factory=dict)  # species_key -> hp fraction seen last turn
     opp_protected_last_turn: list[str] = field(default_factory=list)  # inferred: we hit it, its HP did not move
 
@@ -197,6 +199,34 @@ class MatchMemory:
             return False  # a different Pokémon is in the slot now
         choice = self.last_payload.get(f"slot_{slot}") or {}
         return choice.get("type") == "move" and species_key(choice.get("move_id")) in {"protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "wideguard"}
+
+    def observe_protocol(self, obs: dict) -> None:
+        """Read the Showdown protocol log the live server includes (``observation["protocol_log"]``) and remember the last
+        move each opposing Pokémon used since it last entered the field. A Choice item locks its holder into that move
+        until it switches, so this turns "Urshifu could use any of four moves" into "Urshifu is locked into Surging Strikes".
+        The log is cumulative, so the table is rebuilt from scratch every turn; without a log (the simulator) it stays empty."""
+        log = obs.get("protocol_log")
+        if not isinstance(log, list) or not log:
+            return
+        mine = {str(k).split(":")[0] for k in (obs.get("team") or {}) if isinstance(k, str) and ":" in k}
+        if len(mine) != 1:
+            return
+        my_side = mine.pop()  # "p1" or "p2"
+        last: dict[str, str | None] = {}
+        for raw in log:
+            parts = str(raw).split("|")
+            if len(parts) < 3:
+                continue
+            kind, actor = parts[1], parts[2]
+            side = actor.split(":")[0].rstrip("ab")
+            if side == my_side or not side.startswith("p"):
+                continue
+            if kind in ("switch", "drag", "replace") and len(parts) > 3:
+                last[species_key(parts[3].split(",")[0])] = None  # fresh on the field: no lock yet
+            elif kind == "move" and len(parts) > 3:
+                nick = actor.split(":", 1)[1].strip() if ":" in actor else actor
+                last[species_key(nick)] = species_key(parts[3])
+        self.opp_last_move = last
 
     def observe_opponent_hp(self, obs: dict) -> None:
         """Infer who Protected: an opponent we targeted last turn whose HP did not change."""
