@@ -376,11 +376,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def parse_args(argv: list[str] | None = None):
     args = build_parser().parse_args(argv)
-    if args.clone is None:
+    if args.clone is None:  # both default from the opponents directory; an explicit --clone keeps --clone-latest explicit too
         args.clone = pinned_clone()
-    if args.adoption and args.clone_latest is None:
         latest = newest_clone()
-        if latest is not None and args.clone is not None and latest.resolve() != Path(args.clone).expanduser().resolve():
+        if args.adoption and args.clone_latest is None and args.clone is not None and latest is not None and latest != args.clone:
             args.clone_latest = latest
     for name in ("clone", "clone_latest", "clone_python"):
         value = getattr(args, name)

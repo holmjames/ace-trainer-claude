@@ -215,8 +215,8 @@ def test_the_pinned_clone_is_the_first_pin_and_the_latest_is_the_newest(tmp_path
     (opponents / "PINS.txt").write_text("abc1234 2026-10-01 x-2026-10-01\n")
     args = ship_gate.parse_args(["--adoption", "--clone-python", str(tmp_path / "py"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
     assert (args.clone, args.clone_latest) == (opponents / "x-2026-10-01", opponents / "x-2026-10-02")
-    args = ship_gate.parse_args(["--adoption", "--clone", str(opponents / "x-2026-10-02"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
-    assert args.clone_latest is None  # the pin already is the newest
+    args = ship_gate.parse_args(["--adoption", "--clone", str(opponents / "x-2026-10-01"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
+    assert args.clone_latest is None  # an explicit --clone never grows a --clone-latest by itself
 
 
 def test_record_deploy_writes_one_row(gate, capsys):
