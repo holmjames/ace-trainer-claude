@@ -681,6 +681,22 @@ Protect history and Tailwind/Trick Room turns left from the log; system prompt o
   that much. Written-down adjustments (Incineroar +25, Dragonite +17...) exist behind `draft_tier_adjust` (off).
   Branch results: v2 draft vs old 74.1% [71.3, 76.7] (1,000 games); v2 Team Preview vs old ~60% (800 games each).
   Draft pick median 28 ms, max 0.5 s (clock 15 s).
+- **Measured after the merge** (live-format simulator, code-only both sides, `--p2 checkout:<worktree>`):
+
+  | Us | Opponent | Result |
+  |---|---|---|
+  | this branch | 7be9183 (battle fixes, old draft + Team Preview) | 1,502 / 2,000 = **75.1%** |
+  | this branch | 4f2d0cb (the version that lost 0-4 live) | 742 / 800 = **92.8%** |
+  | this branch | the search bot-style counter-picker | 810 / 1,200 = **67.5%** |
+  | 7be9183 | the same counter-picker | 418 / 1,200 = 34.8% |
+
+  The four live pools re-drafted against the counter-picker: v2 88% vs old 84% (the simulated counter-picker drafts
+  much worse than the search bot did, e.g. it never takes Gholdengo in the M1 pool, so this replay flatters both).
+  Team Preview v2 on our live drafted sixes vs the search bot's actual lineups: 38% / 2% / 44% / 24% (we played 8 / 8 /
+  0 / 4%; best of 90 was 67 / 71 / 100 / 38%). **Known weakness:** match 2: v2 still leads Iron Hands into Incineroar +
+  Pixilate Sylveon (2%); its opening model rates that lead only mildly bad, and its prediction of their four leaves out
+  Incineroar (rated low because our engine under-uses it). Two fixes tried and left off (predicting their four from the
+  strong-player template; a robust lead rule). Opus, given the v2 candidates, picks v2's #1 in all four matches.
 - A parallel session committed a README (9bd526d) and pushed `pokemon-agent` to origin at 00:15 Oct 8.
 
 ## 6. Milestones (Oct 6 → Oct 13)
