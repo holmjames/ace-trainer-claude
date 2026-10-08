@@ -383,7 +383,7 @@ def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory, params: d
 # thousand team pairs at ~30 microseconds each, so a pick takes well under a second.
 
 FIRST_SLOTS = (0, 3, 4, 7, 8, 11)  # 0-based pick indices of the first drafter (picks 1, 4, 5, 8, 9, 12)
-_BOARDS: dict[tuple, "object"] = {}
+_BOARDS: dict[tuple, object] = {}  # (card fingerprints, knobs) -> matchup.Board, reused across a match's picks
 
 
 def pick_order(picks_made: int, we_are_first: bool) -> list[str]:
@@ -412,10 +412,6 @@ class DraftSearch:
     def legal(self, team: list[int], pool: list[int]) -> list[int]:
         held = {self.items[i] for i in team if self.items[i]}
         return [c for c in pool if not self.items[c] or self.items[c] not in held]
-
-    def value_for(self, side: str, us: list[int], them: list[int]) -> float:
-        score = self.board.score(us, them)
-        return score if side == "us" else -score
 
     def greedy(self, side: str, us: list[int], them: list[int], pool: list[int]) -> list[tuple[float, int]]:
         """Every legal pick for ``side``, best first, valued by the team model right now."""
@@ -483,7 +479,7 @@ class DraftSearch:
         return outcomes
 
 
-def _board_for(cards: list[dict], card_weight: float = 1.0, tier_adjust: float = 1.0):
+def _board_for(cards: list[dict], card_weight: float = 1.0, tier_adjust: float = 0.0):
     """One Board per (match pool): built on the first pick, reused for the rest of the draft."""
     from . import matchup
 
@@ -523,7 +519,8 @@ def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params
     index = {u.key: i for i, u in enumerate(board.units)}
     us = [index[matchup.fingerprint(c)] for c in mine_cards]
     them = [index[matchup.fingerprint(c)] for c in their_cards]
-    pool = [index[matchup.fingerprint(c)] for c in pool_cards.values()]
+    held = set(us) | set(them)
+    pool = [i for i in dict.fromkeys(index[matchup.fingerprint(c)] for c in pool_cards.values()) if i not in held]
     offered_idx = [(a, index[matchup.fingerprint(c)]) for a, c in offered]
     picks_made = len(memory.my_cards) + len(memory.opp_cards)
     we_first = picks_made in FIRST_SLOTS  # it is our turn, so the slot says which drafter we are
@@ -546,7 +543,7 @@ def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params
     answered = [board.units[j].species for j in them if board.base[best_i][j] >= 0.2]
     if answered:
         notes.append(f"beats {answered[:3]}")
-    threats = [board.units[j].species for j in pool if j != best_i and board.base[j][best_i] >= 0.2 and board.base[best_i][j] <= -0.2]
+    threats = [board.units[j].species for j in pool if j != best_i and board.base[j][best_i] >= 0.2]
     if len(scored) > 1:
         runner = scored[1]
         notes.append(f"next best {board.units[runner[2]].species} ({100 * matchup.win_probability(runner[0].value):.0f}%)")
