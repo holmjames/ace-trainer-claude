@@ -608,7 +608,9 @@ Urshifu + Prankster Tailwind, because a guaranteed KO elsewhere cut the Fake Out
 (+45 x KO chance) and keeps the full base, with a note that it also stops Unseen Fist. New hard scenario
 `fake_out_the_scarf_urshifu`. 22/22 scenarios, 1,012 tests, same-seed baselines vs random 95% (was 94), vs smoke 85% (was 84).
 
-**Next (in order):** Opus pass over all 22 scenarios to measure the judge's lift against a realistic opponent and mine its errors;
+**Opus pass over all 22 scenarios (Oct 7 night, after fixes 1-3): 22/22**, median 4.8 s, max 14.5 s.
+
+**Next (in order):** to measure the judge's lift against a realistic opponent and mine its errors;
 rerun `scripts/grade_overrides.py` on those logs; grow the scenario suite toward 30; keep the runtime up for Open matches
 against other contestants; at freeze paste the final commit ID into the dashboard and save a redacted `.env` with the logs.
 
