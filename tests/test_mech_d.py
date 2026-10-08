@@ -72,7 +72,7 @@ def catalog_mon(species: str, *, side: str, position: int | None, hp: float = 1.
 
 def build(mine: list[str], opp: list[str], *, bench: list[str] = (), hp: dict[str, float] | None = None, obs_extra: dict | None = None,
           cards: dict[str, dict] | None = None, drop_moves: set[str] = frozenset(), their_fainted: list[str] = (),
-          boosts: dict[str, dict] | None = None) -> tuple[battle.TurnSheet, MatchMemory]:
+          boosts: dict[str, dict] | None = None, our_fainted: list[str] = ()) -> tuple[battle.TurnSheet, MatchMemory]:
     """A doubles turn from catalog sets: ``mine`` are our actives (slot 0, 1), ``opp`` theirs (positions 1, 2), ``bench``
     our switch options, ``hp`` species -> HP fraction, ``cards`` per-species set overrides, ``drop_moves`` move names
     left out of our option lists, ``their_fainted`` extra fainted members of their team, ``boosts`` species -> stages."""
@@ -80,7 +80,7 @@ def build(mine: list[str], opp: list[str], *, bench: list[str] = (), hp: dict[st
     cards = cards or {}
     hp = hp or {}
     boosts = boosts or {}
-    for s in list(mine) + list(bench):
+    for s in list(mine) + list(bench) + list(our_fainted):
         m.my_cards[species_key(s)] = cards.get(s) or CATALOG[s]
     for s in list(opp) + list(their_fainted):
         m.opp_cards[species_key(s)] = cards.get(s) or CATALOG[s]
@@ -101,6 +101,7 @@ def build(mine: list[str], opp: list[str], *, bench: list[str] = (), hp: dict[st
             for s in list(mine) + list(bench)}
     opp_team = {f"p2: {s}": {"species": s, "active": True, "fainted": False, "current_hp_fraction": hp.get(s, 1.0), "boosts": boosts.get(s, {})} for s in opp}
     opp_team.update({f"p2: {s}": {"species": s, "active": False, "fainted": True, "current_hp_fraction": 0.0} for s in their_fainted})
+    team.update({f"p1: {s}": {"species": s, "active": False, "fainted": True, "current_hp_fraction": 0.0} for s in our_fainted})
     obs = {"turn": 3, "weather": None, "field": {}, "team": team, "opponent_team": opp_team,
            "active_pokemon": [{"species": s} for s in mine], "opponent_active_pokemon": [{"species": s} for s in opp], **(obs_extra or {})}
     return battle.build_sheet({"type": "doubles_turn", "slots": slots}, obs, m), m
@@ -822,3 +823,20 @@ def test_earthquake_with_one_foe_and_our_ally_is_still_spread():
     assert error_vs_calc(case("eq_ally_dondozo"), foe["damage_pct_of_current_hp"]) < TOLERANCE
     assert error_vs_calc(case("eq_ally_rillaboom"), ally["damage_pct_of_current_hp"]) < TOLERANCE and ally["side"] == "mine"
     assert any("also hits our own Rillaboom" in n for n in sheet.notes)
+
+
+# -- da9c168e (the Oct 8 loss) rechecked against the merged code ----------------------------------------------------
+
+
+def test_supreme_overlord_fallen_count_from_the_field():
+    """da9c168e T4: our Kingambit came in after Thundurus fainted (the log's 'fallen1'); Kowtow Cleave into Gyarados did
+    143 HP against the old sheet's 142.2 maximum (no Supreme Overlord then). With the field's fainted count the sheet
+    row is the calculator's fallen-1 range, 132-156."""
+    sheet, _ = build(["Kingambit", "Landorus-Therian"], ["Incineroar", "Gyarados"], hp={"Incineroar": 0.92}, our_fainted=["Thundurus"])
+    assert sheet.field.fainted == {"mine": 1, "theirs": 0}
+    row = option_row(sheet, 0, "kowtowcleave", "Gyarados")
+    c = case("overlord1_kowtow_gyarados")
+    assert error_vs_calc(c, row["damage_pct_of_current_hp"]) < TOLERANCE
+    assert row["damage_pct_of_current_hp"][0] <= 143 / 202 * 100 <= row["damage_pct_of_current_hp"][1]
+    kingambit = next(m for m in sheet.field.actives if m.species.lower() == "kingambit")
+    assert battle.effective_move(kingambit, {**data.move_info("Kowtow Cleave"), "id": "kowtowcleave"}, kingambit, sheet.field)["supreme_overlord"] == 1

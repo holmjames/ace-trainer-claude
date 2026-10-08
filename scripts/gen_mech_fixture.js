@@ -247,6 +247,17 @@ run('helpinghand_flareblitz_incineroar_rillaboom', by['Incineroar'], 'Flare Blit
 run('eq_ally_dondozo', by['Garchomp'], 'Earthquake', by['Dondozo'], {});       // one foe plus our own ally: still the spread 0.75x
 run('eq_ally_rillaboom', by['Garchomp'], 'Earthquake', by['Rillaboom'], {});   // the ally's share of it
 
+// -- da9c168e checks: stat stages are floored before anything else (Kingambit's 205 Atk at -1 is 136, not 137);
+// Gyarados at -1 (our Landorus-T's Intimidate) into Landorus-T; our Kingambit's Kowtow Cleave at fallen 1.
+run('stagefloor_kowtow_minus1_gyarados', by['Kingambit'], 'Kowtow Cleave', by['Gyarados'], { aBoosts: { atk: -1 } });
+run('stagefloor_waterfall_minus1_landorus', by['Gyarados'], 'Waterfall', by['Landorus-Therian'], { aBoosts: { atk: -1 } });
+run('stagefloor_waterfall_minus3_arcanine', by['Gyarados'], 'Waterfall', by['Arcanine'], { aBoosts: { atk: -3 } });
+run('overlord1_kowtow_gyarados', by['Kingambit'], 'Kowtow Cleave', by['Gyarados'], { alliesFainted: 1 });
+run('overlord1_kowtow_incineroar', by['Kingambit'], 'Kowtow Cleave', by['Incineroar'], { alliesFainted: 1 });
+// da9c168e T3: Incineroar's Fake Out into the staying Thundurus (57 HP) once our Landorus-T had come in and Intimidated it.
+run('fakeout_thundurus57', by['Incineroar'], 'Fake Out', by['Thundurus'], { hp: 57 / 154 });
+run('fakeout_minus1_thundurus57', by['Incineroar'], 'Fake Out', by['Thundurus'], { hp: 57 / 154, aBoosts: { atk: -1 } });
+
 const out = path.join(root, 'tests', 'fixtures', 'smogon_calc_mech.json');
 fs.writeFileSync(out, JSON.stringify(cases, null, 0));
 const names = cases.map(c => c.name);
