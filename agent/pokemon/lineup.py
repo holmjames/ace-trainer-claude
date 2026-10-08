@@ -10,6 +10,7 @@ numbers attached; the best one is also the fallback if the model fails.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from itertools import combinations
 
@@ -17,6 +18,8 @@ from . import data
 from .battle import FieldState, build_mon, damage_percent, hit_profile
 from .draft import Profile, hit_quality, profile
 from .tuning import DEFAULTS
+
+log = logging.getLogger(__name__)
 
 BRING = 4
 LEADS = 2
@@ -260,12 +263,14 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
             mine.append(p)
     theirs = [profile(c) for c in opp_cards.values()]
     P = params or DEFAULTS
+    v2_note = None
     if P.get("lineup_v2", 0) and len(mine) >= BRING and len([t for t in theirs if t.moves]) >= LEADS \
             and all(p.moves for p in mine):
         try:
             return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P)
-        except Exception:  # noqa: BLE001 — a bug in v2 must not cost Team Preview: fall through to the scorer below
-            pass
+        except Exception as exc:  # noqa: BLE001 — a bug in v2 must not cost Team Preview: fall through to the scorer below
+            v2_note = f"Team Preview v2 failed ({type(exc).__name__}: {exc}); old scorer used"
+            log.warning("Team Preview v2 failed (%s: %s); the old scorer picks the lineup", type(exc).__name__, exc)
 
     # Mirror-model the opponent: which four would THEY bring against our six, and which two lead?
     # Their drafted sets are public, so we can run our own lineup scorer from their side.
@@ -293,7 +298,10 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
         leads, lead_note = pick_leads(four, predicted_leads or theirs, params) if predicted_leads else pick_leads(four, theirs, params)
         candidates.append(Candidate([p.species for p in four], leads, score, notes + ([f"leads: {lead_note}"] if lead_note else [])))
     candidates.sort(key=lambda c: (-c.score, c.bring))
-    return candidates[:top]
+    out = candidates[:top]
+    if v2_note and out:
+        out[0].notes.append(v2_note)  # the decision log and the model both see why the old scorer answered
+    return out
 
 
 # -- v2: Team Preview from the matchup model (``lineup_v2`` = 1) ----------------------------------------------------
