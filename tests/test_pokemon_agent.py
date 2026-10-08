@@ -317,7 +317,10 @@ def test_draft_identifies_our_seat_from_the_agent_id_before_our_first_turn(tmp_p
 
 
 def test_memory_tracks_our_protect_and_infers_theirs():
+    # D1g (ops lane): the HP-bar inference needs a set that actually has Protect (L2 T2 on Oct 7 blamed Incineroar,
+    # whose set has none) and a damaging move from us; with a protocol log the executed Protect is read instead.
     memory = MatchMemory()
+    memory.opp_cards["gyarados"] = {"card_id": "vgc-gyarados", "species": "Gyarados", "moves": ["Waterfall", "Tera Blast", "Dragon Dance", "Protect"]}
     obs1 = {"turn": 1, "active_pokemon": [{"species": "Garchomp"}, {"species": "Rillaboom"}],
             "opponent_active_pokemon": [{"species": "Gyarados", "current_hp_fraction": 1.0}, {"species": "Pelipper", "current_hp_fraction": 1.0}]}
     memory.observe_battle(obs1)
@@ -329,6 +332,15 @@ def test_memory_tracks_our_protect_and_infers_theirs():
     assert memory.our_protect_last_turn("Garchomp", 0) is True
     assert memory.our_protect_last_turn("Rillaboom", 1) is False
     assert memory.opp_protected_last_turn == ["gyarados"]  # we Wood Hammered it and its HP did not move
+
+    # The same turn against a Gyarados whose set has no Protect: an untouched HP bar is a miss or a flinch, not a Protect.
+    memory = MatchMemory()
+    memory.opp_cards["gyarados"] = {"card_id": "vgc-gyarados", "species": "Gyarados", "moves": ["Waterfall", "Tera Blast", "Dragon Dance", "Taunt"]}
+    memory.observe_battle(obs1)
+    memory.record_turn(turn=1, payload={"type": "doubles_turn", "slot_0": {"type": "move", "move_id": "protect"},
+                                          "slot_1": {"type": "move", "move_id": "woodhammer", "target": 1}})
+    memory.observe_battle(obs2)
+    assert memory.opp_protected_last_turn == []
 
 
 # -- lethal recheck -----------------------------------------------------------------------

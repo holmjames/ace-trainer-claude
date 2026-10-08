@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -72,6 +73,11 @@ class MatchMemory:
 
     # -- draft -----------------------------------------------------------------------
 
+    draft_picks: list[dict] = field(default_factory=list)  # every pick seen, in order: species, public_reason, who, seconds (theirs, estimated)
+    _draft_turn_started: float | None = None  # server time our current/last draft turn began (deadline - timeout)
+    _draft_observed_at: float | None = None  # monotonic time we read that turn's observation
+    _draft_think_seconds: float = 0.0  # how long we took on our last pick (local)
+
     def observe_draft(self, obs: dict, *, my_turn: bool, agent_id: str | None = None) -> None:
         for card in obs.get("available_cards") or []:
             if isinstance(card, dict) and card.get("card_id"):
@@ -84,6 +90,75 @@ class MatchMemory:
         if my_turn and obs.get("current_seat") is not None:
             self.my_seat_key = str(obs.get("current_seat"))
         self._sync_rosters(obs)
+        self._observe_picks(obs, my_turn=my_turn)
+
+    def _observe_picks(self, obs: dict, *, my_turn: bool) -> None:
+        """Keep every pick's public reason and estimate how long the opponent took per pick: our turn starts when
+        their pick lands (the server's ``decision_deadline_at`` minus ``decision_timeout_seconds``), so the gap
+        between two of our turn starts, less our own think time, is their time for the picks in between."""
+        started = None
+        deadline, timeout = obs.get("decision_deadline_at"), obs.get("decision_timeout_seconds")
+        if my_turn and isinstance(deadline, str) and isinstance(timeout, (int, float)):
+            try:
+                from datetime import datetime
+
+                started = datetime.fromisoformat(deadline.replace("Z", "+00:00")).timestamp() - float(timeout)
+            except ValueError:
+                started = None
+        known = {p.get("pick_number") for p in self.draft_picks}
+        new = []
+        for pick in obs.get("picks") or []:
+            if not isinstance(pick, dict) or pick.get("pick_number") in known:
+                continue
+            seat = str(pick.get("seat_id")) if pick.get("seat_id") is not None else None
+            entry = {"pick_number": pick.get("pick_number"), "species": pick.get("species"), "card_id": pick.get("card_id"),
+                     "public_reason": pick.get("public_reason"), "mine": seat is not None and seat == self.my_seat_key,
+                     "auto": bool(pick.get("auto")), "seconds": None}
+            self.draft_picks.append(entry)
+            new.append(entry)
+        theirs_new = [p for p in new if not p["mine"]]
+        if started is not None and self._draft_turn_started is not None and theirs_new:
+            gap = started - self._draft_turn_started - self._draft_think_seconds
+            if gap >= 0:
+                for p in theirs_new:
+                    p["seconds"] = round(gap / len(theirs_new), 2)
+        if started is not None:
+            self._draft_turn_started = started
+            self._draft_observed_at = time.monotonic()
+            self._draft_think_seconds = 0.0
+
+    def draft_profile(self) -> dict:
+        """How the opponent drafts, for the model and the post-mortem: templated reasons (the same skeleton twice or
+        more, species names masked), free text, or none; mean seconds per pick when timing was measurable."""
+        theirs = [p for p in self.draft_picks if not p["mine"]]
+        names = {str(c.get("species")) for c in self.pool_cards.values() if c.get("species")}
+        names |= {str(p.get("species")) for p in self.draft_picks if p.get("species")}
+        pattern = re.compile("|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)), re.IGNORECASE) if names else None
+
+        def skeleton(text: str) -> str:
+            masked = pattern.sub("<species>", text) if pattern else text
+            return re.sub(r"\d+", "#", re.sub(r"\s+", " ", masked)).strip().lower()
+
+        skeletons: dict[str, int] = {}
+        for p in theirs:
+            reason = str(p.get("public_reason") or "").strip()
+            if reason:
+                skeletons[skeleton(reason)] = skeletons.get(skeleton(reason), 0) + 1
+        counts = {"templated": 0, "free_text": 0, "empty": 0}
+        for p in theirs:
+            reason = str(p.get("public_reason") or "").strip()
+            if not reason:
+                kind = "empty"
+            elif skeletons.get(skeleton(reason), 0) >= 2 or (len(reason.split()) <= 6 and "<species>" in skeleton(reason)):
+                kind = "templated"
+            else:
+                kind = "free_text"
+            counts[kind] += 1
+            p["reason_kind"] = kind
+        timed = [p["seconds"] for p in theirs if isinstance(p.get("seconds"), (int, float))]
+        return {"opponent_picks": len(theirs), "reasons": counts,
+                "mean_seconds_per_pick": round(sum(timed) / len(timed), 2) if timed else None,
+                "timed_picks": len(timed), "examples": [str(p.get("public_reason") or "")[:120] for p in theirs[:3]]}
 
     def _sync_rosters(self, obs: dict) -> None:
         rosters = obs.get("rosters")
@@ -117,6 +192,8 @@ class MatchMemory:
             key = species_key(card.get("species"))
             if key:
                 self.my_cards[key] = {**self.my_cards.get(key, {}), **card}
+        if self._draft_observed_at is not None:
+            self._draft_think_seconds = max(0.0, time.monotonic() - self._draft_observed_at)
 
     def observe_team_preview(self, obs: dict) -> None:
         for side, roster_key in ((self.my_cards, "your_roster"), (self.opp_cards, "opponent_roster")):
@@ -164,21 +241,17 @@ class MatchMemory:
         self.observe_protocol(obs)
         self._rebuild_cards(obs)
         turn = obs.get("turn")
-        actives = []
-        for entry in obs.get("active_pokemon") or []:
-            key = species_key(entry.get("species") if isinstance(entry, dict) else entry)
-            if key:
-                actives.append(key)
-        if actives:
-            self.fresh_active = self._fresh("mine", actives, self.last_active, turn)
+        # Positional: an empty slot stays an empty entry, so slot 1's Pokémon is actives[1] even when slot 0 is empty
+        # (compacting the list zeroed every streak and last-turn flag of our last Pokémon standing in slot 1).
+        actives = [species_key(entry.get("species") if isinstance(entry, dict) else entry) or None
+                   for entry in obs.get("active_pokemon") or []]
+        if any(actives):
+            self.fresh_active = self._fresh("mine", [a for a in actives if a], self.last_active, turn)
             self.last_active = actives
-        opp_actives = []
-        for entry in obs.get("opponent_active_pokemon") or []:
-            key = species_key(entry.get("species") if isinstance(entry, dict) else entry)
-            if key:
-                opp_actives.append(key)
-        if opp_actives:
-            self.opp_fresh_active = self._fresh("theirs", opp_actives, self.opp_last_active, turn)
+        opp_actives = [species_key(entry.get("species") if isinstance(entry, dict) else entry) or None
+                       for entry in obs.get("opponent_active_pokemon") or []]
+        if any(opp_actives):
+            self.opp_fresh_active = self._fresh("theirs", [a for a in opp_actives if a], self.opp_last_active, turn)
             self.opp_last_active = opp_actives
         opponent_team = obs.get("opponent_team")
         if isinstance(opponent_team, dict):
@@ -251,7 +324,7 @@ class MatchMemory:
         if self.my_lineup or not self.entered_by_turn:
             return
         brought = {sp for entries in self.entered_by_turn.values() for tag, sp in entries if tag == "mine"}
-        brought.update(self.last_active)
+        brought.update(a for a in self.last_active if a)
         team = obs.get("team")
         if isinstance(team, dict):
             brought.update(species_key(s.get("species")) for s in team.values() if isinstance(s, dict) and s.get("fainted") and s.get("species"))
@@ -270,6 +343,10 @@ class MatchMemory:
     roster_by_side: dict[str, list[str]] = field(default_factory=dict)  # "mine"/"theirs" -> species as |poke| spelled them
     moves_by_turn: dict[str, dict[str, dict[int, str]]] = field(default_factory=dict)  # side -> species -> {turn: move}
     acted_since_entry: dict[str, bool] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> tried a move since it last came in
+    protect_failed: dict[str, dict[str, set[int]]] = field(default_factory=dict)  # side -> species -> turns its Protect FAILED (counter reset)
+    fallen_by_side: dict[str, int] = field(default_factory=dict)  # "mine"/"theirs" -> faints so far (Supreme Overlord, Last Respects)
+    overlord_fallen: dict[str, int] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> fallenN Supreme Overlord announced on entry
+    hazards_by_side: dict[str, dict[str, Any]] = field(default_factory=dict)  # "mine"/"theirs" -> entry hazards on that side
     log_turn: int = 0  # the last |turn| marker seen in the protocol log (0: no log)
     _catalog_checked: set[str] = field(default_factory=set)  # species already looked up in the catalog this match
     opp_items_lost: list[str] = field(default_factory=list)  # species_keys of opponents whose item is gone (protocol log -enditem)
@@ -317,11 +394,27 @@ class MatchMemory:
     def logged_streak(self, side: str, species: str, *, before_turn: int | None = None) -> int:
         """Consecutive Protect-like moves ``species`` (on ``side``) used per the protocol log, ending with the turn
         before ``before_turn`` (default: the turn that just finished)."""
-        by_turn = (self.moves_by_turn.get(side) or {}).get(species_key(species)) or {}
+        key = species_key(species)
+        by_turn = (self.moves_by_turn.get(side) or {}).get(key) or {}
+        failed = (self.protect_failed.get(side) or {}).get(key) or set()
         n, t = 0, (before_turn if before_turn is not None else self.log_turn) - 1
-        while by_turn.get(t) in self.PROTECT_LIKE:
+        # A Protect that failed resets Showdown's counter: the next one is guaranteed again, so the streak is 0.
+        while by_turn.get(t) in self.PROTECT_LIKE and t not in failed:
             n, t = n + 1, t - 1
         return n
+
+    def fallen(self, side: str) -> int:
+        """How many of ``side``'s ("mine"/"theirs") Pokémon have fainted so far, from the protocol log's |faint| lines
+        (Supreme Overlord: +10% per fallen ally when Kingambit enters; Last Respects: +50 power each)."""
+        return int(self.fallen_by_side.get(side, 0))
+
+    def hazards(self, side: str) -> dict[str, Any]:
+        """Entry hazards lying on ``side`` ("mine"/"theirs"): ``{"spikes": layers, "stealthrock": bool, "stickyweb":
+        bool, "toxicspikes": layers}``, from -sidestart/-sideend lines. Match bcbaabe2: Milotic switched into Spikes
+        and a Wood Hammer and was lost because nothing knew the Spikes were there."""
+        current = self.hazards_by_side.get(side) or {}
+        return {"spikes": int(current.get("spikes", 0)), "stealthrock": bool(current.get("stealthrock", False)),
+                "stickyweb": bool(current.get("stickyweb", False)), "toxicspikes": int(current.get("toxicspikes", 0))}
 
     def our_protect_last_turn(self, species: str, slot: int) -> bool:
         """Did the Pokémon now in ``slot`` use a Protect-like move last turn? (Consecutive Protect fails 2/3 of the time.)"""
@@ -362,6 +455,11 @@ class MatchMemory:
         entered: dict[int, list[tuple[str, str]]] = {}
         acted: dict[str, bool] = {}
         rosters: dict[str, list[str]] = {"mine": [], "theirs": []}
+        failed_protect: dict[str, dict[str, set[int]]] = {"mine": {}, "theirs": {}}
+        pending_protect: tuple[str, str, int] | None = None  # (side, species, turn) of the Protect-like move just announced
+        fallen: dict[str, int] = {"mine": 0, "theirs": 0}
+        overlord: dict[str, int] = {}
+        hazards: dict[str, dict[str, Any]] = {"mine": {}, "theirs": {}}
         for raw in log:
             parts = str(raw).split("|")
             if len(parts) >= 3 and parts[1] == "turn":
@@ -383,6 +481,15 @@ class MatchMemory:
                 if name and name not in rosters[tag_side]:
                     rosters[tag_side].append(name)
                 continue
+            if kind in ("-sidestart", "-sideend") and len(parts) > 3:
+                # "|-sidestart|p1: name|Spikes" (hazards) / "|-sidestart|p2: name|move: Tailwind" (the rest)
+                effect = species_key(parts[3].split(":")[-1])
+                table = hazards[tag_side]
+                if effect in ("spikes", "toxicspikes"):
+                    table[effect] = min(table.get(effect, 0) + 1, 3 if effect == "spikes" else 2) if kind == "-sidestart" else 0
+                elif effect in ("stealthrock", "stickyweb"):
+                    table[effect] = kind == "-sidestart"
+                continue
             nick = (side, species_key(actor.split(":", 1)[1].strip() if ":" in actor else actor))
             if kind in ("switch", "drag", "replace") and len(parts) > 3:
                 species = species_key(parts[3].split(",")[0])
@@ -403,15 +510,27 @@ class MatchMemory:
                 for ability in ("protosynthesis", "quarkdrive"):
                     if effect.startswith(ability) and len(effect) > len(ability):
                         paradox[tag] = effect[len(ability):]  # "atk", "def", "spa", "spd", "spe"
+                if effect.startswith("fallen") and effect[6:].isdigit():
+                    overlord[tag] = int(effect[6:])  # Supreme Overlord announced on entry: "|-start|p2a: Kingambit|fallen2|[silent]"
             elif kind == "-end" and len(parts) > 3 and species_key(parts[3]) in ("protosynthesis", "quarkdrive"):
                 paradox.pop(tag, None)
+            elif kind == "-end" and len(parts) > 3 and species_key(parts[3]).startswith("fallen"):
+                overlord.pop(tag, None)
             elif kind == "faint":
                 paradox.pop(tag, None)
                 unburden.discard(tag)
+                overlord.pop(tag, None)
+                fallen[tag_side] += 1
             if kind == "-enditem":
                 unburden.add(tag)  # the item is gone while it stands on the field: Unburden doubles its speed
             if kind == "move" and len(parts) > 3:
-                moves_by_turn[tag_side].setdefault(species, {})[turn] = species_key(parts[3])
+                move_id = species_key(parts[3])
+                moves_by_turn[tag_side].setdefault(species, {})[turn] = move_id
+                # A Protect that fails is announced "|move|X|Protect||[still]" and followed by "|-fail|X".
+                pending_protect = (tag_side, species, turn) if move_id in self.PROTECT_LIKE else None
+            elif kind == "-fail" and pending_protect and pending_protect[:2] == (tag_side, species):
+                failed_protect[tag_side].setdefault(species, set()).add(pending_protect[2])
+                pending_protect = None
             if ours:
                 continue  # below: what we track for the opponent only
             if kind == "move" and len(parts) > 3:
@@ -428,6 +547,10 @@ class MatchMemory:
         self.entered_by_turn = entered
         self.acted_since_entry = acted
         self.roster_by_side = rosters
+        self.protect_failed = failed_protect
+        self.fallen_by_side = fallen
+        self.overlord_fallen = overlord
+        self.hazards_by_side = hazards
         self.log_turn = turn
         # Consecutive Protects by each opponent, ending with the turn that just finished (read from the log, not inferred).
         streaks: dict[str, int] = {}
@@ -456,8 +579,17 @@ class MatchMemory:
             for slot_key in ("slot_0", "slot_1"):
                 choice = self.last_payload.get(slot_key) or {}
                 tgt = choice.get("target")
-                if choice.get("type") == "move" and isinstance(tgt, int) and tgt > 0 and len(self.opp_last_active) >= tgt:
-                    targeted.add(self.opp_last_active[tgt - 1])
+                if choice.get("type") != "move" or not isinstance(tgt, int) or tgt <= 0 or len(self.opp_last_active) < tgt:
+                    continue
+                info = data.move_info(choice.get("move_id")) or {}
+                if not (info.get("base_power") or 0) > 0:
+                    continue  # Spore, Taunt, Tailwind...: an untouched HP bar says nothing about Protect
+                target = self.opp_last_active[tgt - 1]
+                if not target:
+                    continue
+                card_moves = {species_key(m.get("id") if isinstance(m, dict) else m) for m in (self.opp_cards.get(target) or {}).get("moves") or []}
+                if card_moves & self.PROTECT_LIKE:  # only a set that has Protect can have Protected (L2 T2: Incineroar had none)
+                    targeted.add(target)
         self.opp_protected_last_turn = [k for k in targeted if k in current and k in self.last_opp_hp and abs(current[k] - self.last_opp_hp[k]) < 0.005]
         self.last_opp_hp = current
 
