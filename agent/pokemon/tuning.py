@@ -29,6 +29,9 @@ DEFAULTS: dict[str, float] = {
     "draft_mode_w": 0.0,           # item 2: value cards that fit the mode we have started (Trick Room / Tailwind / rain / sun) (0 = off)
     "draft_role_w": 0.0,           # item 2: by pick 4+, value missing roles (speed control, Fake Out/redirect, a resist to their best attacker) (0 = off)
     "draft_deny_mode_w": 0.0,      # item 2: deny the card that completes THEIR mode (0 = off)
+    "draft_v2": 0.0,               # 1 = counter-aware drafter (matchup model + lookahead over their next picks); 0 = the greedy scorer above
+    "draft_lookahead": 3.0,        # v2: how many of the opponent's best replies to try at their next pick (0 = greedy rollout only)
+    "draft_minimax": 0.5,          # v2: weight on their most damaging reply vs the average of those tried (1 = pure worst case)
     # lineup
     "lineup_offense_w": 6.0,
     "lineup_resist_w": 1.5,
@@ -43,6 +46,8 @@ DEFAULTS: dict[str, float] = {
     "lineup_answer_w": 0.0,        # item 1: penalty per top-2 opposing attacker we bring no resist/immunity for (0 = off)
     "lead_priority_multihit_w": 0.0,  # item 1: penalty per lead that a likely opposing lead can KO with priority or multi-hit (0 = off)     # 1 = score against the opponent's PREDICTED four (and leads), weighted by this
     "lead_ohko_w": 0.0,            # penalty per lead a faster opposing set OHKOs at full HP (real damage model, Intimidate applied); 0 = off
+    "lineup_v2": 0.0,              # 1 = Team Preview from the matchup model (their likely four and leads); 0 = the scorer above
+    "lineup_v2_robust": 0.25,      # v2: weight on our four's worst case against any four they could bring (rest: their likely mix)
     # battle
     "ko_bonus_guaranteed": 25.0,
     "ko_bonus_possible": 10.0,

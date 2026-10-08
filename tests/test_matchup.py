@@ -1,0 +1,157 @@
+"""Tests for the matchup model (agent/pokemon/matchup.py): the damage layer against @smogon/calc on the live
+catalog, the 1-on-1 races on known matchups, and the team score's basic contracts."""
+
+from __future__ import annotations
+
+import json
+import random
+import time
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from agent.pokemon import battle, data, matchup
+
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "smogon_calc_matchup.json"
+CATALOG = {c["card_id"]: c for c in json.loads((data.DATA_DIR / "cards.json").read_text())} if (data.DATA_DIR / "cards.json").exists() else {}
+pytestmark = pytest.mark.skipif(not CATALOG or not (data.DATA_DIR / "pokedex.json").exists(), reason="needs data/ tables")
+
+
+def u(species: str) -> matchup.Unit:
+    return matchup.unit(next(c for c in CATALOG.values() if c["species"] == species))
+
+
+def move_of(unit: matchup.Unit, name: str) -> dict:
+    return next(m for m in unit.mon.moves if m["id"] == data.to_id(name))
+
+
+def hit(attacker: str, move: str, defender: str) -> tuple[float, float]:
+    a, d = u(attacker), u(defender)
+    fs = battle.FieldState(actives=[a.mon, d.mon])
+    return matchup.calc_hit(a.mon, move_of(a, move), d.mon, fs, spread=move_of(a, move).get("target") in matchup.SPREAD_TARGETS) or (0.0, 0.0)
+
+
+# -- the damage layer vs @smogon/calc -------------------------------------------------------------------------------
+
+
+def _errors() -> list[tuple[float, dict]]:
+    out = []
+    for case in json.loads(FIXTURE.read_text()):
+        a, d = matchup.unit(CATALOG[case["a"]]), matchup.unit(CATALOG[case["d"]])
+        if d.item == "focussash":
+            continue  # we cap a single hit at 99% through a full-HP sash on purpose; the calculator does not
+        attacker = a.mon
+        if a.ability == "download":  # the calculator applies Download on its own; our race does it on entry
+            attacker = replace(a.mon, boosts={k: v for k, v in matchup.entry_stages(a, d).items() if k in ("atk", "spa")})
+        move = move_of(a, case["move"])
+        est = matchup.calc_hit(attacker, move, d.mon, battle.FieldState(actives=[attacker, d.mon]), spread=case["spread"]) or (0.0, 0.0)
+        max_hp, ref = case["max_hp"], case["damage"]
+        ours = (min(est[0] * max_hp / 100, max_hp), min(est[1] * max_hp / 100, max_hp))
+        ref = (min(ref[0], max_hp), min(ref[1], max_hp))
+        out.append((max(abs(ours[0] - ref[0]), abs(ours[1] - ref[1])) / max_hp * 100, case))
+    return out
+
+
+@pytest.mark.skipif(not FIXTURE.exists(), reason="run node scripts/gen_matchup_fixture.js")
+def test_damage_layer_tracks_the_official_calculator_on_the_live_catalog():
+    errors = _errors()
+    assert len(errors) > 500
+    values = sorted(e for e, _ in errors)
+    median, p90, worst = values[len(values) // 2], values[int(len(values) * 0.9)], values[-1]
+    assert median < 1.0 and p90 < 2.5 and worst < 6.0, (median, p90, worst, sorted(errors, key=lambda t: -t[0])[:3])
+    forced = [e for e, case in errors if case["forced"]]
+    assert len(forced) > 100 and max(forced) < 6.0  # Pixilate, Adaptability, Levitate, Air Balloon, Low Kick
+
+
+def test_effects_the_shared_calculator_misses():
+    # Pixilate turns Hyper Voice into a Fairy move: it hits Ghosts and is 2x on Dragon/Fighting/Dark.
+    assert hit("Sylveon", "Hyper Voice", "Gholdengo")[0] > 0
+    assert hit("Sylveon", "Hyper Voice", "Iron Hands")[0] > hit("Sylveon", "Hyper Voice", "Incineroar")[0]
+    # Levitate and Air Balloon: Ground moves do nothing.
+    assert hit("Garchomp", "Earthquake", "Cresselia") == (0.0, 0.0)
+    assert hit("Landorus-Therian", "Earthquake", "Gholdengo") == (0.0, 0.0)
+    # Low Kick's power comes from the target's weight (the shared table says 0).
+    assert hit("Tyranitar", "Low Kick", "Kingambit")[0] > 50
+    # Freeze-Dry is super-effective on Water types.
+    assert hit("Iron Bundle", "Freeze-Dry", "Dondozo")[0] > 50
+    # Chople Berry halves the first super-effective Fighting hit.
+    plain_tyranitar = replace(u("Tyranitar").mon, item=None)
+    archaludon = u("Archaludon")
+    body_press = move_of(archaludon, "Body Press")
+    with_berry = hit("Archaludon", "Body Press", "Tyranitar")
+    without = matchup.calc_hit(archaludon.mon, body_press, plain_tyranitar, battle.FieldState(actives=[archaludon.mon, plain_tyranitar]), spread=False)
+    assert with_berry[1] == pytest.approx(without[1] / 2, rel=0.02)
+
+
+# -- 1-on-1 races ---------------------------------------------------------------------------------------------------
+
+
+def test_races_are_antisymmetric():
+    units = [matchup.unit(c) for c in CATALOG.values()]
+    rng = random.Random(3)
+    for _ in range(60):
+        a, b = rng.sample(units, 2)
+        ab, ba = matchup.duel(a, b), matchup.duel(b, a)
+        assert ab.margin == pytest.approx(-ba.margin)
+        assert ab.margin_tw_a == pytest.approx(-ba.margin_tw_b)
+        assert ab.margin_tr == pytest.approx(-ba.margin_tr)
+        assert -1.0 <= ab.margin <= 1.0
+
+
+def test_known_matchups():
+    # Sucker Punch (priority) knocks out the faster Flutter Mane before it moves.
+    d = matchup.duel(u("Kingambit"), u("Flutter Mane"))
+    assert d.margin > 0.5 and d.ohko_a and d.a_move == "suckerpunch"
+    # Booster Energy Iron Bundle outspeeds Choice Scarf Landorus and Freeze-Dry is 4x.
+    assert matchup.duel(u("Iron Bundle"), u("Landorus-Therian")).ohko_a
+    # Air Balloon Gholdengo: Landorus has to pop the balloon before Earthquake works, and still wins the race...
+    plain = matchup.duel(u("Gholdengo"), u("Landorus-Therian"))
+    assert plain.margin < 0
+    # ...unless Gholdengo's side has Tailwind: then it moves first and wins.
+    assert plain.margin_tw_a > 0.5
+    # Lucario has nothing that touches Gholdengo hard (Close Combat and Poison Jab are immune).
+    assert matchup.duel(u("Lucario"), u("Gholdengo")).margin < -0.5
+
+
+def test_beats_needs_a_cushion():
+    assert matchup.beats(u("Iron Hands"), u("Tornadus"))
+    assert not matchup.beats(u("Tornadus"), u("Iron Hands"))
+
+
+def test_unknown_species_is_inert():
+    ghost = matchup.unit({"species": "Totally Made Up", "moves": ["Tackle"], "item": "Leftovers", "ability": "Pressure"})
+    assert matchup.duel(ghost, u("Garchomp")).margin == 0.0
+
+
+# -- the team score -----------------------------------------------------------------------------------------------
+
+
+def test_board_scores_are_antisymmetric_and_fast():
+    cards = list(CATALOG.values())[:18]
+    started = time.perf_counter()
+    board = matchup.Board([matchup.unit(c) for c in cards])
+    built = time.perf_counter() - started
+    assert built < 2.0
+    us, them = [0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11]
+    assert board.score(us, them) == pytest.approx(-board.score(them, us))
+    assert len(board.features(us, them)) == len(matchup.FEATURES)
+    assert board.score([], []) == 0.0
+    started = time.perf_counter()
+    for _ in range(200):
+        board.score(us, them)
+    assert (time.perf_counter() - started) / 200 < 0.005
+
+
+def test_answer_feature_rewards_holding_a_counter():
+    # Their Gholdengo: our team with Garchomp (Earthquake once the balloon pops) answers it better than Lucario.
+    board = matchup.Board([u("Gholdengo"), u("Garchomp"), u("Lucario"), u("Kingambit")])
+    with_answer = board.features([1, 3], [0])[matchup.FEATURES.index("answers")]
+    without = board.features([2, 3], [0])[matchup.FEATURES.index("answers")]
+    assert with_answer >= without
+
+
+def test_model_file_loads_or_defaults():
+    model = matchup.load_model()
+    assert set(model["weights"]) >= set(matchup.MATCHUP_FEATURES)
+    assert 0.0 < matchup.win_probability(0.5) < 1.0 and matchup.win_probability(0.0) == 0.5

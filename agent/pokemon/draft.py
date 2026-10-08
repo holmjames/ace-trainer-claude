@@ -325,6 +325,8 @@ def score_card(card: dict, memory: MatchMemory, *, my_team: list[Profile] | None
 
 def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> ScoredCard:
     P = params or DEFAULTS
+    if P.get("draft_v2", 0):
+        return choose_pick_v2(legal_actions, memory, P)
     offered = [(a, memory.pool_cards.get(card_id_of(a), {})) for a in legal_actions
                if a.action_id.startswith(PREFIX) or "draft" in a.action_id]
     if not offered:
@@ -353,3 +355,178 @@ def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory, params: d
                 runner.notes.append(f"denial over {best.species}")
                 best = runner
     return best
+
+
+# -- v2: counter-aware draft search (``draft_v2`` = 1) ----------------------------------------------------------------
+#
+# Plain language: the score above judges a card against the picks ALREADY made. A counter-picking opponent wins the
+# draft on the picks still to come: if we pass Gholdengo, they take it next and nothing we hold beats it. So v2 asks,
+# for every card we could take now: "if I take this, what will they take back, and how do the two finished teams
+# compare?" It plays the rest of the draft out in snake order, both sides picking greedily by the team model in
+# agent/pokemon/matchup.py (which counts answers to each opposing card, so a greedy opponent IS a counter-picker),
+# and for the opponent's very next pick it tries their few best options and leans toward the one that hurts us most.
+# The card whose finished drafts look best wins. Denial falls out on its own: a card they would use against us
+# scores well for us because the rollout no longer hands it to them.
+#
+# Cost: the pairwise races for an 18-card pool take ~0.05 s (cached for the whole match); the search scores a few
+# thousand team pairs at ~30 microseconds each, so a pick takes well under a second.
+
+FIRST_SLOTS = (0, 3, 4, 7, 8, 11)  # 0-based pick indices of the first drafter (picks 1, 4, 5, 8, 9, 12)
+_BOARDS: dict[tuple, "object"] = {}
+
+
+def pick_order(picks_made: int, we_are_first: bool) -> list[str]:
+    """Who picks next, from pick index ``picks_made`` to the end: 'us' / 'them'."""
+    return ["us" if (q in FIRST_SLOTS) == we_are_first else "them" for q in range(picks_made, 2 * TOTAL_PICKS)]
+
+
+@dataclass
+class _Plan:
+    value: float  # log-odds that our finished team beats theirs, aggregated over their likely responses
+    responses: list[tuple[str, float]]  # their best replies to this pick and the value after each
+    final_us: list[int]
+    final_them: list[int]
+
+
+class DraftSearch:
+    """Snake-draft lookahead on a ``matchup.Board`` (indices into one list of cards)."""
+
+    def __init__(self, board, *, lookahead: int = 3, minimax: float = 0.5) -> None:
+        self.board = board
+        self.lookahead = max(0, int(lookahead))
+        self.minimax = max(0.0, min(1.0, float(minimax)))
+        self.items = board.items
+
+    def legal(self, team: list[int], pool: list[int]) -> list[int]:
+        held = {self.items[i] for i in team if self.items[i]}
+        return [c for c in pool if not self.items[c] or self.items[c] not in held]
+
+    def value_for(self, side: str, us: list[int], them: list[int]) -> float:
+        score = self.board.score(us, them)
+        return score if side == "us" else -score
+
+    def greedy(self, side: str, us: list[int], them: list[int], pool: list[int]) -> list[tuple[float, int]]:
+        """Every legal pick for ``side``, best first, valued by the team model right now."""
+        mine = us if side == "us" else them
+        options = []
+        for c in self.legal(mine, pool):
+            if side == "us":
+                options.append((self.board.score(us + [c], them), c))
+            else:
+                options.append((-self.board.score(us, them + [c]), c))
+        options.sort(key=lambda t: (-t[0], pool.index(t[1])))
+        return options
+
+    def rollout(self, us: list[int], them: list[int], pool: list[int], order: list[str]) -> tuple[float, list[int], list[int]]:
+        us, them, pool = list(us), list(them), list(pool)
+        for side in order:
+            options = self.greedy(side, us, them, pool)
+            if not options:
+                continue  # Item Clause left this side nothing (the server would auto-pick); skip it here
+            c = options[0][1]
+            (us if side == "us" else them).append(c)
+            pool.remove(c)
+        return self.board.score(us, them), us, them
+
+    def plan(self, candidate: int, us: list[int], them: list[int], pool: list[int], order: list[str]) -> _Plan:
+        """Value of taking ``candidate`` now (``order[0]`` is this pick, ours)."""
+        us1 = us + [candidate]
+        pool1 = [c for c in pool if c != candidate]
+        rest = order[1:]
+        # Our own picks before their next one are filled greedily (snake double picks).
+        while rest and rest[0] == "us":
+            options = self.greedy("us", us1, them, pool1)
+            if not options:
+                rest = rest[1:]
+                continue
+            c = options[0][1]
+            us1, pool1, rest = us1 + [c], [x for x in pool1 if x != c], rest[1:]
+        if not rest or self.lookahead == 0:
+            value, fu, ft = self.rollout(us1, them, pool1, rest)
+            return _Plan(value, [], fu, ft)
+        replies = self.greedy("them", us1, them, pool1)[: self.lookahead]
+        outcomes = []
+        for _, reply in replies:
+            value, fu, ft = self.rollout(us1, them + [reply], [x for x in pool1 if x != reply], rest[1:])
+            outcomes.append((value, reply, fu, ft))
+        if not outcomes:
+            value, fu, ft = self.rollout(us1, them, pool1, rest[1:])
+            return _Plan(value, [], fu, ft)
+        worst = min(outcomes, key=lambda o: o[0])
+        mean = sum(o[0] for o in outcomes) / len(outcomes)
+        value = self.minimax * worst[0] + (1 - self.minimax) * mean
+        return _Plan(value, [(self.board.units[o[1]].species, round(o[0], 3)) for o in outcomes], worst[2], worst[3])
+
+
+def _board_for(cards: list[dict]):
+    """One Board per (match pool): built on the first pick, reused for the rest of the draft."""
+    from . import matchup
+
+    units = [matchup.unit(c) for c in cards]
+    key = tuple(sorted(u.key for u in units))
+    board = _BOARDS.get(key)
+    if board is None:
+        if len(_BOARDS) > 64:
+            _BOARDS.clear()
+        board = matchup.Board(units)
+        _BOARDS[key] = board
+    return board
+
+
+def _drafted_ids(memory: MatchMemory) -> set[str]:
+    return {str(c.get("card_id")) for c in (*memory.my_cards.values(), *memory.opp_cards.values()) if c.get("card_id")}
+
+
+def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> ScoredCard:
+    """Counter-aware pick: the offered card whose rest-of-draft lookahead gives our finished team the best odds."""
+    from . import matchup
+
+    P = params or DEFAULTS
+    offered = [(a, memory.pool_cards.get(card_id_of(a))) for a in legal_actions
+               if a.action_id.startswith(PREFIX) or "draft" in a.action_id]
+    offered = [(a, c) for a, c in offered if c]
+    if not offered:
+        return choose_pick(legal_actions, memory, {**P, "draft_v2": 0.0})
+    drafted = _drafted_ids(memory)
+    mine_cards = [c for c in memory.my_cards.values() if c.get("moves")]
+    their_cards = [c for c in memory.opp_cards.values() if c.get("moves")]
+    pool_cards = {cid: c for cid, c in memory.pool_cards.items() if cid not in drafted and c.get("moves")}
+    for _, c in offered:
+        pool_cards.setdefault(str(c.get("card_id")), c)
+    everyone = mine_cards + their_cards + list(pool_cards.values())
+    board = _board_for(everyone)
+    index = {u.key: i for i, u in enumerate(board.units)}
+    us = [index[matchup.fingerprint(c)] for c in mine_cards]
+    them = [index[matchup.fingerprint(c)] for c in their_cards]
+    pool = [index[matchup.fingerprint(c)] for c in pool_cards.values()]
+    offered_idx = [(a, index[matchup.fingerprint(c)]) for a, c in offered]
+    picks_made = len(memory.my_cards) + len(memory.opp_cards)
+    we_first = picks_made in FIRST_SLOTS  # it is our turn, so the slot says which drafter we are
+    order = pick_order(picks_made, we_first)
+    search = DraftSearch(board, lookahead=int(P.get("draft_lookahead", 3)), minimax=P.get("draft_minimax", 0.5))
+    scored: list[tuple[_Plan, LegalAction, int]] = []
+    for action, i in offered_idx:
+        if i in us:
+            continue
+        scored.append((search.plan(i, us, them, pool, order), action, i))
+    if not scored:
+        return choose_pick(legal_actions, memory, {**P, "draft_v2": 0.0})
+    scored.sort(key=lambda t: (-t[0].value, legal_actions.index(t[1])))
+    best_plan, best_action, best_i = scored[0]
+    me = board.units[best_i]
+    notes = [f"v2: finished-draft win chance {100 * matchup.win_probability(best_plan.value):.0f}%"]
+    if best_plan.responses:
+        notes.append("their likely replies: " + ", ".join(f"{s} ({100 * matchup.win_probability(v):.0f}%)" for s, v in best_plan.responses))
+    answered = [board.units[j].species for j in them if board.base[best_i][j] >= 0.2]
+    if answered:
+        notes.append(f"beats {answered[:3]}")
+    threats = [board.units[j].species for j in pool if j != best_i and board.base[j][best_i] >= 0.2 and board.base[best_i][j] <= -0.2]
+    if len(scored) > 1:
+        runner = scored[1]
+        notes.append(f"next best {board.units[runner[2]].species} ({100 * matchup.win_probability(runner[0].value):.0f}%)")
+    if threats:
+        notes.append(f"loses to {threats[:3]} still in the pool")
+    final_them = [board.units[j].species for j in best_plan.final_them if j not in them]
+    if final_them:
+        notes.append(f"expected rest of their draft: {final_them}")
+    return ScoredCard(best_action, card_id_of(best_action), me.species, round(best_plan.value, 3), notes)
