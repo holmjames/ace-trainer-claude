@@ -121,6 +121,15 @@ def score_four(four: list[Profile], theirs: list[Profile], params: dict | None =
         notes.append("too few attackers")
     score += sum(p.bst for p in four) / 200.0
 
+    # Coverage holes (B4): one of their cards that none of our four hits for 40% of its HP with its best real attack
+    # (damage_percent: immunities, Air Balloon) is a card we cannot answer; a Protecting, switching opponent never
+    # allows the two-turn "pop the Balloon, then Earthquake" plan.
+    if theirs and P.get("lineup_hole_w", 0):
+        gaps = coverage_holes(four, theirs)
+        if gaps:
+            score -= P["lineup_hole_w"] * len(gaps)
+            notes.append(f"coverage hole: nothing hits {gaps[:3]} for 40%")
+
     # Known 4x weaknesses: a brought Pokémon that takes 4x from one of their actual moves is a liability.
     if theirs:
         quad = sum(1 for me in four for opp in theirs for mv in opp.attacks if data.effectiveness(mv.get("type") or "", me.types) >= 4)
@@ -139,6 +148,21 @@ def score_four(four: list[Profile], theirs: list[Profile], params: dict | None =
 
 
 INTIMIDATE_IMMUNE = {"innerfocus", "owntempo", "oblivious", "scrappy", "guarddog", "clearbody", "whitesmoke", "fullmetalbody"}
+
+
+def coverage_holes(four: list[Profile], theirs: list[Profile]) -> list[str]:
+    """Their cards none of ``four`` hits for matchup.HOLE_THRESHOLD % of max HP with its best single real attack."""
+    from . import matchup
+
+    ours = [matchup.unit(p.card) for p in four if p.card.get("moves")]
+    out = []
+    for opp in theirs:
+        if not opp.card.get("moves"):
+            continue
+        target = matchup.unit(opp.card)
+        if not any(matchup.duel(me, target).hit_a >= matchup.HOLE_THRESHOLD for me in ours):
+            out.append(opp.species)
+    return out
 
 
 def lead_ohkos(pair: list[Profile], theirs: list[Profile]) -> list[str]:
@@ -346,10 +370,11 @@ class PreviewModel:
     """Scores four-against-four pairings and lead pairs on one ``matchup.Board`` (our six first, then theirs).
     A lead pair's score is the fitted weight times the margin of its opening (``matchup.opening``: turns 1-2)."""
 
-    def __init__(self, mine: list[dict], theirs: list[dict], *, tier_adjust: float = 1.0) -> None:
+    def __init__(self, mine: list[dict], theirs: list[dict], *, tier_adjust: float = 1.0, hole_w: float = 0.0) -> None:
         from . import matchup
 
         self.matchup = matchup
+        self.hole_w = float(hole_w)
         model = matchup.load_model(section="preview", clamp=False)  # as fitted: see matchup.load_model
         self.board = matchup.Board([matchup.unit(c) for c in mine + theirs], model, tier_adjust=tier_adjust)
         self.opening_w = float(model.get("opening_weight", 0.35))
@@ -434,9 +459,11 @@ class PreviewModel:
         return mix
 
     def pairing(self, four: tuple[int, ...], other: tuple[int, ...]) -> float:
-        """Log-odds that ``four`` beats ``other``, with both sides leading as well as they can."""
+        """Log-odds that ``four`` beats ``other``, with both sides leading as well as they can, less ``hole_w`` per
+        coverage hole (Board.holes) either way."""
         _, _, _, _, lead_value = self.lead_game(four, other)
-        return self.board.score(list(four), list(other)) + lead_value
+        holes = self.hole_w * (len(self.board.holes(list(four), list(other))) - len(self.board.holes(list(other), list(four)))) if self.hole_w else 0.0
+        return self.board.score(list(four), list(other)) + lead_value - holes
 
     def likely_leads(self, four: tuple[int, ...], likely: list[tuple[float, int]], their_fours: list[tuple[int, ...]],
                      template: float) -> dict[tuple, float]:
@@ -528,7 +555,8 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
     """Our best fours (first = the one we bring if the model does not answer) and their leads. ``seed`` (the match's
     secret tie-break seed, draft.tiebreak_seed) decides among fours and lead pairs the model cannot tell apart."""
     P = params or DEFAULTS
-    model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)))
+    model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)),
+                         hole_w=float(P.get("lineup_hole_w", 0.0)))
     win = model.matchup.win_probability
     names = {i: p.species for i, p in enumerate(mine)}
     names.update({len(mine) + j: p.species for j, p in enumerate(theirs)})

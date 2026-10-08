@@ -519,7 +519,8 @@ class DraftSearch:
     """Snake-draft lookahead on a ``matchup.Board`` (indices into one list of cards)."""
 
     def __init__(self, board, *, lookahead: int = 3, minimax: float = 0.5, reply_depth: int = 1, counter_replies: int = 3,
-                 counter_prior: float = 0.0, four_eval: bool = True, their_fours: int = 3, robust: float = 0.25) -> None:
+                 counter_prior: float = 0.0, four_eval: bool = True, their_fours: int = 3, robust: float = 0.25,
+                 hole_w: float = 0.0) -> None:
         self.board = board
         self.lookahead = max(0, int(lookahead))
         self.minimax = max(0.0, min(1.0, float(minimax)))
@@ -529,6 +530,7 @@ class DraftSearch:
         self.four_eval = bool(four_eval)  # value a finished draft by the four we would bring (Team Preview's criterion)
         self.their_fours = max(1, int(their_fours))  # ... against this many of their likeliest fours
         self.robust = max(0.0, min(1.0, float(robust)))  # weight on the worst of those fours (lineup_v2_robust)
+        self.hole_w = float(hole_w)  # log-odds per coverage hole (Board.holes): their card none of our four can hit for 40%
         self.items = board.items
         self._counter_base: list[float] | None = None  # per card: role points + raw strength (counterpick.counter_value)
         self._beats: dict[tuple[int, int], float | None] = {}
@@ -609,7 +611,7 @@ class DraftSearch:
         if not self.four_eval or len(us) < 4 or len(them) < 4:
             result = (self.board.score(us, them), tuple(us))
         else:
-            score4 = self.board.score4
+            score4, holes, hole_w = self.board.score4, self.board.holes, self.hole_w
             theirs = sorted(combinations(them, 4), key=lambda g: -score4(list(g), us))[: self.their_fours]
             theirs = [list(g) for g in theirs]
             best: tuple[float, tuple[int, ...]] | None = None
@@ -617,7 +619,7 @@ class DraftSearch:
                 if include is not None and include not in four:
                     continue
                 f = list(four)
-                values = [score4(f, g) for g in theirs]
+                values = [score4(f, g) - hole_w * (len(holes(f, g)) - len(holes(g, f))) for g in theirs]
                 value = (1 - self.robust) * sum(values) / len(values) + self.robust * min(values)
                 if best is None or value > best[0]:
                     best = (value, four)
@@ -735,7 +737,7 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
                          reply_depth=int(P.get("draft_reply_depth", 1)), counter_replies=int(P.get("draft_counter_replies", 3)),
                          counter_prior=float(P.get("draft_counter_prior", 0.0)),
                          four_eval=bool(P.get("draft_four_eval", 1)), their_fours=int(P.get("draft_their_fours", 3)),
-                         robust=float(P.get("lineup_v2_robust", 0.25)))
+                         robust=float(P.get("lineup_v2_robust", 0.25)), hole_w=float(P.get("draft_hole_w", 0.0)))
     # Our first two picks also read the pool itself (first_pick_bonus): full weight on the first, half on the second.
     policy_w = float(P.get("draft_first_pick_w", 0.0)) * max(0.0, 1.0 - len(us) / 2.0)
     scored: list[tuple[_Plan, LegalAction, int, float, dict]] = []
@@ -759,12 +761,12 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
         answered = [board.units[j].species for j in them if board.base[i][j] >= 0.2]
         if answered:
             notes.append(f"beats {answered[:3]}")
-        threats = [board.units[j].species for j in pool if j != i and board.base[j][i] >= 0.2]
+        threats = sorted(((board.base[j][i], j) for j in pool if j != i and board.base[j][i] >= 0.2), key=lambda t: -t[0])
         if rank == 0 and len(scored) > 1:
             runner = scored[1]
             notes.append(f"next best {board.units[runner[2]].species} ({100 * matchup.win_probability(runner[0].value):.0f}%)")
-        if threats:
-            notes.append(f"loses to {threats[:3]} still in the pool")
+        if threats:  # biggest margin first: the one-hit KO they will take next is the first name, not the fourth
+            notes.append("loses to " + ", ".join(f"{board.units[j].species} {m:+.2f}" for m, j in threats[:3]) + " still in the pool")
         final_them = [board.units[j].species for j in plan.final_them if j not in them]
         if final_them:
             notes.append(f"expected rest of their draft: {final_them}")
@@ -773,6 +775,9 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
             _, best4 = search.finished(plan.final_us, plan.final_them)
             notes.append(f"would bring {[board.units[k].species for k in four]} of {[board.units[k].species for k in plan.final_us]}"
                          + (f" (its best four benches {me.species}: {[board.units[k].species for k in best4]})" if i not in best4 else ""))
+            gaps = board.holes(list(four), plan.final_them)
+            if gaps:
+                notes.append(f"coverage hole: nothing in that four hits {[board.units[k].species for k in gaps]} for {matchup.HOLE_THRESHOLD:.0f}%")
         ranked.append(ScoredCard(action, card_id_of(action), me.species, round(plan.value, 3), notes))
     return ranked
 
