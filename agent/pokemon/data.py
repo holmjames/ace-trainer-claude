@@ -149,7 +149,7 @@ def expected_hits(move: dict | None, *, item: object = None, ability: object = N
 # -- what the move table alone cannot say: weight, accuracy, hit counts, Intimidate -------------------------------
 
 # Weights in kg of every live-catalog species (data/cards.json), copied once from the Showdown dex in
-# sim/node_modules/pokemon-showdown (0.11.11). Low Kick / Grass Knot take their power from the target's weight and
+# sim/node_modules/pokemon-showdown (0.11.11; Iron Treads, Iron Valiant, Talonflame and Toxapex joined on Oct 8). Low Kick / Grass Knot take their power from the target's weight and
 # Heavy Slam / Heat Crash from the user:target ratio; the move table lists them at 0 power, which read as "no damage"
 # (Oct 8 review: Tyranitar's Low Kick, 81-97% into Kingambit, had no row). ``species_weight`` falls back to the
 # vendored pokedex for anything else.
@@ -157,11 +157,12 @@ SPECIES_WEIGHT_KG: dict[str, float] = {
     "amoonguss": 10.5, "arcanine": 155.0, "archaludon": 60.0, "basculegion": 110.0, "baxcalibur": 210.0,
     "chienpao": 152.2, "cresselia": 85.6, "dondozo": 220.0, "dragonite": 210.0, "fluttermane": 4.0,
     "garchomp": 95.0, "gholdengo": 30.0, "greattusk": 320.0, "grimmsnarl": 61.0, "gyarados": 235.0,
-    "hatterene": 5.1, "incineroar": 83.0, "indeedeef": 28.0, "ironbundle": 11.0, "ironhands": 380.7,
+    "hatterene": 5.1, "incineroar": 83.0, "indeedeef": 28.0, "ironbundle": 11.0, "ironhands": 380.7, "irontreads": 240.0,
+    "ironvaliant": 35.0,
     "kingambit": 120.0, "klefki": 3.0, "landorustherian": 68.0, "lucario": 54.0, "milotic": 162.0,
     "pelipper": 28.0, "porygon2": 32.5, "rillaboom": 90.0, "sableye": 11.0, "salamence": 102.6,
-    "screamtail": 8.0, "sneasler": 43.0, "sylveon": 23.5, "thundurus": 61.0, "tinglu": 699.7,
-    "torkoal": 80.4, "tornadus": 63.0, "tyranitar": 202.0, "ursaluna": 290.0, "whimsicott": 6.6, "wochien": 74.2,
+    "screamtail": 8.0, "sneasler": 43.0, "sylveon": 23.5, "talonflame": 24.5, "thundurus": 61.0, "tinglu": 699.7,
+    "torkoal": 80.4, "tornadus": 63.0, "toxapex": 14.5, "tyranitar": 202.0, "ursaluna": 290.0, "whimsicott": 6.6, "wochien": 74.2,
 }
 WEIGHT_MOVES = frozenset({"lowkick", "grassknot"})          # power from the target's weight
 WEIGHT_RATIO_MOVES = frozenset({"heavyslam", "heatcrash"})  # power from user weight / target weight

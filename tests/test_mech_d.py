@@ -128,7 +128,8 @@ def test_species_weights_match_the_showdown_dex():
     assert data.species_weight("Iron Hands") == 380.7
     assert data.species_weight("Koraidon") == 303.0  # not in the catalog table: the vendored pokedex answers
     assert data.species_weight("Mysterymon") == 0.0
-    assert set(data.SPECIES_WEIGHT_KG) == {data.to_id(s) for s in CATALOG}  # every live card has a weight
+    assert set(data.SPECIES_WEIGHT_KG) >= {data.to_id(s) for s in CATALOG}  # every live card has a weight (the table may run ahead of the catalog)
+    assert data.SPECIES_WEIGHT_KG["irontreads"] == 240.0 and data.SPECIES_WEIGHT_KG["toxapex"] == 14.5
 
 
 @pytest.mark.parametrize("move, target, user, power", [
