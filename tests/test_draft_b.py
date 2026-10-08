@@ -4,7 +4,9 @@ pools by draft-only replay (no battles)."""
 from __future__ import annotations
 
 import json
+import re
 import time
+from pathlib import Path
 
 import pytest
 
@@ -133,3 +135,81 @@ def test_the_ranking_is_the_pick_order_and_stays_fast():
     assert len(ranked) == 18 and len({s.card_id for s in ranked}) == 18
     assert [s.score for s in ranked] == sorted((s.score for s in ranked), reverse=True)
     assert draft.choose_pick(offered(memory), memory, tuning.DEFAULTS).card_id == ranked[0].card_id
+
+
+# -- B3: the opponent's replies in the lookahead come from two readings of the opponent -----------------------------
+
+LIVE_DIR = Path(__file__).parent / "fixtures" / "live"
+
+
+def live_first_position(prefix: str) -> tuple[list[str], list[str], list[str], str]:
+    """From the captured draft states of one live session: the 18-card pool, our and their picks before their first
+    reply to our first pick(s), and the card they actually took then. (pool, ours, theirs, their actual next pick)"""
+    folder = next((p for p in LIVE_DIR.iterdir() if p.is_dir() and p.name.startswith(prefix)), None)
+    if folder is None:
+        pytest.skip(f"live capture {prefix} not present")
+    drafts = sorted(folder.glob("draft-*-seat0.json"), key=lambda p: int(re.search(r"-(\d+)-", p.name).group(1)))
+    first, last = json.loads(drafts[0].read_text()), json.loads(drafts[-1].read_text())
+    me = last["current_actor"]["agent_id"]
+    picks = last["observation"]["picks"]
+    pool = sorted({c["species"] for c in first["observation"]["available_cards"]} | {p["species"] for p in picks})
+    before = 1 if first["observation"]["first_drafter"] == me else 3  # our one pick, or their one and our two
+    assert picks[before]["seat_id"] != me
+    ours = [p["species"] for p in picks[:before] if p["seat_id"] == me]
+    theirs = [p["species"] for p in picks[:before] if p["seat_id"] != me]
+    return pool, ours, theirs, picks[before]["species"]
+
+
+def search_for(pool: list[str], ours: list[str], theirs: list[str]):
+    P = tuning.DEFAULTS
+    board = draft._board_for([CATALOG[s] for s in pool], float(P["draft_card_w"]), float(P["draft_tier_adjust"]))
+    index = {u.key: i for i, u in enumerate(board.units)}
+    us = [index[matchup.fingerprint(CATALOG[s])] for s in ours]
+    them = [index[matchup.fingerprint(CATALOG[s])] for s in theirs]
+    rest = [i for i in range(len(board.units)) if i not in us and i not in them]
+    search = draft.DraftSearch(board, lookahead=int(P["draft_lookahead"]), counter_replies=int(P["draft_counter_replies"]))
+    return board, search, us, them, rest
+
+
+@pytest.mark.parametrize("prefix", ["7ce71025", "0a2b7c2a", "d9405f02"])
+def test_the_reply_set_holds_their_actual_next_pick_in_the_live_first_positions(prefix):
+    # The Oct 7 opponent's actual replies: Incineroar to our Tornadus (L3) and to our Landorus-Therian (L4), Gholdengo
+    # to our Baxcalibur + Landorus-Therian after its Dragonite (L1). The team model alone held only the last one.
+    pool, ours, theirs, actual = live_first_position(prefix)
+    board, search, us, them, rest = search_for(pool, ours, theirs)
+    replies = {board.units[c].species: source for c, source in search.reply_set(us, them, rest)}
+    assert actual in replies, (prefix, replies)
+    by_model = {board.units[c].species for _, c in search.greedy("them", us, them, rest)[:3]}
+    by_counter = {board.units[c].species for _, c in search.counter(us, them, rest)[:3]}
+    assert set(replies) == by_model | by_counter
+    assert replies[actual] == (draft.GREEDY if actual in by_model else draft.COUNTER)
+
+
+def test_the_one_live_reply_neither_reading_holds_is_known():
+    # L2: after its Incineroar and our Iron Bundle + Iron Hands the Oct 7 opponent took Flutter Mane ("spread damage,
+    # beats Iron Bundle"); both scorers rank it 6th-7th there, so a 3 + 3 reply set misses it. Pinned so a change shows.
+    pool, ours, theirs, actual = live_first_position("1aef9227")
+    assert actual == "Flutter Mane"
+    board, search, us, them, rest = search_for(pool, ours, theirs)
+    replies = {board.units[c].species for c, _ in search.reply_set(us, them, rest)}
+    assert len(replies) >= 4 and "Sylveon" in replies and "Cresselia" in replies
+    assert "Flutter Mane" not in replies
+
+
+def test_counter_replies_follow_the_counter_pickers_scorer_and_roll_out_with_it():
+    from agent.pokemon import counterpick
+
+    pool, ours, theirs, _ = live_first_position("7ce71025")
+    board, search, us, them, rest = search_for(pool, ours, theirs)
+    ranked = search.counter(us, them, rest)
+    expected = sorted((counterpick.counter_score(board.units[c].card, [board.units[i].card for i in us])[0], -rest.index(c))
+                      for c in search.legal(them, rest))[::-1]
+    assert [round(v, 3) for v, _ in ranked] == [round(v, 3) for v, _ in expected]
+    assert board.units[ranked[0][1]].species == "Incineroar"
+    order = draft.pick_order(1, True)  # picks 2-12: theirs at 2-3, 6-7, 10-11
+    _, _, final_them = search.rollout(us, them, rest, order, opponent=draft.COUNTER)
+    _, _, final_model = search.rollout(us, them, rest, order, opponent=draft.GREEDY)
+    assert len(final_them) == 6 and board.units[final_them[0]].species == "Incineroar"
+    assert final_them != final_model  # the two readings of the opponent draft differently
+    no_counter = draft.DraftSearch(board, counter_replies=0)
+    assert all(source == draft.GREEDY for _, source in no_counter.reply_set(us, them, rest))

@@ -373,11 +373,17 @@ def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory, params: d
 # Plain language: the score above judges a card against the picks ALREADY made. A counter-picking opponent wins the
 # draft on the picks still to come: if we pass Gholdengo, they take it next and nothing we hold beats it. So v2 asks,
 # for every card we could take now: "if I take this, what will they take back, and how do the two finished teams
-# compare?" It plays the rest of the draft out in snake order, both sides picking greedily by the team model in
-# agent/pokemon/matchup.py (which counts answers to each opposing card, so a greedy opponent IS a counter-picker),
-# and for the opponent's very next pick it tries their few best options and leans toward the one that hurts us most.
-# The card whose finished drafts look best wins. Denial falls out on its own: a card they would use against us
-# scores well for us because the rollout no longer hands it to them.
+# compare?" It plays the rest of the draft out in snake order, both sides picking greedily, and for the opponent's
+# very next pick it tries their few best options and leans toward the one that hurts us most. The card whose
+# finished drafts look best wins. Denial falls out on its own: a card they would use against us scores well for us
+# because the rollout no longer hands it to them.
+#
+# Their replies come from two readings of the opponent (``DraftSearch._replies``): our own team model in
+# agent/pokemon/matchup.py (which counts answers to each opposing card, so a greedy opponent IS a counter-picker) and
+# the search-bot-style counter-picker in agent/pokemon/counterpick.py, which reproduces the Oct 7 opponent's public
+# reasons ("Incineroar: Fake Out pressure, Intimidate, beats Tornadus"). The team model alone held their actual next
+# pick in 8 of 20 live positions and never ranked Incineroar first where they took it; each reply is played out to
+# the end with the opponent that proposed it.
 #
 # Cost: the pairwise races for an 18-card pool take ~0.05 s (cached for the whole match); the search scores a few
 # thousand team pairs at ~30 microseconds each, so a pick takes well under a second.
@@ -399,15 +405,21 @@ class _Plan:
     final_them: list[int]
 
 
+GREEDY, COUNTER = "greedy", "counter"  # the two readings of the opponent a reply can come from
+
+
 class DraftSearch:
     """Snake-draft lookahead on a ``matchup.Board`` (indices into one list of cards)."""
 
-    def __init__(self, board, *, lookahead: int = 3, minimax: float = 0.5, reply_depth: int = 1) -> None:
+    def __init__(self, board, *, lookahead: int = 3, minimax: float = 0.5, reply_depth: int = 1, counter_replies: int = 3) -> None:
         self.board = board
         self.lookahead = max(0, int(lookahead))
         self.minimax = max(0.0, min(1.0, float(minimax)))
         self.reply_depth = max(1, int(reply_depth))  # how many of their consecutive picks to branch on (snake doubles: 2)
+        self.counter_replies = max(0, int(counter_replies))  # their best replies by the counter-picker's scorer to try too
         self.items = board.items
+        self._counter_base: list[float] | None = None  # per card: role points + raw strength (counterpick.counter_value)
+        self._beats: dict[tuple[int, int], float | None] = {}
 
     def legal(self, team: list[int], pool: list[int]) -> list[int]:
         held = {self.items[i] for i in team if self.items[i]}
@@ -425,16 +437,57 @@ class DraftSearch:
         options.sort(key=lambda t: (-t[0], pool.index(t[1])))
         return options
 
-    def rollout(self, us: list[int], them: list[int], pool: list[int], order: list[str]) -> tuple[float, list[int], list[int]]:
+    def counter(self, us: list[int], them: list[int], pool: list[int]) -> list[tuple[float, int]]:
+        """Every legal pick for THEM, best first, as a search-bot-style counter-picker values it against our team
+        (``counterpick.counter_value``: role points, "beats X" for each of our cards, raw strength)."""
+        from . import counterpick
+
+        units = self.board.units
+        if self._counter_base is None:
+            self._counter_base = [counterpick.counter_value(u, [])[0] for u in units]
+        options = []
+        for c in self.legal(them, pool):
+            score = self._counter_base[c]
+            for i in us:
+                value = self._beats.get((c, i))
+                if (c, i) not in self._beats:
+                    value = self._beats[(c, i)] = counterpick.counter_beats(units[c], units[i])
+                if value is not None:
+                    score += counterpick.BEAT_POINTS + value
+            options.append((score, c))
+        options.sort(key=lambda t: (-t[0], pool.index(t[1])))
+        return options
+
+    def rollout(self, us: list[int], them: list[int], pool: list[int], order: list[str],
+                opponent: str = GREEDY) -> tuple[float, list[int], list[int]]:
+        """The rest of the draft played out greedily: our picks by the team model, theirs by ``opponent`` (the team
+        model, or the counter-picker's scorer)."""
         us, them, pool = list(us), list(them), list(pool)
         for side in order:
-            options = self.greedy(side, us, them, pool)
+            if side == "them" and opponent == COUNTER:
+                options = self.counter(us, them, pool)
+            else:
+                options = self.greedy(side, us, them, pool)
             if not options:
                 continue  # Item Clause left this side nothing (the server would auto-pick); skip it here
             c = options[0][1]
             (us if side == "us" else them).append(c)
             pool.remove(c)
         return self.board.score(us, them), us, them
+
+    def reply_set(self, us: list[int], them: list[int], pool: list[int]) -> list[tuple[int, str]]:
+        """Their candidate next picks: the team model's best ``lookahead`` and the counter-picker's best
+        ``counter_replies``, interleaved (model first), each tagged with the opponent that proposed it."""
+        by_model = [c for _, c in self.greedy("them", us, them, pool)[: self.lookahead]]
+        by_counter = [c for _, c in self.counter(us, them, pool)[: self.counter_replies]] if self.counter_replies else []
+        out: list[tuple[int, str]] = []
+        seen: set[int] = set()
+        for k in range(max(len(by_model), len(by_counter))):
+            for source, picks in ((GREEDY, by_model), (COUNTER, by_counter)):
+                if k < len(picks) and picks[k] not in seen:
+                    seen.add(picks[k])
+                    out.append((picks[k], source))
+        return out
 
     def plan(self, candidate: int, us: list[int], them: list[int], pool: list[int], order: list[str]) -> _Plan:
         """Value of taking ``candidate`` now (``order[0]`` is this pick, ours)."""
@@ -465,16 +518,17 @@ class DraftSearch:
         return _Plan(value, [(self.board.units[r].species, round(v, 3)) for r, v in firsts.items()], worst[2], worst[3])
 
     def _replies(self, us: list[int], them: list[int], pool: list[int], rest: list[str], depth: int) -> list[tuple]:
-        """Their best few picks at ``rest[0]`` (and, with depth 2, at their second consecutive pick too), each played
-        out to the end: [(value, first reply, our final team, their final team)]."""
+        """Their best few picks at ``rest[0]`` by both readings of the opponent (``reply_set``; with depth 2, at
+        their second consecutive pick too), each played out to the end with the opponent that proposed it:
+        [(value, first reply, our final team, their final team)]."""
         outcomes = []
-        for _, reply in self.greedy("them", us, them, pool)[: self.lookahead]:
+        for reply, source in self.reply_set(us, them, pool):
             them1, pool1 = them + [reply], [x for x in pool if x != reply]
             if depth > 1 and len(rest) > 1 and rest[1] == "them":
                 for value, _, fu, ft in self._replies(us, them1, pool1, rest[1:], depth - 1):
                     outcomes.append((value, reply, fu, ft))
             else:
-                value, fu, ft = self.rollout(us, them1, pool1, rest[1:])
+                value, fu, ft = self.rollout(us, them1, pool1, rest[1:], opponent=source)
                 outcomes.append((value, reply, fu, ft))
         return outcomes
 
@@ -527,7 +581,7 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
     we_first = picks_made in FIRST_SLOTS  # it is our turn, so the slot says which drafter we are
     order = pick_order(picks_made, we_first)
     search = DraftSearch(board, lookahead=int(P.get("draft_lookahead", 3)), minimax=P.get("draft_minimax", 0.5),
-                         reply_depth=int(P.get("draft_reply_depth", 1)))
+                         reply_depth=int(P.get("draft_reply_depth", 1)), counter_replies=int(P.get("draft_counter_replies", 3)))
     scored: list[tuple[_Plan, LegalAction, int]] = []
     for action, i in offered_idx:
         if i in us:

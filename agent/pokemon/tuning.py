@@ -35,6 +35,7 @@ DEFAULTS: dict[str, float] = {
     "draft_card_w": 0.0,           # v2: weight on the fitted per-card strengths (0 = matchups, roles and tier adjustments only; the fit came from an older battle brain, Oct 8)
     "draft_tier_adjust": 1.25,     # v2 + Team Preview v2: weight on data/card_tiers.json's written-down adjustments (0 = off); 1.25 = the smallest value that ranks Incineroar top-5 at first pick on the three Oct 7 pools that offered it, with the pick-2 cases intact (draft-only replay, Oct 8)
     "draft_reply_depth": 1.0,      # v2: their consecutive picks to branch on (2 = both picks of a snake double; else greedy)
+    "draft_counter_replies": 3.0,  # v2: their best replies by the counter-picker's scorer (agent/pokemon/counterpick.py) tried next to the team model's draft_lookahead best; 0 = team model only
     # lineup
     "lineup_offense_w": 6.0,
     "lineup_resist_w": 1.5,
