@@ -533,3 +533,106 @@ def test_the_breaker_skip_is_visible_in_the_decision_log(tmp_path):
     assert [t.get("breaker") for t in turns] == [None, "open", "skipped"]
     assert turns[2]["fallback"] is True and turns[2]["model"] is None and len(provider.calls) == 2
     assert "breaker skips 1" in agent.match_summary()
+
+
+# -- F5: the launcher runs detached, can be stopped, and is testable without a tournament ---------------------------
+
+import os
+import signal
+import subprocess
+import sys
+import time
+
+SCRIPT = Path(__file__).parent.parent / "scripts" / "run_tournament.sh"
+STUB = """#!/usr/bin/env bash
+# Stands in for the venv python in launcher tests: `-c CODE ...` runs the real python (the setsid shim);
+# `-m agent --check-tournament` exits with $FAKE_PREFLIGHT_RC; `-m agent --tournament ...` is a runtime that prints
+# its arguments and waits for SIGINT/SIGTERM.
+if [ "${1:-}" = "-c" ]; then exec "$FAKE_REAL_PYTHON" "$@"; fi
+if [ "${3:-}" = "--check-tournament" ]; then echo "fake pre-flight rc=$FAKE_PREFLIGHT_RC"; exit "$FAKE_PREFLIGHT_RC"; fi
+echo "fake runtime started: $*"
+trap 'echo "fake runtime: signal, exiting"; exit 0' INT TERM
+while true; do sleep 0.2; done
+"""
+
+
+def _launcher_env(tmp_path: Path, preflight_rc: int = 0) -> dict:
+    stub = tmp_path / "fake_python.sh"
+    stub.write_text(STUB)
+    stub.chmod(0o755)
+    return {**os.environ, "TOURNAMENT_LOG_DIR": str(tmp_path / "logs"), "TOURNAMENT_PYTHON": str(stub),
+            "AGENT_CAPTURE_DIR": str(tmp_path / "capture"), "FAKE_PREFLIGHT_RC": str(preflight_rc), "FAKE_REAL_PYTHON": sys.executable}
+
+
+def _launcher(env: dict, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+def _wait_for(condition, seconds: float = 10.0) -> None:
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, "timed out waiting"
+        time.sleep(0.1)
+
+
+def _log_text(tmp_path: Path) -> str:
+    return "".join(p.read_text() for p in sorted((tmp_path / "logs").glob("runtime-tournament-*.log")))
+
+
+def test_launcher_dry_run_prints_the_plan_and_starts_nothing(tmp_path):
+    env = _launcher_env(tmp_path)
+    result = _launcher(env, "--dry-run", "--match")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "-m agent --tournament --match" in result.stdout and str(tmp_path / "logs" / "runtime-tournament.pid") in result.stdout
+    assert "nothing starts" in result.stdout and "--stop" in result.stdout
+    assert not (tmp_path / "logs" / "runtime-tournament.pid").exists()
+    assert _launcher(env, "--status").returncode == 1 and _launcher(env, "--stop").returncode == 1
+    loop = _launcher(env, "--loop")
+    assert loop.returncode != 0 and "internal" in loop.stderr
+
+
+def test_launcher_stops_when_the_preflight_fails(tmp_path):
+    env = _launcher_env(tmp_path, preflight_rc=1)
+    result = _launcher(env, "--match")
+    assert result.returncode == 1, result.stdout
+    assert "fake pre-flight rc=1" in result.stdout and "Pre-flight failed" in result.stdout
+    assert "runtime started" not in result.stdout and not (tmp_path / "logs" / "runtime-tournament.pid").exists()
+    assert "Pre-flight failed" in _log_text(tmp_path)
+
+
+def test_launcher_runs_detached_survives_its_terminal_and_stops_on_request(tmp_path):
+    env = _launcher_env(tmp_path)
+    pid_file = tmp_path / "logs" / "runtime-tournament.pid"
+    launcher = subprocess.Popen(["bash", str(SCRIPT), "--match"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, start_new_session=True, text=True)
+    try:
+        _wait_for(lambda: pid_file.exists() and "fake runtime started" in _log_text(tmp_path))
+        loop_pid = int(pid_file.read_text())
+        assert _alive(loop_pid)
+        # The Terminal window closes: SIGHUP to the launcher's whole process group. The loop lives in its own session.
+        os.killpg(launcher.pid, signal.SIGHUP)
+        launcher.wait(timeout=10)
+        time.sleep(0.5)
+        assert _alive(loop_pid), "the detached loop died with its terminal"
+        log = _log_text(tmp_path)
+        assert "fake pre-flight rc=0" in log and "runtime started detached" in log
+        assert "fake runtime started: -m agent --tournament --match" in log
+        status = _launcher(env, "--status")
+        assert status.returncode == 0 and f"running (pid {loop_pid}" in status.stdout
+        second = _launcher(env, "--match")
+        assert second.returncode == 1 and "already running" in second.stdout and "fake pre-flight" not in second.stdout
+    finally:
+        stop = _launcher(env, "--stop")
+    assert stop.returncode == 0 and "stopped" in stop.stdout, stop.stdout
+    _wait_for(lambda: not _alive(loop_pid))
+    assert not pid_file.exists()
+    assert "fake runtime: signal, exiting" in _log_text(tmp_path) and "Stopping." in _log_text(tmp_path)
+    assert _launcher(env, "--stop").returncode == 1
