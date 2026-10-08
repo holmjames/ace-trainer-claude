@@ -178,6 +178,7 @@ class MatchMemory:
 
     last_payload: dict | None = None
     opp_items_lost: list[str] = field(default_factory=list)  # species_keys of opponents whose item is gone (protocol log -enditem)
+    opp_protect_streak: dict[str, int] = field(default_factory=dict)  # their species -> Protects in a row up to last turn (protocol log)
     paradox_active: dict[str, str] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> stat a running Protosynthesis/Quark Drive boosts
     opp_last_move: dict[str, str | None] = field(default_factory=dict)  # species_key -> last move it used since it last switched in (live server protocol log)
     last_opp_hp: dict[str, float] = field(default_factory=dict)  # species_key -> hp fraction seen last turn
@@ -244,8 +245,16 @@ class MatchMemory:
         lost: set[str] = set()
         paradox: dict[str, str] = {}  # "mine:<species>" / "theirs:<species>" -> boosted stat
         nick_to_species: dict[str, str] = {}
+        turn = 0
+        moves_by_turn: dict[str, dict[int, str]] = {}  # their species -> {turn: move used}
         for raw in log:
             parts = str(raw).split("|")
+            if len(parts) >= 3 and parts[1] == "turn":
+                try:
+                    turn = int(parts[2])
+                except ValueError:
+                    pass
+                continue
             if len(parts) < 3:
                 continue
             kind, actor = parts[1], parts[2]
@@ -275,6 +284,7 @@ class MatchMemory:
                 continue
             elif kind == "move" and len(parts) > 3:
                 last[species] = species_key(parts[3])
+                moves_by_turn.setdefault(species, {})[turn] = species_key(parts[3])
             elif kind == "-enditem":
                 lost.add(species)  # popped Air Balloon, eaten berry, used Booster Energy, Knock Off
             elif kind == "-item":
@@ -282,6 +292,17 @@ class MatchMemory:
         self.opp_last_move = last
         self.opp_items_lost = sorted(lost)
         self.paradox_active = paradox
+        # Consecutive Protects by each opponent, ending with the turn that just finished (read from the log, not inferred).
+        streaks: dict[str, int] = {}
+        for species, by_turn in moves_by_turn.items():
+            n, t = 0, turn - 1
+            while by_turn.get(t) in self.PROTECT_LIKE:
+                n, t = n + 1, t - 1
+            if n:
+                streaks[species] = n
+        self.opp_protect_streak = streaks
+        logged = [k for k in streaks if k not in self.opp_protected_last_turn]
+        self.opp_protected_last_turn = list(self.opp_protected_last_turn) + logged
 
     def observe_opponent_hp(self, obs: dict) -> None:
         """Infer who Protected: an opponent we targeted last turn whose HP did not change."""

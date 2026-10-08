@@ -538,21 +538,44 @@ def _active_summaries(team: Any) -> list[dict]:
     return [s for s in items if isinstance(s, dict) and s.get("active") and not s.get("fainted")]
 
 
+DURATIONS = {"tailwind": 4, "trickroom": 5, "reflect": 5, "lightscreen": 5, "auroraveil": 5}
+
+
+def turns_left(conditions: Any, name: str, turn: Any, *, extended: bool = False) -> int | None:
+    """Turns a timed condition still covers, counting this one. The live server reports the turn it STARTED
+    ({"TAILWIND": 4} on turn 6 = this turn and next); Light Clay stretches screens to 8. None when unknown."""
+    if not isinstance(conditions, dict) or not isinstance(turn, int):
+        return None
+    for key, started in conditions.items():
+        if data.to_id(key) == name and isinstance(started, int) and started > 0:
+            duration = 8 if extended and name in ("reflect", "lightscreen", "auroraveil") else DURATIONS.get(name)
+            if duration:
+                return max(0, started + duration - turn)
+    return None
+
+
+def _left_text(n: int | None) -> str:
+    if n is None:
+        return ""
+    return " Last turn of it." if n <= 1 else f" {n} turns left, counting this one."
+
+
 def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | None = None) -> TurnSheet:
     P = params or DEFAULTS
     sheet = TurnSheet()
     slots = sorted(template.get("slots") or [], key=lambda s: s.get("slot", 0))
     weather = normalize_weather(obs.get("weather"))  # dict from the live server, string from the simulator, None when clear
     field_text = data.to_id(json.dumps([obs.get("fields"), obs.get("field")], default=str))
+    turn = obs.get("turn")
     sheet.trick_room = "trickroom" in field_text
     if sheet.trick_room:
-        sheet.notes.append("Trick Room is up: slower Pokémon move first.")
+        sheet.notes.append("Trick Room is up: slower Pokémon move first." + _left_text(turns_left(obs.get("fields"), "trickroom", turn)))
     my_tailwind = "tailwind" in data.to_id(json.dumps(obs.get("side_conditions"), default=str))
     their_tailwind = "tailwind" in data.to_id(json.dumps(obs.get("opponent_side_conditions"), default=str))
     if my_tailwind:
-        sheet.notes.append("Our Tailwind is up (speed doubled).")
+        sheet.notes.append("Our Tailwind is up (speed doubled)." + _left_text(turns_left(obs.get("side_conditions"), "tailwind", turn)))
     if their_tailwind:
-        sheet.notes.append("Opponent's Tailwind is up (their speed doubled).")
+        sheet.notes.append("Opponent's Tailwind is up (their speed doubled)." + _left_text(turns_left(obs.get("opponent_side_conditions"), "tailwind", turn)))
     # Our active Pokémon, one per slot.
     ours: dict[int, Mon] = {}
     for slot in slots:
@@ -772,6 +795,10 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 if data.expected_hits(move, item=opp.item) > 1:
                     hit["multi_hit"] = True  # breaks Focus Sash
                 threat["hits"].append(hit)
+        if any(m["id"] in PROTECT_LIKE for m in opp.moves):
+            streak = memory.opp_protect_streak.get(species_key(opp.species), 0)
+            threat["protect"] = ("can Protect this turn" if not streak else
+                                 f"Protected last turn: another works only 1 in {3 ** streak} (good turn to attack it)")
         if "fakeout" in threat["known_moves"] and not locked:
             if opp_fresh and not our_priority_block:
                 threat["note"] = "FRESH: its Fake Out works THIS turn (priority +3): expect a flinch on one of our slots, so a setup move (Trick Room/Tailwind) from the slot it targets fails."
