@@ -5,12 +5,16 @@
     python sim/draft_eval.py collect random random --games 10000 --out /tmp/x.jsonl   # training data for the draft model
     python sim/draft_eval.py live v2 counter --games 200       # the four Oct 7 pools, our drafter in our live seat
     python sim/draft_eval.py preview --games 200                # Team Preview choices vs their live lineups (M2, M3)
+    python sim/draft_eval.py match v2l checkout:<path>:checkout_shim:<python> --pairs 150   # paired vs another checkout
 
 Players (``PLAYERS`` below): ``v1`` is the old greedy scorer with the old Team Preview, ``v2`` the counter-aware
 drafter (old Team Preview), ``v2l`` the counter-aware drafter with the new Team Preview, ``v1l`` the old drafter
 with the new Team Preview, ``counter`` the counter-picker (agent/versions/counter_picker.py, old Team Preview),
 ``random`` a seeded random drafter. ``name{"key": value}`` adds tuning overrides, e.g. ``v2{"draft_lookahead": 0}``.
-The battle itself is always the code brain (agent/pokemon/battle.py), so only drafting and Team Preview differ.
+For those the battle itself is always the code brain (agent/pokemon/battle.py), so only drafting and Team Preview
+differ. A sim/harness.py spec — ``checkout:<path>[:<module>[:<python>]]`` (an agent from another checkout, e.g. the
+Oct 7 opponent's through sim/shims/checkout_shim.py, in a child process) or a ``module[:factory]`` path — plays with
+ITS own battle brain. Every ``--out`` line carries the game's wall-clock ``seconds`` and each seat's deciding time.
 
 ``match`` plays games in PAIRS: the same 18-card pool and the same battle seed twice, with the two players swapping
 seats, so each drafts first exactly once per pool. That cancels most of the pool and first-pick luck. Output: win
@@ -54,13 +58,20 @@ PLAYERS: dict[str, dict] = {
 }
 
 
-def parse_spec(spec: str) -> tuple[str, dict]:
-    """'v2{"draft_lookahead": 0}' -> ('v2', {...}). Unknown names are an error."""
+def external(spec: str) -> bool:
+    """A sim/harness.py player rather than one of ``PLAYERS``: ``checkout:<path>[:<module>[:<python>]]`` or a module path."""
+    return spec.startswith("checkout:") or "." in spec.partition("{")[0]
+
+
+def parse_spec(spec: str) -> tuple[str, dict | None]:
+    """'v2{"draft_lookahead": 0}' -> ('v2', {...}); a sim/harness.py spec -> (spec, None). Unknown names are an error."""
     name, brace, rest = spec.partition("{")
-    if name not in PLAYERS:
-        raise SystemExit(f"unknown player {name!r}; known: {sorted(PLAYERS)}")
-    extra = json.loads(brace + rest) if brace else {}
-    return name, {**PLAYERS[name], **extra}
+    if name in PLAYERS:
+        extra = json.loads(brace + rest) if brace else {}
+        return name, {**PLAYERS[name], **extra}
+    if external(spec):
+        return spec, None
+    raise SystemExit(f"unknown player {name!r}; known: {sorted(PLAYERS)}, checkout:<path>[:<module>[:<python>]] or a module path")
 
 
 class _SeededRandomDraft(PokemonAgent):
@@ -80,6 +91,12 @@ class _SeededRandomDraft(PokemonAgent):
 
 def make_player(spec: str, seed: int):
     name, overrides = parse_spec(spec)
+    if overrides is None:  # sim/harness.py's spelling: another checkout's agent in a child, or a module path in-process
+        os.environ["AGENT_LOG_DIR"] = NO_LOG  # a child of our own code reads it; set before the child is spawned
+        agent, _ = harness.make_player(spec, random.Random(seed))
+        if hasattr(agent, "_log_dir"):
+            agent._log_dir = NO_LOG
+        return agent
     params = tuning.merged(overrides)
     if name == "random":
         agent = _SeededRandomDraft(seed, params)
@@ -105,12 +122,31 @@ def wilson(wins: float, n: int, z: float = 1.96) -> tuple[float, float, float]:
     return p, centre - half, centre + half
 
 
+class _Timed:
+    """Counts the wall-clock seconds a seat spends deciding (its agent's ``choose_action`` calls)."""
+
+    def __init__(self, inner, spec: str) -> None:
+        self.inner, self.spec, self.seconds = inner, spec, 0.0
+
+    @property
+    def _version(self):
+        return getattr(self.inner, "_version", getattr(self.inner, "name", self.spec))
+
+    def choose_action(self, state, context):
+        t0 = time.monotonic()
+        try:
+            return self.inner.choose_action(state, context)
+        finally:
+            self.seconds += time.monotonic() - t0
+
+
 def play(bridge, game_id: str, seed: int, specs: dict[str, str], names: dict[str, str]) -> dict:
     rng = random.Random(seed)
-    players = {side: make_player(spec, seed * 2 + (side == "p2")) for side, spec in specs.items()}
+    players = {side: _Timed(make_player(spec, seed * 2 + (side == "p2")), spec) for side, spec in specs.items()}
     t0 = time.monotonic()
     result = harness.play_game(bridge, game_id, players, names, rng, verbose=False)
     result["seconds"] = round(time.monotonic() - t0, 3)
+    result["seat_seconds"] = {side: round(p.seconds, 3) for side, p in players.items()}
     return result
 
 
@@ -118,15 +154,21 @@ def record(out, result: dict, seed: int, specs: dict[str, str]) -> None:
     if out is None:
         return
     out.write(json.dumps({"seed": seed, "specs": specs, "first": result["first_drafter"], "winner": result["winner_side"],
-                          "turns": result["turns"], "rosters": result["rosters"], "teams": result["teams"]}) + "\n")
+                          "turns": result["turns"], "seconds": result.get("seconds"), "seat_seconds": result.get("seat_seconds"),
+                          "rosters": result["rosters"], "teams": result["teams"], "picks": result.get("picks")}) + "\n")
     out.flush()
+
+
+def rate(played: int, started: float) -> str:
+    elapsed = time.monotonic() - started
+    return f"{60 * played / elapsed:.1f} games/min" if elapsed > 0 and played else "no games"
 
 
 def cmd_match(args) -> int:
     a, b = args.a, args.b
     out = open(args.out, "a", encoding="utf-8") if args.out else None
     bridge = harness.Bridge()
-    wins = games = 0
+    wins = games = played = 0
     by_first = {"a_first": [0, 0], "b_first": [0, 0]}
     errors = 0
     started = time.monotonic()
@@ -142,6 +184,7 @@ def cmd_match(args) -> int:
                     errors += 1
                     print(f"   pair {k} swap {swap}: ERROR {type(exc).__name__}: {exc}", flush=True)
                     continue
+                played += 1
                 record(out, result, seed, specs)
                 if result["winner"] is None:
                     continue  # unfinished (turn cap): counts for neither
@@ -162,7 +205,7 @@ def cmd_match(args) -> int:
             out.close()
     p, lo, hi = wilson(wins, games)
     print(f"{a} vs {b}: {wins}/{games} = {100 * p:.1f}%  95% CI [{100 * lo:.1f}, {100 * hi:.1f}]  "
-          f"({errors} errors, {int(time.monotonic() - started)} s)")
+          f"({errors} errors, {int(time.monotonic() - started)} s, {rate(played, started)})")
     for key, (w, n) in by_first.items():
         q, l, h = wilson(w, n)
         print(f"   {key:8s} {w}/{n} = {100 * q:.1f}% [{100 * l:.1f}, {100 * h:.1f}]")
@@ -357,7 +400,8 @@ def cmd_collect(args) -> int:
     finally:
         bridge.close()
         out.close()
-    print(f"collected {args.games - errors} games in {int(time.monotonic() - started)} s ({errors} errors)")
+    print(f"collected {args.games - errors} games in {int(time.monotonic() - started)} s ({errors} errors, "
+          f"{rate(args.games - errors, started)})")
     return 0
 
 

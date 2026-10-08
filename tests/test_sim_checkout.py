@@ -16,7 +16,7 @@ import pytest
 
 from altruagent import DecisionContext, WithReasoning
 from altruagent.models import GameState
-from sim import subprocess_player, translate
+from sim import draft_eval, harness, subprocess_player, translate
 from sim.subprocess_player import CheckoutPlayer, log_dir_for, parse_spec
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -188,6 +188,54 @@ def test_shim_is_a_no_op_for_attributes_the_module_lacks(logs_in_tmp, monkeypatc
     player = subprocess_player.make(f"checkout:{checkout}:checkout_shim")
     state, ctx = live_states["draft"]
     assert player.choose_action(state, ctx).reasoning_summary == "fake pick reason"
+
+
+def test_draft_eval_takes_checkout_and_module_specs_beside_the_named_players(logs_in_tmp, monkeypatch):
+    assert draft_eval.parse_spec('v2l{"hp_units": 0.0}') == ("v2l", {**draft_eval.PLAYERS["v2l"], "hp_units": 0.0})
+    assert draft_eval.parse_spec("checkout:/x/y:checkout_shim:/p/python") == ("checkout:/x/y:checkout_shim:/p/python", None)
+    assert draft_eval.parse_spec("agent.versions.code_only") == ("agent.versions.code_only", None)
+    with pytest.raises(SystemExit):
+        draft_eval.parse_spec("v9")
+    monkeypatch.delenv("AGENT_LOG_DIR", raising=False)
+    (logs_in_tmp / "fake_agent.py").write_text(FAKE_AGENT)
+    player = draft_eval.make_player(f"checkout:{logs_in_tmp}:fake_agent", seed=3)
+    assert isinstance(player, CheckoutPlayer) and os.environ["AGENT_LOG_DIR"] == draft_eval.NO_LOG
+    agent = draft_eval.make_player("agent.versions.code_only", seed=3)
+    assert agent._log_dir == draft_eval.NO_LOG  # decision logs stay off for in-process module players too
+    assert draft_eval.make_player("v2l", seed=3)._log_dir == draft_eval.NO_LOG
+
+
+@pytest.mark.skipif(not ENGINE.exists() or shutil.which("node") is None, reason="needs Node and npm install in sim/")
+def test_draft_eval_plays_a_checkout_player_and_records_seconds(logs_in_tmp, monkeypatch):
+    """One paired-style game of our own code as a checkout child vs v2l: timings land in the record."""
+    monkeypatch.delenv("AGENT_LOG_DIR", raising=False)
+    spec = f"checkout:{ROOT}:agent.versions.code_only"
+    bridge = harness.Bridge()
+    try:
+        result = draft_eval.play(bridge, "eval-test-0", 5, {"p1": spec, "p2": "v2l"}, {"p1": "A", "p2": "B"})
+    finally:
+        bridge.close()
+    assert result["winner"] in ("A", "B", None) and result["turns"] >= 1
+    assert result["seconds"] > 0 and set(result["seat_seconds"]) == {"p1", "p2"} and result["seat_seconds"]["p1"] > 0
+    assert result["versions"]["p1"] == spec and len(result["rosters"]["p1"]) == 6
+    # the child's draft reasons reach the result the way an in-process agent's do
+    assert len(result["picks"]) == 12 and {p["side"] for p in result["picks"]} == {"p1", "p2"}
+    assert all(p["public_reason"] for p in result["picks"] if p["side"] == "p1")
+
+    class _Out:
+        text = ""
+
+        def write(self, s):
+            self.text += s
+
+        def flush(self):
+            pass
+
+    out = _Out()
+    draft_eval.record(out, result, 5, {"p1": spec, "p2": "v2l"})
+    line = json.loads(out.text)
+    assert line["seconds"] == result["seconds"] and line["seat_seconds"] == result["seat_seconds"]
+    assert line["picks"] == result["picks"]
 
 
 @pytest.mark.skipif(not EXTERNAL_PYTHON.exists() or external_checkout() is None,
