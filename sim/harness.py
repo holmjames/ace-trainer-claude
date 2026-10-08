@@ -123,6 +123,10 @@ def make_player(spec: str, rng: random.Random):
     if "@restart" in spec:
         base, _, n = spec.partition("@restart")
         return RestartingPlayer(base, int(n), rng), f"{base}@restart{n}"
+    if spec.startswith("checkout:"):  # an agent from another checkout (e.g. the Oct 7 version), in a child process
+        from sim.subprocess_player import make
+
+        return make(spec), spec
     if spec == "random":
         return RandomPlayer(rng), "random"
     if spec == "human":
