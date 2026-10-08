@@ -541,6 +541,13 @@ below runs on this laptop and is ordered by expected value per dollar. Adoption 
    fixed seed; numbers appended to this plan. Nothing ships that lowers them.
 8. **Not doing:** more self-play on Opus, higher effort, bigger models (all measured; no gain).
 
+**Results log (offline plan)**
+- Oct 7 night, sweep 1 (real pool, 1,000 games each, seed 7): draft_offense_w=14 52.1 ± 3.1; draft_mode_w=8 51.3; lead_ohko_w=3 51.0;
+  draft_deny_mode_w=4 50.9; draft_mode_w=4 50.5; draft_defense_w=8 50.2; lead_priority_multihit_w=3 48.6; draft_role_w=4 48.0;
+  lineup_answer_w=3 47.6; draft_role_w=8 47.3; lineup_answer_w=6 47.0. **Nothing clears 50% with its interval; no change.**
+  The two best and their combinations are being re-tested at 3,000 games (seed 8). draft_role_w and lineup_answer_w look
+  harmful on the real pool and stay off.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
