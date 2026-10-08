@@ -1226,9 +1226,15 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                          and data.to_id(theirs[t].item) != "covertcloak" and data.to_id(theirs[t].ability) not in ("innerfocus", "shielddust")]
         if not legal_targets:
             continue  # nothing flinchable: a Fake Out would be wasted
-        # The threat whose known attacks do the most to us.
+        # The threat whose known attacks do the most to us. A target that would KO one of our slots BEFORE that slot moves
+        # comes first: flinching it is a Protect that also works through Unseen Fist, and the partner still gets its turn.
+        def lands_first(t: dict, h: dict) -> bool:
+            return not acts_before(h["into_slot"], t["position"], 0, h.get("priority", 0))
+        lethal_by_target = {pos: max((ko_probability(h) if h["ko"] == "possible" else 1.0)
+                                     for t in sheet.threats if t["position"] == pos for h in t["hits"] if h["ko"] != "no" and lands_first(t, h))
+                            for pos in legal_targets if any(h["ko"] != "no" and lands_first(t, h) for t in sheet.threats if t["position"] == pos for h in t["hits"])}
         danger = {pos: sum(_expected(h, 0, P) for t in sheet.threats if t["position"] == pos for h in t["hits"]) for pos in legal_targets}
-        target = max(danger, key=danger.get)
+        target = max(lethal_by_target, key=lambda pos: (lethal_by_target[pos], danger[pos])) if lethal_by_target else max(danger, key=danger.get)
         other = 1 - number
         other_slot = slot_template(other)
         partner = None
@@ -1246,10 +1252,18 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         answers = {number: {"option": fake, "target": target}, other: partner}
         why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (f"sets {setup_name}" if setup_name else "attacks")
         attacks_ko = any(b[1] and b[1].get("damage_pct_of_current_hp", [0, 0])[0] >= 100 for b in best.values())
-        base = P["fakeout_base"] if not attacks_ko else 15
-        # Flinching the Pokémon that threatens a KO on us this turn is worth extra: it can't act.
+        lethal_first = lethal_by_target.get(target, 0.0)  # chance this target KOs one of our slots before it moves
+        base = P["fakeout_base"] if (not attacks_ko or lethal_first) else 15
+        # Flinching the Pokémon that threatens a KO on us this turn is worth extra: it can't act. When that KO would land
+        # before we move, the flinch is worth a Protect (and unlike Protect it stops Unseen Fist). Lost sparring game, Oct 7:
+        # the code preferred switching Incineroar out to Fake Out on a Scarf Urshifu while Tornadus set Tailwind.
         threatens_us = any(h["ko"] != "no" for t in sheet.threats if t["position"] == target for h in t["hits"])
-        add("fake_out_setup", answers[0], answers[1], why, base + (P["fakeout_threat_bonus"] if threatens_us else 0) + (best[other][2] * 0.6 if not setup_name else P["fakeout_setup_value"]))
+        if lethal_first:
+            pierces = any(data.to_id(theirs[target].ability) == "unseenfist" for _ in (0,))
+            why += f"; its attack would KO one of our slots before it moves ({int(lethal_first * 100)}% chance), and the flinch stops that" + (" even though Unseen Fist goes through Protect" if pierces else "")
+        add("fake_out_setup", answers[0], answers[1], why,
+            base + (P["fakeout_threat_bonus"] if threatens_us else 0) + P["protect_bonus_guaranteed"] * lethal_first
+            + (best[other][2] * 0.6 if not setup_name else P["fakeout_setup_value"]))
 
     # 5. Switch a slot that has no worthwhile attack into a bench Pokémon.
     for number in (0, 1):

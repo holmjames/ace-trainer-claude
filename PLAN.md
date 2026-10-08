@@ -598,7 +598,17 @@ turns, 38 to 66 s each. The one loss (game 7) was mined:
   Protect; scenario `repeat_protect_pinned`).
 State after both: 970 tests, 21/21 scenarios, simulator baselines unchanged (93-94% vs random, 84% vs smoke).
 
-**Next (in order):** Opus vs sparring (8 games) to measure the judge's lift against a realistic opponent and mine its errors;
+**Opus vs sparring (8 games, seed 202): 7-1.** 52 Opus decisions, 0 fallbacks, 7 rechecks, median 3.6 s, p95 11.1 s, max 13.4 s
+(higher than live p95 7.5 s: the sheet has grown; still well inside the 18 s timeout). Cost about $2.90 at list for all eight
+games, roughly $0.36 a game, far under the $1.50 estimate. Grader: Opus took the code's #1 on 51%, another candidate 19%, its
+own move 25%; six attacks into a lethal warning, five of them after a recheck with a stated reason.
+The loss (game 5) was a Scarf Urshifu (Unseen Fist) game: on turn 1 the code ranked switching Incineroar out above Fake Out on
+Urshifu + Prankster Tailwind, because a guaranteed KO elsewhere cut the Fake Out base to 15 and the lethal-threat bonus was 20.
+**Fix 3:** Fake Out targets the opponent that would KO one of our slots before it moves; that flinch is scored like a Protect
+(+45 x KO chance) and keeps the full base, with a note that it also stops Unseen Fist. New hard scenario
+`fake_out_the_scarf_urshifu`. 22/22 scenarios, 1,012 tests, same-seed baselines vs random 95% (was 94), vs smoke 85% (was 84).
+
+**Next (in order):** Opus pass over all 22 scenarios to measure the judge's lift against a realistic opponent and mine its errors;
 rerun `scripts/grade_overrides.py` on those logs; grow the scenario suite toward 30; keep the runtime up for Open matches
 against other contestants; at freeze paste the final commit ID into the dashboard and save a redacted `.env` with the logs.
 

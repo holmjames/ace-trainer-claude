@@ -71,6 +71,7 @@ CARDS = {
     "kommoo": card("Kommo-o", ["Clanging Scales", "Aura Sphere", "Flamethrower", "Protect"], ability="Overcoat", nature="Timid", evs={"spa": 252, "spe": 252}, item="Throat Spray"),
     "chiyu": card("Chi-Yu", ["Heat Wave", "Dark Pulse", "Overheat", "Snarl"], ability="Beads of Ruin", nature="Timid", evs={"spa": 252, "spe": 252}, item="Choice Scarf"),
     "arcaninehisui": card("Arcanine-Hisui", ["Rock Slide", "Flare Blitz", "Extreme Speed", "Protect"], ability="Intimidate", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Clear Amulet"),
+    "tornadus": card("Tornadus", ["Bleakwind Storm", "Taunt", "Tailwind", "Protect"], ability="Prankster", nature="Timid", evs={"hp": 252, "spd": 4, "spe": 252}, item="Mental Herb"),
     "screamtail": card("Scream Tail", ["Dazzling Gleam", "Encore", "Wish", "Protect"], ability="Protosynthesis", nature="Bold", evs={"hp": 252, "def": 252, "spd": 4}, item="Covert Cloak"),
     "urshifu": card("Urshifu", ["Wicked Blow", "Close Combat", "Sucker Punch", "Detect"], ability="Unseen Fist", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Focus Sash"),
 }
@@ -194,6 +195,14 @@ HARD: list[Scenario] = [
         mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
         accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and (move_of(p, "slot_1") in ("dazzlinggleam", "moonblast", "shadowball", "protect") or p["slot_1"].get("type") == "switch"),
         accept_text="Garchomp must Protect or pivot to Incineroar (Chien-Pao speed-ties/outspeeds it and Icicle Crash is 4x). Flutter Mane either breaks the sash with Dazzling Gleam, or, since Sword of Ruin makes Kingambit's Sucker Punch and Chien-Pao's Icicle Crash both lethal to it, Protects or pivots out. Attacking with Garchomp just loses it.",
+    ),
+    Scenario(
+        "fake_out_the_scarf_urshifu", "Turn 1: our Incineroar + Tornadus lead into Flutter Mane + Choice Scarf Urshifu (Unseen Fist). Surging Strikes KOs Incineroar before it moves and goes through Protect.",
+        ("incineroar", "tornadus"), ("fluttermane", "urshifurapidstrike"), hard=True, turn=1, my_fresh=("incineroar", "tornadus"), their_fresh=("fluttermane", "urshifurapidstrike"),
+        my_bench=("garchomp", "amoonguss"), mine=["incineroar", "tornadus", "garchomp", "amoonguss", "rillaboom", "whimsicott"],
+        theirs=["fluttermane", "urshifurapidstrike", "sneasler", "kingambit", "pelipper", "dragonite"],
+        accept=lambda p: move_of(p, "slot_0") == "fakeout" and p["slot_0"].get("target") == 2 and move_of(p, "slot_1") == "tailwind",
+        accept_text="Fake Out (+3 priority) flinches Urshifu, the one thing Protect cannot stop here, while Prankster Tailwind goes up; next turn everything we have outspeeds the Scarf. Switching Incineroar out gives up the Fake Out turn for nothing (lost Opus sparring game 5, Oct 7).",
     ),
     Scenario(
         "no_suicide_pivot", "Scarf Urshifu (59%) + Miraidon (29%) vs our sash-broken Garchomp + Scream Tail; only Iron Bundle on the bench. Unseen Fist pierces Protect, and Iron Bundle dies on entry to Close Combat.",
