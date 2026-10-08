@@ -41,9 +41,9 @@ def _field(case: dict, attacker, defender) -> battle.FieldState:
     return fs
 
 
-def _errors() -> list[tuple[float, dict]]:
+def _errors(fixture: Path = FIXTURE) -> list[tuple[float, dict]]:
     out = []
-    for case in json.loads(FIXTURE.read_text()):
+    for case in json.loads(fixture.read_text()):
         move = {**(data.move_info(case["move"]) or {}), "id": data.to_id(case["move"])}
         attacker = _mon(case["attacker"], side="mine", position=0, hp=case["attacker"].get("hp_fraction", 1.0))
         defender = _mon(case["defender"], side="theirs", position=1, hp=case["defender_hp_fraction"])
@@ -55,6 +55,11 @@ def _errors() -> list[tuple[float, dict]]:
             dstat = {k: defender.stats.get(k, 0) * battle.stage_multiplier(defender.boosts.get(k, 0)) for k in ("def", "spd")}
             key = "spa" if dstat["def"] >= dstat["spd"] else "atk"
             attacker.boosts[key] = min(6, attacker.boosts.get(key, 0) + 1)
+        if data.to_id(case["defender"]["ability"]) == "download":
+            # The calculator fires the defender's Download too (it matters for Foul Play, which uses the target's Attack).
+            dstat = {k: attacker.stats.get(k, 0) * battle.stage_multiplier(attacker.boosts.get(k, 0)) for k in ("def", "spd")}
+            key = "spa" if dstat["def"] >= dstat["spd"] else "atk"
+            defender.boosts[key] = min(6, defender.boosts.get(key, 0) + 1)
         seed = data.to_id(case["defender"]["item"])
         if seed.endswith("seed") and fs.terrain and seed.startswith(fs.terrain):
             # The calculator assumes the seed has popped. In a live game the +1 shows up in the observed boosts

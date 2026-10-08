@@ -108,6 +108,30 @@ def _load(name: str) -> dict:
         return {}
 
 
+@lru_cache(maxsize=1)
+def _catalog() -> tuple[dict, dict]:
+    """(card_id -> card, species id -> card) for every card ever seen live (data/cards.json, built by
+    scripts/pool_from_live.py). The platform's cards are fixed sets, so a card seen once is known for good."""
+    path = DATA_DIR / "cards.json"
+    try:
+        cards = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        cards = []
+    by_id = {c["card_id"]: c for c in cards if isinstance(c, dict) and c.get("card_id")}
+    by_species = {to_id(c.get("species")): c for c in by_id.values()}
+    return by_id, by_species
+
+
+def catalog_card(card_id: object = None, species: object = None) -> dict | None:
+    """The full set for a card we were never offered in this match (the opponent's first pick when they draft first,
+    or a recovery after a restart). Looked up by card id first, then by species. Returns a copy, or None."""
+    by_id, by_species = _catalog()
+    card = by_id.get(str(card_id)) if card_id else None
+    if card is None and species:
+        card = by_species.get(to_id(species))
+    return dict(card) if card else None
+
+
 def species_info(name: object) -> dict | None:
     return pokedex().get(to_id(name))
 

@@ -19,6 +19,15 @@ from typing import Any
 
 from altruagent import GameState
 
+from . import data
+
+# Values the live server uses for "not known" (Team Preview rosters and unrevealed opponents carry moves: [],
+# item: "unknown_item", ability: null, current_hp: 0). They must never overwrite what a drafted card tells us:
+# on Oct 7 they did, and every live battle was played blind to the opponent's unused moves and items.
+UNKNOWN_VALUES = (None, "", [], {}, "unknown_item", "unknownitem", "unknown")
+# Roster-entry fields that describe the card itself (the rest of an entry is battle state: HP, boosts, flags).
+CARD_FIELDS = ("species", "name", "types", "base_stats", "item", "ability", "nature", "evs", "ivs", "moves", "level")
+
 
 def observation_dict(state: GameState) -> dict:
     """The game's observation as a dict (the SDK stringifies it on the model)."""
@@ -85,11 +94,13 @@ class MatchMemory:
             for entry in entries:
                 if not isinstance(entry, dict):
                     continue
-                card = self.pool_cards.get(entry.get("card_id") or "", entry)
-                merged = {**entry, **card} if card is not entry else entry
+                # A card we were offered this match, else the live catalog: the opponent's FIRST pick, when they draft
+                # first, is never in our offered list (Oct 7: Dragonite and Incineroar played whole matches as blanks).
+                card = self.pool_cards.get(entry.get("card_id") or "") or data.catalog_card(entry.get("card_id"), entry.get("species")) or {}
+                merged = {**entry, **card}
                 key_species = species_key(merged.get("species"))
                 if key_species:
-                    target[key_species] = merged
+                    target[key_species] = {**target.get(key_species, {}), **merged}
 
     # -- team preview ----------------------------------------------------------------
 
@@ -109,20 +120,25 @@ class MatchMemory:
                     continue
                 key = species_key(entry.get("species") or entry.get("name"))
                 if key and not (side.get(key) or {}).get("moves"):
-                    # A roster member we never saw as a full card (our own last pick, or a restart): recover it from the pool.
-                    for card in self.pool_cards.values():
-                        if species_key(card.get("species")) == key:
-                            side[key] = {**side.get(key, {}), **card}
-                            break
+                    # A roster member we never saw as a full card (our own last pick, the opponent's first pick, or a
+                    # restart): recover it from this match's pool, else from the live catalog.
+                    card = next((c for c in self.pool_cards.values() if species_key(c.get("species")) == key), None) \
+                        or data.catalog_card(species=entry.get("species") or entry.get("name"))
+                    if card:
+                        side[key] = {**side.get(key, {}), **card}
                 self._enrich(side, entry)
 
     def _enrich(self, side: dict[str, dict], entry: Any) -> None:
+        """Fill GAPS in a card from a roster entry (types, base stats, and anything the card lacks). Never overwrite a
+        known value, and never take the server's 'unknown' placeholders or battle state (HP, flags) as card facts."""
         if not isinstance(entry, dict):
             return
         key = species_key(entry.get("species") or entry.get("name"))
         if not key:
             return
-        side[key] = {**side.get(key, {}), **{k: v for k, v in entry.items() if v is not None}}
+        known = side.get(key, {})
+        fill = {k: v for k, v in entry.items() if k in CARD_FIELDS and v not in UNKNOWN_VALUES and known.get(k) in UNKNOWN_VALUES}
+        side[key] = {**known, **fill}
 
     # -- battle ----------------------------------------------------------------------
 
@@ -161,6 +177,8 @@ class MatchMemory:
                         self.opp_lineup_seen.append(key)
 
     last_payload: dict | None = None
+    opp_items_lost: list[str] = field(default_factory=list)  # species_keys of opponents whose item is gone (protocol log -enditem)
+    paradox_active: dict[str, str] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> stat a running Protosynthesis/Quark Drive boosts
     opp_last_move: dict[str, str | None] = field(default_factory=dict)  # species_key -> last move it used since it last switched in (live server protocol log)
     last_opp_hp: dict[str, float] = field(default_factory=dict)  # species_key -> hp fraction seen last turn
     opp_protected_last_turn: list[str] = field(default_factory=list)  # inferred: we hit it, its HP did not move
@@ -176,10 +194,14 @@ class MatchMemory:
 
     def protect_streak(self, species: str, slot: int) -> int:
         """How many turns in a row the Pokémon now in ``slot`` has just used a Protect-like move (0 = none).
-        Each repeat succeeds with probability 1/3 of the previous one, so a streak of 2 means the next try works 1 in 9."""
+        Each repeat succeeds with probability 1/3 of the previous one, so a streak of 2 means the next try works 1 in 9.
+        A replacement decision after a faint (the partner 'passes' mid-turn) is not a turn of its own and is skipped:
+        counting it reset the streak on Oct 7, and a second Protect in a row was recommended as if it were fresh."""
         me = species_key(species)
         streak = 0
         for fields in reversed(self.turns):
+            if fields.get("forced"):
+                continue
             payload = fields.get("payload") or {}
             actives = fields.get("actives") or []
             choice = payload.get(f"slot_{slot}") or {}
@@ -201,10 +223,16 @@ class MatchMemory:
         return choice.get("type") == "move" and species_key(choice.get("move_id")) in {"protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "wideguard"}
 
     def observe_protocol(self, obs: dict) -> None:
-        """Read the Showdown protocol log the live server includes (``observation["protocol_log"]``) and remember the last
-        move each opposing Pokémon used since it last entered the field. A Choice item locks its holder into that move
-        until it switches, so this turns "Urshifu could use any of four moves" into "Urshifu is locked into Surging Strikes".
-        The log is cumulative, so the table is rebuilt from scratch every turn; without a log (the simulator) it stays empty."""
+        """Read the Showdown protocol log the live server includes (``observation["protocol_log"]``). From it:
+
+        - the last move each opposing Pokémon used since it last entered the field: a Choice item locks its holder into
+          that move until it switches ("Urshifu is locked into Surging Strikes");
+        - which opposing items are gone (-enditem: a popped Air Balloon makes Earthquake hit again; Knock Off; berries);
+        - which Protosynthesis / Quark Drive boosts are running, on both sides (-start ... protosynthesisatk). Booster
+          Energy is consumed the moment it activates, but the boost lasts until the holder leaves the field, so the
+          item alone can't tell us.
+
+        The log is cumulative, so everything is rebuilt from scratch every turn; without a log the tables stay empty."""
         log = obs.get("protocol_log")
         if not isinstance(log, list) or not log:
             return
@@ -213,20 +241,47 @@ class MatchMemory:
             return
         my_side = mine.pop()  # "p1" or "p2"
         last: dict[str, str | None] = {}
+        lost: set[str] = set()
+        paradox: dict[str, str] = {}  # "mine:<species>" / "theirs:<species>" -> boosted stat
+        nick_to_species: dict[str, str] = {}
         for raw in log:
             parts = str(raw).split("|")
             if len(parts) < 3:
                 continue
             kind, actor = parts[1], parts[2]
             side = actor.split(":")[0].rstrip("ab")
-            if side == my_side or not side.startswith("p"):
+            if not side.startswith("p"):
                 continue
+            ours = side == my_side
+            nick = (side, species_key(actor.split(":", 1)[1].strip() if ":" in actor else actor))
             if kind in ("switch", "drag", "replace") and len(parts) > 3:
-                last[species_key(parts[3].split(",")[0])] = None  # fresh on the field: no lock yet
+                species = species_key(parts[3].split(",")[0])
+                nick_to_species[nick] = species
+                if not ours:
+                    last[species] = None  # fresh on the field: no lock yet
+                continue
+            species = nick_to_species.get(nick, nick[1])
+            tag = ("mine:" if ours else "theirs:") + species
+            if kind == "-start" and len(parts) > 3:
+                effect = species_key(parts[3])
+                for ability in ("protosynthesis", "quarkdrive"):
+                    if effect.startswith(ability) and len(effect) > len(ability):
+                        paradox[tag] = effect[len(ability):]  # "atk", "def", "spa", "spd", "spe"
+            elif kind == "-end" and len(parts) > 3 and species_key(parts[3]) in ("protosynthesis", "quarkdrive"):
+                paradox.pop(tag, None)
+            elif kind == "faint":
+                paradox.pop(tag, None)
+            elif ours:
+                continue
             elif kind == "move" and len(parts) > 3:
-                nick = actor.split(":", 1)[1].strip() if ":" in actor else actor
-                last[species_key(nick)] = species_key(parts[3])
+                last[species] = species_key(parts[3])
+            elif kind == "-enditem":
+                lost.add(species)  # popped Air Balloon, eaten berry, used Booster Energy, Knock Off
+            elif kind == "-item":
+                lost.discard(species)  # revealed (or received by Trick): it holds one now
         self.opp_last_move = last
+        self.opp_items_lost = sorted(lost)
+        self.paradox_active = paradox
 
     def observe_opponent_hp(self, obs: dict) -> None:
         """Infer who Protected: an opponent we targeted last turn whose HP did not change."""
@@ -250,23 +305,29 @@ class MatchMemory:
 
     # -- prompt material -------------------------------------------------------------
 
-    def known_sets(self, side: str) -> list[dict]:
-        """Compact card summaries for the prompt: what we know for sure."""
+    def known_sets(self, side: str, *, only: list[str] | None = None, status: dict[str, str] | None = None) -> list[dict]:
+        """Compact card summaries for the prompt: what we know for sure. ``only`` keeps just those species (our four in
+        this battle); ``status`` tags each card with where it is (on_field / in_back / fainted / NOT_IN_THIS_BATTLE).
+        The item shown is the drafted one: in battle, the turn sheet knows when it has been used up or knocked off."""
         cards = self.my_cards if side == "mine" else self.opp_cards
+        keep = {species_key(s) for s in only} if only else None
         out = []
-        for card in cards.values():
-            out.append(
-                {
-                    "species": card.get("species"),
-                    "item": card.get("item"),
-                    "ability": card.get("ability"),
-                    "nature": card.get("nature"),
-                    "types": card.get("types"),
-                    "base_stats": card.get("base_stats"),
-                    "evs": card.get("evs"),
-                    "moves": card.get("moves"),
-                }
-            )
+        for key, card in cards.items():
+            if keep is not None and key not in keep:
+                continue
+            entry = {
+                "species": card.get("species"),
+                "item": card.get("item"),
+                "ability": card.get("ability"),
+                "nature": card.get("nature"),
+                "types": card.get("types"),
+                "base_stats": card.get("base_stats"),
+                "evs": card.get("evs"),
+                "moves": card.get("moves"),
+            }
+            if status is not None:
+                entry["status"] = status.get(key, "unknown")
+            out.append(entry)
         return out
 
     def summary(self) -> dict:

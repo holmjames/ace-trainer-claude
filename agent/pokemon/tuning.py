@@ -59,6 +59,7 @@ DEFAULTS: dict[str, float] = {
     "switch_weak_threshold": 20.0,
     "switch_weak_bonus": 15.0,     # (was 10)
     "choice_lock_rerank": 1.0,     # steer a Choice holder away from locking into a move that is dead against a remaining opponent (0 = off)
+    "focus_risk": 0.35,            # chance the opponent double-targets a slot that both of its actives can KO together (Oct 7 losses)
 }
 
 

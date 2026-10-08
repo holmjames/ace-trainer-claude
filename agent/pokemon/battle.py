@@ -62,6 +62,7 @@ class Mon:
 
     tailwind: bool = False
     boosted_stat: str | None = None  # Protosynthesis / Quark Drive: the stat the paradox boost raises (set by the sheet)
+    paradox_stat: str | None = None  # the same, read from the battle log (-start protosynthesisatk): exact, and survives Booster Energy being used up
 
     def stat(self, name: str, *, min_stage: int | None = None, max_stage: int | None = None) -> float:
         """One stat with stages, status, item and paradox boosts applied. ``min_stage``/``max_stage`` clamp the
@@ -99,14 +100,34 @@ class Mon:
         return "flying" not in self.types and data.to_id(self.ability) != "levitate" and data.to_id(self.item) != "airballoon"
 
 
-def build_mon(summary: dict, card: dict | None, *, side: str, position: int | None) -> Mon | None:
-    merged = {**(card or {}), **{k: v for k, v in (summary or {}).items() if v not in (None, "", [], {})}}
+UNKNOWN_ITEMS = ("unknown_item", "unknownitem")
+
+
+def build_mon(summary: dict, card: dict | None, *, side: str, position: int | None, item_lost: bool = False) -> Mon | None:
+    """Merge the live summary (HP, boosts, status, what the battle has revealed) over the drafted card (the full set).
+
+    The live server marks what it has not revealed as unknown (opponent item "unknown_item", ability null, moves =
+    only the ones used so far); those placeholders never hide the card. Items: our own summary is authoritative (""
+    once consumed); an opponent's revealed item wins over the card, and ``item_lost`` (the protocol log showed
+    -enditem: popped Air Balloon, eaten berry, Knock Off) removes it."""
+    summary = summary or {}
+    card = card or {}
+    merged = {**card, **{k: v for k, v in summary.items() if v not in (None, "", [], {}) and v not in UNKNOWN_ITEMS}}
     species = merged.get("species") or merged.get("name")
     if not species:
         return None
-    stats = data.actual_stats({**merged, "evs": (card or {}).get("evs") or merged.get("evs"), "nature": (card or {}).get("nature") or merged.get("nature")}) or {}
+    if side == "mine" and "item" in summary and summary.get("item") in (None, ""):
+        merged["item"] = None  # consumed or knocked off: our own summary knows
+    if item_lost:
+        merged["item"] = None
+    stats = data.actual_stats({**merged, "evs": card.get("evs") or merged.get("evs"), "nature": card.get("nature") or merged.get("nature")}) or {}
     moves: list[dict] = []
-    for name in (card or {}).get("moves") or merged.get("moves") or []:
+    names = list(card.get("moves") or [])
+    for revealed in summary.get("moves") or []:  # a used move the card does not list (shouldn't happen) still counts
+        rid = data.to_id(revealed.get("id") if isinstance(revealed, dict) else revealed)
+        if rid and rid not in {data.to_id(n.get("id") if isinstance(n, dict) else n) for n in names}:
+            names.append(revealed)
+    for name in names:
         move_name = name.get("id") if isinstance(name, dict) else name
         info = data.move_info(move_name)
         moves.append({"id": data.to_id(move_name), **(info or {"type": None, "category": None, "base_power": 0, "priority": 0, "target": None})})
@@ -139,6 +160,17 @@ CHOICE_ITEMS = {"choicescarf", "choiceband", "choicespecs"}
 RUIN_ABILITIES = {"swordofruin": ("def", "Physical"), "beadsofruin": ("spd", "Special"),
                   "vesselofruin": ("spa", "Special"), "tabletsofruin": ("atk", "Physical")}
 PARADOX_BOOST = 5325 / 4096  # Hadron Engine / Orichalcum Pulse offensive boost; terrain base-power boost is 1.3 too
+# -ate abilities: Normal moves become this type and get x1.2 (Oct 7: Pixilate Hyper Voice was scored as a Normal move,
+# 14% into Iron Hands; it is a super-effective Fairy hit that took ~55%).
+ATE_ABILITIES = {"pixilate": "Fairy", "aerilate": "Flying", "refrigerate": "Ice", "galvanize": "Electric"}
+ATE_BOOST = 4915 / 4096
+# Type-resist berries: halve one super-effective hit of their type (Chilan: any Normal hit), then they are eaten.
+RESIST_BERRIES = {
+    "occaberry": "fire", "passhoberry": "water", "wacanberry": "electric", "rindoberry": "grass", "yacheberry": "ice",
+    "chopleberry": "fighting", "kebiaberry": "poison", "shucaberry": "ground", "cobaberry": "flying", "payapaberry": "psychic",
+    "tangaberry": "bug", "chartiberry": "rock", "kasibberry": "ghost", "habanberry": "dragon", "colburberry": "dark",
+    "babiriberry": "steel", "roseliberry": "fairy", "chilanberry": "normal",
+}
 
 
 @dataclass
@@ -185,6 +217,8 @@ def normalize_terrain(text: object) -> str | None:
 def paradox_boosted_stat(mon: "Mon", fs: "FieldState | None") -> str | None:
     """Protosynthesis (sun or Booster Energy) / Quark Drive (Electric Terrain or Booster Energy) raise the holder's
     highest stat: 1.3x, or 1.5x speed. Booster Energy is consumed on entry, so a holder is always boosted."""
+    if mon.paradox_stat:
+        return mon.paradox_stat
     ability = data.to_id(mon.ability)
     if ability not in ("protosynthesis", "quarkdrive"):
         return None
@@ -232,6 +266,10 @@ def effective_move(attacker: "Mon", move: dict, defender: "Mon", fs: "FieldState
             out["beatup_hits"] = [math.floor(b / 10) + 5 for b in hits]
     if mid == "grassyglide" and terrain == "grassy" and attacker.grounded:
         out["priority"] = 1
+    ate = ATE_ABILITIES.get(data.to_id(attacker.ability))
+    if ate and data.to_id(out.get("type")) == "normal" and mid not in ("struggle", "weatherball", "judgment", "naturalgift", "technoblast", "multiattack", "terrainpulse"):
+        out["type"] = ate
+        out["ate_boost"] = True
     return out
 
 
@@ -264,8 +302,12 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
     if attacker_ability in ("scrappy", "mindseye") and move_type in ("normal", "fighting"):
         defender_types = [t for t in defender.types if t != "ghost"]  # these abilities hit Ghosts with Normal/Fighting moves
     type_mult = data.effectiveness(move.get("type") or "", defender_types)
+    if mid == "freezedry" and "water" in defender_types:
+        type_mult *= 4  # Freeze-Dry is super effective on Water (Ice would be resisted): x0.5 becomes x2
     if type_mult == 0:
         return (0.0, 0.0)
+    if move_type == "ground" and not defender.grounded and mid != "thousandarrows":
+        return (0.0, 0.0)  # Levitate / Air Balloon (Oct 7: Earthquake showed 91-107% into an Air Balloon Gholdengo)
     crit = bool(move.get("will_crit"))
     weather_now = fs.weather if fs else None
     terrain = fs.terrain if fs else None
@@ -289,21 +331,25 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
             bp *= 0.5
         if mid in ("collisioncourse", "electrodrift") and type_mult > 1:
             bp *= PARADOX_BOOST
+        if move.get("ate_boost"):
+            bp *= ATE_BOOST
         return bp
 
     # Stats: crits ignore the attacker's drops and the defender's raises; Body Press / Foul Play borrow stats.
     atk_stat, def_stat = ("atk", "def") if category == "Physical" else ("spa", "spd")
+    # Unaware (Dondozo): a defender with it ignores the attacker's stat stages; an attacker with it ignores the defender's.
+    a_lo, a_hi = (0, 0) if defender_ability == "unaware" else ((0 if crit else None), None)
     if mid == "bodypress":
-        a = attacker.stat("def", min_stage=0 if crit else None)
+        a = attacker.stat("def", min_stage=a_lo, max_stage=a_hi)
     elif mid == "foulplay":
         a = defender.stat("atk", min_stage=0 if crit else None)
     elif mid in ("meteorbeam", "electroshot"):
         # The charge turn raises Special Attack by one stage before the hit lands (Power Herb / rain: same turn).
         boosted = Mon(**{**attacker.__dict__, "boosts": {**attacker.boosts, "spa": min(6, attacker.boosts.get("spa", 0) + 1)}})
-        a = boosted.stat("spa", min_stage=0 if crit else None)
+        a = boosted.stat("spa", min_stage=a_lo, max_stage=a_hi)
     else:
-        a = attacker.stat(atk_stat, min_stage=0 if crit else None)
-    if mid in ("sacredsword", "chipaway", "darkestlariat"):
+        a = attacker.stat(atk_stat, min_stage=a_lo, max_stage=a_hi)
+    if mid in ("sacredsword", "chipaway", "darkestlariat") or attacker_ability == "unaware":
         d = defender.stat(def_stat, min_stage=0, max_stage=0)  # ignores the target's stat stages
     else:
         d = defender.stat(def_stat, max_stage=0 if crit else None)
@@ -342,7 +388,7 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
     if crit:
         mod *= 1.5  # always a critical hit (Surging Strikes, Wicked Blow, Flower Trick)
     if move_type in attacker.types:
-        mod *= 1.5
+        mod *= 2.0 if attacker_ability == "adaptability" else 1.5
     mod *= type_mult
     if attacker.status == "brn" and category == "Physical" and attacker_ability != "guts" and mid != "facade":
         mod *= 0.5
@@ -354,6 +400,9 @@ def damage_percent(attacker: Mon, move: dict, defender: Mon, *, weather: str | N
     if item == "expertbelt" and type_mult > 1:
         mod *= 1.2
     defender_item = data.to_id(defender.item)
+    berry = RESIST_BERRIES.get(defender_item)
+    if berry == move_type and (type_mult > 1 or berry == "normal"):
+        mod *= 0.5  # its resist berry takes the first such hit (Tyranitar's Chople Berry vs Fighting)
     seed_used = defender_item.endswith("seed") and terrain and defender_item.startswith(terrain) and defender.grounded
     if mid == "knockoff" and defender_item and defender_item not in ("rustedshield", "rustedsword", "boosterenergy") and not seed_used:
         mod *= 1.5  # Knock Off hits harder when the target holds an item it can lose
@@ -449,7 +498,11 @@ class TurnSheet:
     warnings: list[str] = field(default_factory=list)  # lethal threats that act before our slot can
     choice_locks: dict = field(default_factory=dict)  # slot -> {move_id: [opponents it does nothing to]}
     bench_hp: dict = field(default_factory=dict)  # species_key -> hp fraction of our benched Pokémon (for switch-in checks)
-    field: "FieldState | None" = None
+    flinch_risk: dict = field(default_factory=dict)  # our slot -> chance a fresh opposing Fake Out flinches it this turn
+    focus_threats: list = field(default_factory=list)  # our slots that BOTH foes together can KO this turn (double-targeting)
+    alone: bool = False  # our last Pokémon stands alone (the other slot can only pass)
+    stall_reasons: list = field(default_factory=list)  # what a Protect would actually wait out (their Tailwind, screens, residual...)
+    field: "FieldState | None" = None  # keep last: this name shadows dataclasses.field for anything declared after it
 
     def as_prompt(self) -> dict:
         return {
@@ -512,6 +565,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         mon = build_mon(_find_summary(obs.get("team"), species), memory.my_cards.get(key), side="mine", position=slot.get("slot"))
         if mon:
             mon.tailwind = my_tailwind
+            mon.paradox_stat = memory.paradox_active.get("mine:" + key)
             ours[slot.get("slot", 0)] = mon
 
     # Their active Pokémon by board position (from target_options when present).
@@ -521,15 +575,19 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             for t in option.get("target_options") or []:
                 if t.get("side") == "opponent" and t.get("species") and t.get("target") not in theirs:
                     key = species_key(t["species"])
-                    mon = build_mon(_find_summary(obs.get("opponent_team"), t["species"]), memory.opp_cards.get(key), side="theirs", position=t.get("target"))
+                    mon = build_mon(_find_summary(obs.get("opponent_team"), t["species"]), memory.opp_cards.get(key), side="theirs",
+                                    position=t.get("target"), item_lost=key in memory.opp_items_lost)
                     if mon:
                         mon.tailwind = their_tailwind
+                        mon.paradox_stat = memory.paradox_active.get("theirs:" + key)
                         theirs[int(t["target"])] = mon
     if not theirs:
         for index, summary in enumerate(_active_summaries(obs.get("opponent_team"))[:2], start=1):
-            mon = build_mon(summary, memory.opp_cards.get(species_key(summary.get("species"))), side="theirs", position=index)
+            key = species_key(summary.get("species"))
+            mon = build_mon(summary, memory.opp_cards.get(key), side="theirs", position=index, item_lost=key in memory.opp_items_lost)
             if mon:
                 mon.tailwind = their_tailwind
+                mon.paradox_stat = memory.paradox_active.get("theirs:" + key)
                 theirs[index] = mon
 
     fs = field_from_obs(obs, ours, theirs, memory)
@@ -582,7 +640,8 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
     opp_team = obs.get("opponent_team")
     for summary in (opp_team.values() if isinstance(opp_team, dict) else []):
         if isinstance(summary, dict) and not summary.get("active") and not summary.get("fainted"):
-            bm = build_mon(summary, memory.opp_cards.get(species_key(summary.get("species"))), side="theirs", position=None)
+            bkey = species_key(summary.get("species"))
+            bm = build_mon(summary, memory.opp_cards.get(bkey), side="theirs", position=None, item_lost=bkey in memory.opp_items_lost)
             if bm:
                 bench_opp.append(bm)
     choice_targets = list(theirs.values()) + bench_opp
@@ -621,7 +680,10 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             psychic_spread = move["id"] == "expandingforce" and fs.terrain == "psychic" and me.grounded and len(theirs) > 1
             per_target = []
             note = None
-            targets = option.get("targets") or []
+            # Target 0 means "no target needed" (self, field or SPREAD move): the live server sends [0], the old simulator [].
+            # Treating [0] as a target list gave every spread move an empty damage row on Oct 7 (Dazzling Gleam, Earthquake,
+            # Rock Slide and Icy Wind were invisible to the ranking and to the model).
+            targets = [t for t in option.get("targets") or [] if t != 0]
             fresh_now = species_key(me.species) in set(memory.fresh_active) or obs.get("turn") in (None, 1)
             priority_blocked = (eff.get("priority") or 0) > 0 and (move.get("base_power") or 0) > 0 and (
                 any(data.to_id(o.ability) in ("armortail", "dazzling", "queenlymajesty") for o in theirs.values())
@@ -719,17 +781,129 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 threat["note"] = "has Fake Out but is past its first turn out: Fake Out fails now."
         sheet.threats.append(threat)
 
+    _flinch_risk(sheet, ours, theirs, fs)
+    _double_target_threats(sheet, ours, P)
+    _endgame(sheet, slots, ours, theirs, fs)
     sheet.candidates = rank_candidates(slots, ours, theirs, sheet, fresh=set(memory.fresh_active), memory=memory, params=P)
     return sheet
+
+
+def _flinchable(me: "Mon", ours: dict[int, "Mon"], fs: "FieldState") -> bool:
+    """Can a Fake Out make this Pokémon flinch? Not a Ghost (Fake Out is Normal), not Inner Focus / Shield Dust /
+    Covert Cloak, not grounded in Psychic Terrain, and no Armor Tail / Dazzling / Queenly Majesty on our side."""
+    if "ghost" in me.types or data.to_id(me.ability) in ("innerfocus", "shielddust") or data.to_id(me.item) == "covertcloak":
+        return False
+    if fs.terrain == "psychic" and me.grounded:
+        return False
+    return not any(data.to_id(m.ability) in ("armortail", "dazzling", "queenlymajesty") for m in ours.values())
+
+
+def _flinch_risk(sheet: "TurnSheet", ours: dict[int, "Mon"], theirs: dict[int, "Mon"], fs: "FieldState") -> None:
+    """A FRESH opposing Fake Out (+3 priority) will usually hit one of our slots, and that slot does not move this turn.
+    Oct 7, match 3: Great Tusk 'outspeeds and KOs Whimsicott', but a just-switched-in Incineroar Faked Out Tusk and
+    Whimsicott's Moonblast KO'd it. A plan that needs a slot to move first is only as good as that slot's flinch odds."""
+    users = [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")]
+    if not users:
+        return
+    eligible = [n for n, me in ours.items() if _flinchable(me, ours, fs)]
+    if not eligible:
+        return
+    p = min(0.9, 1 - (1 - 1 / len(eligible)) ** len(users))
+    for n in eligible:
+        sheet.flinch_risk[n] = round(p, 2)
+    names = " and ".join(t["species"] for t in users)
+    slots_txt = ", ".join(f"slot {n} ({ours[n].species})" for n in eligible)
+    who = f"Each of {slots_txt} has" if len(eligible) > 1 else f"Our {slots_txt} has"
+    sheet.warnings.append(
+        f"FAKE OUT: {names} can Fake Out this turn (+3 priority). {who} about a {int(p * 100)}% chance to "
+        "flinch and not move at all. Any plan that needs that slot to move first (to KO a threat before it acts, or to set "
+        "Tailwind/Trick Room) can fail; Protect blocks Fake Out, and a Ghost type, Inner Focus or Covert Cloak ignores it.")
+
+
+def _double_target_threats(sheet: "TurnSheet", ours: dict[int, "Mon"], P: dict) -> None:
+    """Both foes into ONE of our slots: the threat list scores each attacker alone, but good players double-target, and
+    two hits that are survivable alone can KO together (Oct 7: Landorus fell to Extreme Speed + Shadow Ball, and to
+    Scale Shot + Draco Meteor, with no warning). Recorded per slot with the combined range and whether both land first."""
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    for number, me in sorted(ours.items()):
+
+        def first(t: dict, h: dict) -> bool:
+            if (h.get("priority") or 0) > 0:
+                return True
+            return rank.get(("theirs", t["position"]), 99) < rank.get(("mine", number), 99)
+
+        foes = [(t, [h for h in t["hits"] if h["into_slot"] == number]) for t in sheet.threats]
+        foes = [(t, hits) for t, hits in foes if hits]
+        if len(foes) != 2:
+            continue
+        if any(h["ko"] == "guaranteed" for _, hits in foes for h in hits):
+            continue  # one of them already KOs alone: the single-threat warning covers it
+        pairs = [((foes[0][0], a), (foes[1][0], b)) for a in foes[0][1] for b in foes[1][1]]
+
+        def combined(pair) -> tuple[float, float, float, bool]:
+            (ta, a), (tb, b) = pair
+            lo = a["damage_pct_of_current_hp"][0] + b["damage_pct_of_current_hp"][0]
+            hi = a["damage_pct_of_current_hp"][1] + b["damage_pct_of_current_hp"][1]
+            chance = 1.0 if lo >= 100 else (0.0 if hi < 100 else (hi - 100) / max(hi - lo, 0.1))
+            return lo, hi, chance, first(ta, a) and first(tb, b)
+
+        scored = [(combined(pair), pair) for pair in pairs]
+        lethal_first = [x for x in scored if x[0][3] and x[0][2] >= 0.5]  # Oct 7: Extreme Speed + Shadow Ball KO'd Landorus before it moved
+        pick = max(lethal_first or scored, key=lambda x: (x[0][2], x[0][1]))
+        (lo, hi, chance, before), ((t1, h1), (t2, h2)) = pick
+        if hi < 100:
+            continue
+        sheet.focus_threats.append({"slot": number, "species": me.species, "moves": [f"{t1['species']} {h1['move']}", f"{t2['species']} {h2['move']}"],
+                                    "damage_pct_of_current_hp": [round(lo, 1), round(hi, 1)], "ko_chance": round(chance, 2), "before_we_move": before})
+        if chance >= 0.5:
+            sheet.warnings.append(
+                f"DOUBLE-TARGET: if both foes go into slot {number} ({me.species}) — {t1['species']}'s {h1['move']} + {t2['species']}'s "
+                f"{h2['move']} = {lo:.0f}-{hi:.0f}% — it goes down" + (" BEFORE it moves" if before else "")
+                + ". Opponents double the target that threatens them most; Protect or switch if that is this slot.")
+
+
+def _endgame(sheet: "TurnSheet", slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int, "Mon"], fs: "FieldState") -> None:
+    """With our last Pokémon alone on the field, Protect only delays — unless waiting changes something. Oct 7, match 1:
+    Cresselia, our last Pokémon, Protected four turns running against a +3 Gholdengo (the model believed benched
+    teammates were coming; none were). Record what a stall could actually wait out."""
+    filled = [s for s in slots if s.get("slot", 0) in ours]
+    empty = [s for s in slots if s.get("slot", 0) not in ours]
+    if len(filled) != 1 or not empty or any(o.get("type") == "switch" for s in slots for o in s.get("options") or []):
+        return
+    sheet.alone = True
+    me = next(iter(ours.values()))
+    reasons = []
+    if "tailwind" in fs.their_side:
+        reasons.append("their Tailwind runs out")
+    for screen in ("reflect", "lightscreen", "auroraveil"):
+        if screen in fs.their_side:
+            reasons.append(f"their {screen} runs out")
+    if fs.trick_room and any(r["side"] == "theirs" for r in sheet.speed_order[:1]):
+        reasons.append("Trick Room (which lets them move first) runs out")
+    for opp in theirs.values():
+        if opp.status in ("brn", "psn", "tox"):
+            reasons.append(f"their {opp.species} takes {opp.status} damage")
+        if fs.weather == "sand" and not set(opp.types) & {"rock", "ground", "steel"} and data.to_id(opp.ability) not in ("overcoat", "sandveil", "sandrush", "sandforce", "magicguard"):
+            reasons.append(f"their {opp.species} takes sandstorm damage")
+    if data.to_id(me.item) == "leftovers" or (fs.terrain == "grassy" and me.grounded):
+        reasons.append(f"our {me.species} heals a little")
+    sheet.stall_reasons = reasons
+    sheet.notes.append(
+        f"ENDGAME: {me.species} is our last Pokémon. " + (
+            f"A Protect would wait out: {'; '.join(reasons)}." if reasons else
+            "Nothing runs out or ticks in our favour, so Protect only delays the same position by a turn: deal the most damage you can."))
 
 
 # -- candidates --------------------------------------------------------------------------------------
 
 
 def _expected(row: dict, priority: int, P: dict | None = None) -> float:
+    """Expected value of a hit in 'damage points': the average roll, CAPPED at the target's remaining HP (a 999% hit
+    takes one Pokémon, exactly like a 101% one — uncapped, both slots piled into a 9% Whimsicott on Oct 7), plus a KO
+    bonus and a little for priority."""
     P = P or DEFAULTS
     lo, hi = row["damage_pct_of_current_hp"]
-    return (lo + hi) / 2 + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0)) + P["priority_w"] * priority
+    return min((lo + hi) / 2, 100.0) + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0)) + P["priority_w"] * priority
 
 
 def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None = None) -> tuple[dict | None, dict | None, float]:
@@ -750,8 +924,8 @@ def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None
             expected = sum(_expected(r, priority, P) for r in spread_rows) - P["ally_damage_w"] * ally_hit
             if expected > best[2]:
                 summary = {"target": 0, "species": " + ".join(r["species"] for r in spread_rows), "side": "theirs",
-                           "damage_pct_of_current_hp": [sum(r["damage_pct_of_current_hp"][0] for r in spread_rows),
-                                                        sum(r["damage_pct_of_current_hp"][1] for r in spread_rows)],
+                           "damage_pct_of_current_hp": [round(sum(r["damage_pct_of_current_hp"][0] for r in spread_rows), 1),
+                                                        round(sum(r["damage_pct_of_current_hp"][1] for r in spread_rows), 1)],
                            "ally_damage_pct": round(ally_hit, 1) if ally_hit else 0}
                 best = (option, summary, expected)
         for row in foe_rows:
@@ -778,8 +952,15 @@ MISC_VALUE = {"helpinghand": 20, "partingshot": 25, "encore": 20, "nastyplot": 3
               "calmmind": 25, "bulkup": 25, "coaching": 20, "lifedew": 20, "wideguard": 20, "substitute": 10, "haze": 10}
 
 
-def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "TurnSheet", slot_number: int) -> tuple[float, int]:
-    """(value in 'expected damage points', target int) for a non-damaging move; 0 when pointless."""
+ALLY_ONLY = {"helpinghand", "coaching", "followme", "ragepowder", "spotlight", "afteryou", "decorate", "allyswitch"}
+
+
+def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "TurnSheet", slot_number: int,
+                 has_ally: bool = True) -> tuple[float, int]:
+    """(value in 'expected damage points', target int) for a non-damaging move; 0 when pointless. Moves that only help
+    (or shield) a partner are worth nothing without one (Oct 7: Helping Hand into an empty slot was our 'best' move)."""
+    if move_id in ALLY_ONLY and not has_ally:
+        return (0.0, 0)
     if move_id in SLEEP_MOVES:
         best = (0.0, 0)
         for pos, opp in theirs.items():
@@ -846,6 +1027,11 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
             if not we_first:
                 p_ko = ko_probability(hit)
                 factor = min(factor, 1.0 - p_ko * (1.0 if hit["ko"] == "guaranteed" else 2 * P["survival_possible"]))
+    for focus in sheet.focus_threats:
+        if focus["slot"] == slot_number and focus["before_we_move"] and my_priority <= 0:
+            factor *= 1.0 - P.get("focus_risk", 0.35) * focus["ko_chance"]
+    if my_priority < 3:
+        factor *= 1.0 - sheet.flinch_risk.get(slot_number, 0.0)  # a fresh Fake Out (+3) stops anything slower than it
     return max(0.0, factor)
 
 
@@ -923,6 +1109,24 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             return my_priority > their_priority
         return speed_rank.get(("mine", me_slot), 99) < speed_rank.get(("theirs", opp_pos), 99)
 
+    def partner_removes(other: int, opp_pos: int, their_priority: int) -> float:
+        """Chance the OTHER slot's best attack knocks out the opponent at ``opp_pos`` before that opponent moves (and
+        isn't flinched first). A Protect for the endangered slot is worth that much less: Oct 7, Tornadus was told to
+        Protect from Iron Hands while Great Tusk's Headlong Rush KOs Iron Hands first ~9 times in 10."""
+        opt, row, _ = best[other]
+        if not opt or not row or opp_pos not in theirs:
+            return 0.0
+        prio = opt.get("priority", 0) or 0
+        if not acts_before(other, opp_pos, prio, their_priority):
+            return 0.0
+        rows = [r for r in opt.get("targets") or [] if r.get("side") == "theirs"
+                and (r.get("target") == opp_pos or (r.get("target") == 0 and species_key(r.get("species")) == species_key(theirs[opp_pos].species)))]
+        if row.get("target", 0) > 0:
+            rows = [r for r in rows if r.get("target") == opp_pos and row.get("target") == opp_pos]
+        if not rows:
+            return 0.0
+        return ko_probability(rows[0]) * (1.0 - (sheet.flinch_risk.get(other, 0.0) if prio < 3 else 0.0))
+
     def best_action(number: int) -> tuple[dict | None, dict | None, float]:
         """Best attack (discounted by the chance this slot dies first) or best status move, as (option, row, value)."""
         attack = _best_attack(by_slot.get(number, {}), P=P)
@@ -941,9 +1145,9 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if (info.get("base_power") or 0) > 0 or move_id in ("protect", "detect", "fakeout"):
                     continue
                 prio = info.get("priority", 0) or 0
-                sv, target = status_value(move_id, me, theirs, sheet, number)
+                sv, target = status_value(move_id, me, theirs, sheet, number, has_ally=len(ours) > 1)
                 sv *= survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else 1.0
-                if sv > choice[2]:
+                if sv > 0 and sv > choice[2]:
                     legal = option.get("targets") or []
                     tgt = target if target in legal else (legal[0] if legal else 0)
                     pseudo = {"option": index, "move": move_id, "priority": prio}
@@ -1018,7 +1222,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 sheet.warnings.append(
                     f"LETHAL: {threat['species']}'s {hit['move']}{prio_note} hits {where} for {dmg} BEFORE it can move"
                     + (f" ({int(round(chance * 100))}% KO chance)" if hit["ko"] != "guaranteed" else "")
-                    + f"{escape}. Protect/switch that slot unless the game is won anyway.")
+                    + f"{escape}. Protect/switch that slot unless trading it wins the game (last Pokémon: see ENDGAME).")
             elif chance >= 0.2:
                 sheet.warnings.append(
                     f"HIGH RISK: {threat['species']}'s {hit['move']}{prio_note} hits {where} for {dmg} before it can move: a "
@@ -1113,8 +1317,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             can_remove_first = (my_best[0] and my_best[1] and my_best[1].get("target") == threat["position"]
                                 and my_best[1]["damage_pct_of_current_hp"][0] >= 100
                                 and acts_before(endangered, threat["position"], my_prio, hit.get("priority", 0)))
-            if can_remove_first:
-                continue
+            flinch = sheet.flinch_risk.get(endangered, 0.0) if my_prio < 3 else 0.0
+            if can_remove_first and not flinch:
+                continue  # we KO it before it moves (and nothing can stop us moving)
+            if sheet.alone and not sheet.stall_reasons:
+                continue  # our last Pokémon: a Protect only delays the same position by a turn
             slot = slot_template(endangered)
             protect = None
             attacker = theirs.get(threat["position"])
@@ -1134,8 +1341,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 answers = {endangered: {"option": protect, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
                 bonus = P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"] * (0.5 + ko_probability(hit))
                 bonus *= 0.33 ** streak  # each consecutive Protect succeeds 1/3 as often: 1/3, then 1/9 (seen: 3 in a row in self-play)
+                if can_remove_first:
+                    bonus *= flinch  # we'd KO it first, unless Fake Out stops us: Protect is insurance worth the flinch odds
+                removed = partner_removes(other, threat["position"], hit.get("priority", 0))
+                bonus *= 1.0 - removed
+                when = "before it moves" if not acts_before(endangered, threat["position"], 0, hit.get("priority", 0)) else "after it moves"
                 add("protect_threatened", answers[0], answers[1],
-                    f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks"
+                    f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) {when}; Protect it, slot {other} attacks"
+                    + (f" (slot {other} KOs {threat['species']} first {int(removed * 100)}% of the time)" if removed else "")
                     + (f" (Protect used {streak} turn(s) in a row already: only 1 in {3 ** streak} to work)" if streak else ""),
                     best[other][2] + bonus)
             if slot and best[other][0] and (protect is None or streak >= 1):
@@ -1165,6 +1378,23 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                         + (f"; it already Protected {streak} turn(s) in a row" if streak else "") + f"; switch it out, slot {other} attacks",
                         best[other][2] + P["switch_threatened_bonus"] + (P["protect_bonus_guaranteed"] if pierces_protect else 0) * ko_probability(hit)
                         + (P["protect_bonus_guaranteed"] * (1 - 0.33 ** streak) if streak else 0))
+
+    # 3a. Double-targeting: both foes together KO a slot before it moves. Protect it while the partner attacks; the
+    #     bonus is the chance they actually double into it (they pick one target) times the KO chance.
+    for focus in sheet.focus_threats:
+        if not focus["before_we_move"] or focus["ko_chance"] < 0.5 or (sheet.alone and not sheet.stall_reasons):
+            continue
+        endangered, other = focus["slot"], 1 - focus["slot"]
+        slot = slot_template(endangered)
+        protect = next((i for i, o in enumerate((slot or {}).get("options") or []) if o.get("type") == "move"
+                        and data.to_id(o.get("move_id")) in ("protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap")), None)
+        me_f = ours.get(endangered)
+        streak = memory.protect_streak(me_f.species, endangered) if (me_f is not None and memory is not None) else 0
+        if protect is not None and best[other][0]:
+            answers = {endangered: {"option": protect, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
+            add("protect_double_target", answers[0], answers[1],
+                f"both foes together KO slot {endangered} ({focus['moves'][0]} + {focus['moves'][1]} = {focus['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
+                best[other][2] + P["protect_bonus_guaranteed"] * P.get("focus_risk", 0.35) * focus["ko_chance"] * 0.33 ** streak)
 
     # 3b. Redirection: Follow Me / Rage Powder soaks a single-target lethal hit aimed at our partner, who then
     #     gets its turn (setup or attack). Only when the redirector is sturdier than the partner against that hit.
@@ -1233,7 +1463,21 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         lethal_by_target = {pos: max((ko_probability(h) if h["ko"] == "possible" else 1.0)
                                      for t in sheet.threats if t["position"] == pos for h in t["hits"] if h["ko"] != "no" and lands_first(t, h))
                             for pos in legal_targets if any(h["ko"] != "no" and lands_first(t, h) for t in sheet.threats if t["position"] == pos for h in t["hits"])}
-        danger = {pos: sum(_expected(h, 0, P) for t in sheet.threats if t["position"] == pos for h in t["hits"]) for pos in legal_targets}
+        def foe_danger(pos: int) -> float:
+            # The most one action of that foe can do this turn: a spread move counts both its targets, a single-target move
+            # only its best one (summing every hit double-counted Flare Blitz into both of our slots and picked Incineroar
+            # over a Pixilate Hyper Voice Sylveon, Oct 7).
+            by_move: dict[str, float] = {}
+            for t in sheet.threats:
+                if t["position"] != pos:
+                    continue
+                for h in t["hits"]:
+                    v = _expected(h, 0, P)
+                    spread_move = (data.move_info(h["move"]) or {}).get("target") in SPREAD_TARGETS
+                    by_move[h["move"]] = by_move.get(h["move"], 0.0) + v if spread_move else max(by_move.get(h["move"], 0.0), v)
+            return max(by_move.values(), default=0.0)
+
+        danger = {pos: foe_danger(pos) for pos in legal_targets}
         target = max(lethal_by_target, key=lambda pos: (lethal_by_target[pos], danger[pos])) if lethal_by_target else max(danger, key=danger.get)
         other = 1 - number
         other_slot = slot_template(other)
@@ -1261,8 +1505,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if lethal_first:
             pierces = any(data.to_id(theirs[target].ability) == "unseenfist" for _ in (0,))
             why += f"; its attack would KO one of our slots before it moves ({int(lethal_first * 100)}% chance), and the flinch stops that" + (" even though Unseen Fist goes through Protect" if pierces else "")
+        # Fake Out vs Fake Out is decided by speed: a faster fresh Fake Out on their side can flinch ours first.
+        faster_fakers = [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")
+                         and speed_rank.get(("theirs", t["position"]), 99) < speed_rank.get(("mine", number), 99)]
+        lands = 1.0 - (sheet.flinch_risk.get(number, 0.0) if faster_fakers else 0.0)
+        if lands < 1.0:
+            why += f"; their faster Fake Out may flinch ours first ({int((1 - lands) * 100)}%)"
         add("fake_out_setup", answers[0], answers[1], why,
-            base + (P["fakeout_threat_bonus"] if threatens_us else 0) + P["protect_bonus_guaranteed"] * lethal_first
+            (base + (P["fakeout_threat_bonus"] if threatens_us else 0) + P["protect_bonus_guaranteed"] * lethal_first) * lands
             + (best[other][2] * 0.6 if not setup_name else P["fakeout_setup_value"]))
 
     # 5. Switch a slot that has no worthwhile attack into a bench Pokémon.
