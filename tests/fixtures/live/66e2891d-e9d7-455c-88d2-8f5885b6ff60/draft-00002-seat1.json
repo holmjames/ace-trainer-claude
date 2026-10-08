@@ -1,0 +1,627 @@
+{
+ "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 2,
+ "observation": {
+  "phase": "draft",
+  "draft_complete": false,
+  "battle_format": "gen9vgc2025regi",
+  "current_seat": "37047e8a-c54b-4033-a672-8e5d869d43bc",
+  "pick_number": 3,
+  "picks_remaining": 10,
+  "first_drafter": "73e8aa4f-5470-41ce-9679-5b30540fb264",
+  "available_card_ids": [
+   "vgc-rillaboom",
+   "vgc-amoonguss",
+   "vgc-lucario",
+   "vgc-great-tusk",
+   "vgc-hatterene",
+   "vgc-incineroar",
+   "vgc-tornadus",
+   "vgc-basculegion",
+   "vgc-iron-hands",
+   "vgc-indeedee-f",
+   "vgc-porygon2",
+   "vgc-torkoal",
+   "vgc-scream-tail",
+   "vgc-garchomp",
+   "vgc-sableye",
+   "vgc-dondozo"
+  ],
+  "available_cards": [
+   {
+    "card_id": "vgc-rillaboom",
+    "species": "Rillaboom",
+    "item": "Assault Vest",
+    "ability": "Grassy Surge",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 236,
+     "atk": 116,
+     "def": 4,
+     "spd": 4,
+     "spe": 148
+    },
+    "ivs": {},
+    "moves": [
+     "Fake Out",
+     "Wood Hammer",
+     "Grassy Glide",
+     "U-turn"
+    ]
+   },
+   {
+    "card_id": "vgc-amoonguss",
+    "species": "Amoonguss",
+    "item": "Rocky Helmet",
+    "ability": "Regenerator",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 244,
+     "def": 172,
+     "spd": 92
+    },
+    "ivs": {},
+    "moves": [
+     "Spore",
+     "Rage Powder",
+     "Pollen Puff",
+     "Sludge Bomb"
+    ]
+   },
+   {
+    "card_id": "vgc-lucario",
+    "species": "Lucario",
+    "item": "Life Orb",
+    "ability": "Inner Focus",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 4,
+     "atk": 252,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Close Combat",
+     "Bullet Punch",
+     "Poison Jab",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-great-tusk",
+    "species": "Great Tusk",
+    "item": "Booster Energy",
+    "ability": "Protosynthesis",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 252,
+     "spe": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Headlong Rush",
+     "Close Combat",
+     "Rock Slide",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-hatterene",
+    "species": "Hatterene",
+    "item": "Safety Goggles",
+    "ability": "Magic Bounce",
+    "nature": "Quiet",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spa": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Trick Room",
+     "Dazzling Gleam",
+     "Psychic",
+     "Mystical Fire"
+    ]
+   },
+   {
+    "card_id": "vgc-incineroar",
+    "species": "Incineroar",
+    "item": "Safety Goggles",
+    "ability": "Intimidate",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 244,
+     "def": 12,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Fake Out",
+     "Knock Off",
+     "Parting Shot",
+     "Flare Blitz"
+    ]
+   },
+   {
+    "card_id": "vgc-tornadus",
+    "species": "Tornadus",
+    "item": "Mental Herb",
+    "ability": "Prankster",
+    "nature": "Timid",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spd": 4,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Bleakwind Storm",
+     "Taunt",
+     "Tailwind",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-basculegion",
+    "species": "Basculegion",
+    "item": "Life Orb",
+    "ability": "Adaptability",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 4,
+     "atk": 252,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Wave Crash",
+     "Aqua Jet",
+     "Liquidation",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-iron-hands",
+    "species": "Iron Hands",
+    "item": "Assault Vest",
+    "ability": "Quark Drive",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 236,
+     "atk": 252,
+     "spe": 20
+    },
+    "ivs": {},
+    "moves": [
+     "Fake Out",
+     "Close Combat",
+     "Wild Charge",
+     "Drain Punch"
+    ]
+   },
+   {
+    "card_id": "vgc-indeedee-f",
+    "species": "Indeedee-F",
+    "item": "Rocky Helmet",
+    "ability": "Psychic Surge",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Follow Me",
+     "Helping Hand",
+     "Dazzling Gleam",
+     "Psychic"
+    ]
+   },
+   {
+    "card_id": "vgc-porygon2",
+    "species": "Porygon2",
+    "item": "Eviolite",
+    "ability": "Download",
+    "nature": "Quiet",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spa": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Trick Room",
+     "Tri Attack",
+     "Ice Beam",
+     "Recover"
+    ]
+   },
+   {
+    "card_id": "vgc-torkoal",
+    "species": "Torkoal",
+    "item": "Charcoal",
+    "ability": "Drought",
+    "nature": "Quiet",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spa": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Eruption",
+     "Heat Wave",
+     "Yawn",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-scream-tail",
+    "species": "Scream Tail",
+    "item": "Covert Cloak",
+    "ability": "Protosynthesis",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Dazzling Gleam",
+     "Encore",
+     "Wish",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-garchomp",
+    "species": "Garchomp",
+    "item": "Focus Sash",
+    "ability": "Rough Skin",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 4,
+     "atk": 252,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Earthquake",
+     "Rock Slide",
+     "Iron Head",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-sableye",
+    "species": "Sableye",
+    "item": "Mental Herb",
+    "ability": "Prankster",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Foul Play",
+     "Fake Out",
+     "Will-O-Wisp",
+     "Taunt"
+    ]
+   },
+   {
+    "card_id": "vgc-dondozo",
+    "species": "Dondozo",
+    "item": "Leftovers",
+    "ability": "Unaware",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Wave Crash",
+     "Earthquake",
+     "Liquidation",
+     "Protect"
+    ]
+   }
+  ],
+  "rosters": {
+   "73e8aa4f-5470-41ce-9679-5b30540fb264": [
+    {
+     "card_id": "vgc-salamence",
+     "species": "Salamence"
+    }
+   ],
+   "37047e8a-c54b-4033-a672-8e5d869d43bc": [
+    {
+     "card_id": "vgc-iron-bundle",
+     "species": "Iron Bundle"
+    }
+   ]
+  },
+  "picks": [
+   {
+    "pick_number": 1,
+    "seat_id": "73e8aa4f-5470-41ce-9679-5b30540fb264",
+    "card_id": "vgc-salamence",
+    "species": "Salamence",
+    "public_reason": "Drafted Salamence.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 2,
+    "seat_id": "37047e8a-c54b-4033-a672-8e5d869d43bc",
+    "card_id": "vgc-iron-bundle",
+    "species": "Iron Bundle",
+    "public_reason": "Drafted Iron Bundle.",
+    "auto": false,
+    "auto_reason": null
+   }
+  ],
+  "unused_card_ids": [
+   "vgc-rillaboom",
+   "vgc-amoonguss",
+   "vgc-lucario",
+   "vgc-great-tusk",
+   "vgc-hatterene",
+   "vgc-incineroar",
+   "vgc-tornadus",
+   "vgc-basculegion",
+   "vgc-iron-hands",
+   "vgc-indeedee-f",
+   "vgc-porygon2",
+   "vgc-torkoal",
+   "vgc-scream-tail",
+   "vgc-garchomp",
+   "vgc-sableye",
+   "vgc-dondozo"
+  ],
+  "decision_timeout_seconds": 15.0,
+  "decision_deadline_at": "2026-10-07T23:47:26.956801+00:00",
+  "battle_starting": false
+ },
+ "phase": "draft",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "37047e8a-c54b-4033-a672-8e5d869d43bc",
+  "position": 1
+ },
+ "legal_actions": {
+  "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+  "state_version": 2,
+  "actions": [
+   {
+    "action_id": "draft_pick:vgc-rillaboom",
+    "label": "Draft vgc-rillaboom",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-rillaboom"
+     },
+     "action_id": "draft_pick:vgc-rillaboom",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-amoonguss",
+    "label": "Draft vgc-amoonguss",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-amoonguss"
+     },
+     "action_id": "draft_pick:vgc-amoonguss",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-lucario",
+    "label": "Draft vgc-lucario",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-lucario"
+     },
+     "action_id": "draft_pick:vgc-lucario",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-hatterene",
+    "label": "Draft vgc-hatterene",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-hatterene"
+     },
+     "action_id": "draft_pick:vgc-hatterene",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-incineroar",
+    "label": "Draft vgc-incineroar",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-incineroar"
+     },
+     "action_id": "draft_pick:vgc-incineroar",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-tornadus",
+    "label": "Draft vgc-tornadus",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-tornadus"
+     },
+     "action_id": "draft_pick:vgc-tornadus",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-basculegion",
+    "label": "Draft vgc-basculegion",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-basculegion"
+     },
+     "action_id": "draft_pick:vgc-basculegion",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-iron-hands",
+    "label": "Draft vgc-iron-hands",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-iron-hands"
+     },
+     "action_id": "draft_pick:vgc-iron-hands",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-indeedee-f",
+    "label": "Draft vgc-indeedee-f",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-indeedee-f"
+     },
+     "action_id": "draft_pick:vgc-indeedee-f",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-porygon2",
+    "label": "Draft vgc-porygon2",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-porygon2"
+     },
+     "action_id": "draft_pick:vgc-porygon2",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-torkoal",
+    "label": "Draft vgc-torkoal",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-torkoal"
+     },
+     "action_id": "draft_pick:vgc-torkoal",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-scream-tail",
+    "label": "Draft vgc-scream-tail",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-scream-tail"
+     },
+     "action_id": "draft_pick:vgc-scream-tail",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-garchomp",
+    "label": "Draft vgc-garchomp",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-garchomp"
+     },
+     "action_id": "draft_pick:vgc-garchomp",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-sableye",
+    "label": "Draft vgc-sableye",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-sableye"
+     },
+     "action_id": "draft_pick:vgc-sableye",
+     "state_version": 2
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-dondozo",
+    "label": "Draft vgc-dondozo",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-dondozo"
+     },
+     "action_id": "draft_pick:vgc-dondozo",
+     "state_version": 2
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ]
+}

@@ -475,6 +475,33 @@ named `<phase>-<version>-seat<n>.json` (both seats and all phases used to overwr
 
 **Baselines after the fixes:** 860 tests, 19/19 scenarios, code vs smoke 85% (200 games), code vs random 930/1000 (93%) with the fixes vs 930/1000 for the previous commit on the same seed: no regression.
 
+### 5j. Oct 7 night: match 2 on Opus, the real pool, and the operating plan for the week
+
+**Match 2 (self-play, full agent on Opus 5.5, both seats ours).** 26 model decisions, **26/26 answered by Opus, 0 fallbacks,
+0 zero-candidate turns**, median 2.9 s, p95 7.5 s, max 8.4 s; bank never below 395 s of 420. Two lethal rechecks fired
+(turns 8 and 10). Opus deviated from the code's top candidate on about a third of turns (e.g. Fake Out + Tailwind over
+focus fire on turn 1, attacking instead of switching a weak slot). Tokens: 272K in / 7K out, about $1.50 at list price
+before caching. Played to completion, player 1 won.
+
+**Real pool.** `scripts/pool_from_live.py` merges every card seen in captured live drafts into `sim/cards.json`: 18 real
+sets so far, 12 replaced our guesses (different EVs/moves), 6 new species (Lucario, Great Tusk, Salamence, Scream Tail,
+Sableye, Dondozo). Pool 42 -> 48. Rerun it after every captured match; the simulator and scenarios then tune on real sets.
+
+**Launcher dry run:** `./scripts/run_tournament.sh` passed pre-flight, connected, waited for tournament games, and restarted
+itself after a kill. (It plays tournament games only; add `--match` for test matches.)
+
+**What data we still need, and how many matches.** Self-play proved the pipeline (2 matches) and is now low value: the same
+brain on both sides cannot lose. The signal that matters is **matches against other contestants' agents**: "Open matches" on
+the Testing page, or test matches James creates with one seat left open. Target **10+ such matches before the Oct 13 freeze**,
+about $1.50 each on Opus. From each: result, fallbacks (must stay 0), latency p95, bank minimum, rechecks, and every lost
+battle mined with `scripts/loss_to_scenario.py` into a calc-checked scenario. Plus **one more self-play match** used for the
+real-runtime restart drill (kill the runtime mid-battle, start it again, confirm it resumes the seat).
+
+**Who runs the runtime.** James keeps one terminal open all week running `./scripts/run_tournament.sh --match` (one copy
+only; it survives restarts and plays every match he creates or joins), creates/joins matches on the dashboard, and the decision
+logs land in `logs/`. Claude reads the logs afterwards. Claude's background runs stop when the session ends, so they are for
+supervised experiments only.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |

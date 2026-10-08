@@ -1,0 +1,820 @@
+{
+ "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 7,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-57",
+  "turn": 5,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {},
+  "fields": {},
+  "side_conditions": {
+   "TAILWIND": 5
+  },
+  "opponent_side_conditions": {},
+  "team": {
+   "p2: Iron Bundle": {
+    "species": "ironbundle",
+    "name": "Iron Bundle",
+    "current_hp": 132,
+    "max_hp": 132,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "boosterenergy",
+    "types": [
+     "ICE",
+     "WATER"
+    ],
+    "base_stats": {
+     "atk": 80,
+     "def": 114,
+     "hp": 56,
+     "spa": 124,
+     "spd": 60,
+     "spe": 136
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "freezedry",
+     "hydropump",
+     "encore",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p2: Tornadus": {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 0,
+    "max_hp": 186,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "prankster",
+    "item": "mentalherb",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "bleakwindstorm",
+     "taunt",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": true,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Garchomp": {
+    "species": "garchomp",
+    "name": "Garchomp",
+    "current_hp": 124,
+    "max_hp": 184,
+    "current_hp_fraction": 0.6739130434782609,
+    "status": null,
+    "ability": "roughskin",
+    "item": "focussash",
+    "types": [
+     "DRAGON",
+     "GROUND"
+    ],
+    "base_stats": {
+     "atk": 130,
+     "def": 95,
+     "hp": 108,
+     "spa": 80,
+     "spd": 85,
+     "spe": 102
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "ironhead",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Incineroar": {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 0,
+    "max_hp": 201,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "intimidate",
+    "item": "safetygoggles",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "knockoff",
+     "partingshot",
+     "flareblitz"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Rillaboom": {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 205,
+    "max_hp": 205,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "grassysurge",
+    "item": "assaultvest",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "woodhammer",
+     "grassyglide",
+     "uturn"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p2: Basculegion": {
+    "species": "basculegion",
+    "name": "Basculegion",
+    "current_hp": 196,
+    "max_hp": 196,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "adaptability",
+    "item": "lifeorb",
+    "types": [
+     "WATER",
+     "GHOST"
+    ],
+    "base_stats": {
+     "atk": 112,
+     "def": 65,
+     "hp": 120,
+     "spa": 80,
+     "spd": 75,
+     "spe": 78
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "wavecrash",
+     "aquajet",
+     "liquidation",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p1: Iron Hands": {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "quarkdrive",
+    "item": "unknown_item",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": -1,
+     "evasion": 0,
+     "spa": 0,
+     "spd": -1,
+     "spe": 0
+    },
+    "moves": [
+     "closecombat",
+     "wildcharge"
+    ],
+    "fainted": true,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Salamence": {
+    "species": "salamence",
+    "name": "Salamence",
+    "current_hp": 29,
+    "max_hp": 100,
+    "current_hp_fraction": 0.29,
+    "status": null,
+    "ability": "intimidate",
+    "item": null,
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 80,
+     "hp": 95,
+     "spa": 110,
+     "spd": 80,
+     "spe": 100
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "tailwind",
+     "dracometeor",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Scream Tail": {
+    "species": "screamtail",
+    "name": "Scream Tail",
+    "current_hp": 48,
+    "max_hp": 100,
+    "current_hp_fraction": 0.48,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": "unknown_item",
+    "types": [
+     "FAIRY",
+     "PSYCHIC"
+    ],
+    "base_stats": {
+     "atk": 65,
+     "def": 99,
+     "hp": 115,
+     "spa": 65,
+     "spd": 115,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "dazzlinggleam"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   true
+  ],
+  "can_tera": [
+   false,
+   false
+  ],
+  "active_pokemon": [
+   {
+    "species": "garchomp",
+    "name": "Garchomp",
+    "current_hp": 124,
+    "max_hp": 184,
+    "current_hp_fraction": 0.6739130434782609,
+    "status": null,
+    "ability": "roughskin",
+    "item": "focussash",
+    "types": [
+     "DRAGON",
+     "GROUND"
+    ],
+    "base_stats": {
+     "atk": 130,
+     "def": 95,
+     "hp": 108,
+     "spa": 80,
+     "spd": 85,
+     "spe": 102
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "ironhead",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   null
+  ],
+  "opponent_active_pokemon": [
+   null,
+   {
+    "species": "screamtail",
+    "name": "Scream Tail",
+    "current_hp": 48,
+    "max_hp": 100,
+    "current_hp_fraction": 0.48,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": "unknown_item",
+    "types": [
+     "FAIRY",
+     "PSYCHIC"
+    ],
+    "base_stats": {
+     "atk": 65,
+     "def": 99,
+     "hp": 115,
+     "spa": 65,
+     "spd": 115,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "dazzlinggleam"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [],
+   []
+  ],
+  "available_switches": [
+   [
+    {
+     "species": "basculegion",
+     "name": "Basculegion",
+     "current_hp": 196,
+     "max_hp": 196,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "adaptability",
+     "item": "lifeorb",
+     "types": [
+      "WATER",
+      "GHOST"
+     ],
+     "base_stats": {
+      "atk": 112,
+      "def": 65,
+      "hp": 120,
+      "spa": 80,
+      "spd": 75,
+      "spe": 78
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "wavecrash",
+      "aquajet",
+      "liquidation",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ],
+   [
+    {
+     "species": "basculegion",
+     "name": "Basculegion",
+     "current_hp": 196,
+     "max_hp": 196,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "adaptability",
+     "item": "lifeorb",
+     "types": [
+      "WATER",
+      "GHOST"
+     ],
+     "base_stats": {
+      "atk": 112,
+      "def": 65,
+      "hp": 120,
+      "spa": 80,
+      "spd": 75,
+      "spe": 78
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "wavecrash",
+      "aquajet",
+      "liquidation",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ]
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-66e289 1 vs. able-p1-66e289 1",
+   "|j|☆able-p0-66e289 1",
+   "|j|☆able-p1-66e289 1",
+   "|gametype|doubles",
+   "|player|p1|able-p0-66e289 1|266|",
+   "|player|p2|able-p1-66e289 1|169|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Salamence, L50, F|",
+   "|poke|p1|Iron Hands, L50|",
+   "|poke|p1|Lucario, L50, F|",
+   "|poke|p1|Scream Tail, L50|",
+   "|poke|p1|Great Tusk, L50|",
+   "|poke|p1|Hatterene, L50, F|",
+   "|poke|p2|Iron Bundle, L50|",
+   "|poke|p2|Tornadus, L50, M|",
+   "|poke|p2|Garchomp, L50, F|",
+   "|poke|p2|Incineroar, L50, F|",
+   "|poke|p2|Rillaboom, L50, M|",
+   "|poke|p2|Basculegion, L50, M|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p1-66e289 1)",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p0-66e289 1 also wants the timer to be on.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Iron Hands|Iron Hands, L50|100/100",
+   "|switch|p1b: Salamence|Salamence, L50, F|100/100",
+   "|switch|p2a: Incineroar|Incineroar, L50, F|201/201",
+   "|switch|p2b: Tornadus|Tornadus, L50, M|186/186",
+   "|-ability|p1b: Salamence|Intimidate|boost",
+   "|-unboost|p2a: Incineroar|atk|1",
+   "|-unboost|p2b: Tornadus|atk|1",
+   "|-ability|p2a: Incineroar|Intimidate|boost",
+   "|-unboost|p1a: Iron Hands|atk|1",
+   "|-unboost|p1b: Salamence|atk|1",
+   "|turn|1",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p2a: Incineroar|Fake Out|p1a: Iron Hands",
+   "|-crit|p1a: Iron Hands",
+   "|-damage|p1a: Iron Hands|90/100",
+   "|cant|p1a: Iron Hands|flinch",
+   "|move|p2b: Tornadus|Tailwind|p2b: Tornadus",
+   "|-sidestart|p2: able-p1-66e289 1|move: Tailwind",
+   "|move|p1b: Salamence|Tailwind|p1b: Salamence",
+   "|-sidestart|p1: able-p0-66e289 1|move: Tailwind",
+   "|",
+   "|upkeep",
+   "|turn|2",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p2b: Tornadus|Bleakwind Storm|p1a: Iron Hands|[spread] p1a,p1b",
+   "|-damage|p1a: Iron Hands|70/100",
+   "|-damage|p1b: Salamence|62/100",
+   "|move|p1b: Salamence|Draco Meteor|p2a: Incineroar",
+   "|-damage|p2a: Incineroar|117/201",
+   "|-unboost|p1b: Salamence|spa|2",
+   "|move|p2a: Incineroar|Knock Off|p1b: Salamence",
+   "|-damage|p1b: Salamence|29/100",
+   "|-enditem|p1b: Salamence|Lum Berry|[from] move: Knock Off|[of] p2a: Incineroar",
+   "|move|p1a: Iron Hands|Close Combat|p2a: Incineroar",
+   "|-supereffective|p2a: Incineroar",
+   "|-damage|p2a: Incineroar|0 fnt",
+   "|-unboost|p1a: Iron Hands|def|1",
+   "|-unboost|p1a: Iron Hands|spd|1",
+   "|faint|p2a: Incineroar",
+   "|",
+   "|upkeep",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|switch|p2a: Garchomp|Garchomp, L50, F|184/184",
+   "|turn|3",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p1b: Salamence|Protect|p1b: Salamence",
+   "|-singleturn|p1b: Salamence|Protect",
+   "|move|p2b: Tornadus|Bleakwind Storm|p1a: Iron Hands|[spread] ",
+   "|-activate|p1b: Salamence|move: Protect",
+   "|-miss|p2b: Tornadus|p1a: Iron Hands",
+   "|move|p2a: Garchomp|Iron Head|p1b: Salamence",
+   "|-activate|p1b: Salamence|move: Protect",
+   "|move|p1a: Iron Hands|Wild Charge|p2b: Tornadus",
+   "|-supereffective|p2b: Tornadus",
+   "|-damage|p2b: Tornadus|4/186",
+   "|-damage|p1a: Iron Hands|52/100|[from] Recoil",
+   "|",
+   "|upkeep",
+   "|turn|4",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|switch|p1b: Scream Tail|Scream Tail, L50|100/100",
+   "|move|p2b: Tornadus|Protect|p2b: Tornadus",
+   "|-singleturn|p2b: Tornadus|Protect",
+   "|move|p2a: Garchomp|Iron Head|p1b: Scream Tail",
+   "|-supereffective|p1b: Scream Tail",
+   "|-damage|p1b: Scream Tail|70/100",
+   "|move|p1a: Iron Hands|Wild Charge|p2b: Tornadus",
+   "|-activate|p2b: Tornadus|move: Protect",
+   "|",
+   "|-sideend|p2: able-p1-66e289 1|move: Tailwind",
+   "|-sideend|p1: able-p0-66e289 1|move: Tailwind",
+   "|upkeep",
+   "|turn|5",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p2b: Tornadus|Tailwind|p2b: Tornadus",
+   "|-sidestart|p2: able-p1-66e289 1|move: Tailwind",
+   "|move|p2a: Garchomp|Earthquake|p1b: Scream Tail|[spread] p1a,p1b",
+   "|-immune|p2b: Tornadus",
+   "|-supereffective|p1a: Iron Hands",
+   "|-damage|p1a: Iron Hands|0 fnt",
+   "|-damage|p1b: Scream Tail|48/100",
+   "|faint|p1a: Iron Hands",
+   "|-end|p1a: Iron Hands|Quark Drive|[silent]",
+   "|move|p1b: Scream Tail|Dazzling Gleam|p2b: Tornadus|[spread] p2a,p2b",
+   "|-supereffective|p2a: Garchomp",
+   "|-damage|p2a: Garchomp|124/184",
+   "|-damage|p2b: Tornadus|0 fnt",
+   "|faint|p2b: Tornadus",
+   "|",
+   "|upkeep"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 420
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "37047e8a-c54b-4033-a672-8e5d869d43bc",
+  "position": 1
+ },
+ "legal_actions": {
+  "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+  "state_version": 7,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "66e2891d-e9d7-455c-88d2-8f5885b6ff60",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "garchomp",
+         "name": "Garchomp",
+         "current_hp": 124,
+         "max_hp": 184,
+         "current_hp_fraction": 0.6739130434782609,
+         "status": null,
+         "ability": "roughskin",
+         "item": "focussash",
+         "types": [
+          "DRAGON",
+          "GROUND"
+         ],
+         "base_stats": {
+          "atk": 130,
+          "def": 95,
+          "hp": 108,
+          "spa": 80,
+          "spd": 85,
+          "spe": 102
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "earthquake",
+          "rockslide",
+          "ironhead",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "pass"
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": null,
+        "force_switch": true,
+        "options": [
+         {
+          "type": "switch",
+          "species": "basculegion"
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 7
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}
