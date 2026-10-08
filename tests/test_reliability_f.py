@@ -461,3 +461,75 @@ def test_launcher_script_parses_and_stops_on_a_failed_preflight():
     assert subprocess.run(["bash", "-n", str(script)], capture_output=True).returncode == 0
     text = script.read_text()
     assert "pipefail" in text.split("check-tournament")[0], "pipefail must be set before the pre-flight's tee pipeline"
+
+
+# -- F4: circuit breaker -------------------------------------------------------------------------------------------
+
+
+def _breaker_agent(tmp_path, *answers):
+    from examples.llm.base import Choice
+
+    lines: list[str] = []
+    provider = _FakeProvider(*answers)
+    agent = PokemonAgent(provider, version="f4", log_dir=tmp_path, capture_dir="", log=lines.append)
+    choice = Choice(kind="doubles_turn", prompt={}, schema={"type": "object"}, build=lambda answer: dict(answer), fallback=lambda: {"computed": True})
+    return agent, provider, choice, lines
+
+
+def test_two_consecutive_all_model_failures_skip_the_model_once_then_retry(tmp_path):
+    from examples.llm.providers import ProviderError
+
+    dead = ProviderError("every model failed: a: timed out after 18s | b: timed out after 8s")
+    answer = {"slot_0": {"option": 0}, "reasoning_summary": "ok"}
+    agent, provider, choice, lines = _breaker_agent(tmp_path, dead, dead, answer, dead, dead, answer)
+
+    value, _, info = agent._ask(choice, {}, kind="turn")  # failure 1
+    assert value == {"computed": True} and "breaker" not in info and not agent._breaker_open
+    value, _, info = agent._ask(choice, {}, kind="turn")  # failure 2: the breaker opens
+    assert value == {"computed": True} and info["breaker"] == "open" and agent._breaker_open
+    assert len(provider.calls) == 2
+    value, _, info = agent._ask(choice, {}, kind="turn")  # skipped: no model call at all, code plays #1 at once
+    assert value == {"computed": True} and info["breaker"] == "skipped" and info["fallback"] is True
+    assert len(provider.calls) == 2 and agent._breaker_skips == 1 and not agent._breaker_open
+    value, answered, info = agent._ask(choice, {}, kind="turn")  # retried: the model answers, the breaker closes
+    assert answered == answer and info["breaker"] == "closed" and agent._consecutive_failures == 0
+    assert len(provider.calls) == 3
+
+    # an outage that goes on: fail, fail, skip, fail (3rd in a row) -> skip again, then the model comes back
+    agent._ask(choice, {}, kind="turn")
+    agent._ask(choice, {}, kind="turn")
+    assert agent._breaker_open and agent._consecutive_failures == 2
+    assert agent._ask(choice, {}, kind="turn")[2]["breaker"] == "skipped"
+    value, answered, info = agent._ask(choice, {}, kind="turn")
+    assert answered == answer and info["breaker"] == "closed" and len(provider.calls) == 6
+    transitions = [line for line in lines if "circuit breaker" in line]
+    assert [("OPEN" in t, "SKIPPING" in t, "CLOSED" in t) for t in transitions] == [
+        (True, False, False), (False, True, False), (False, False, True), (True, False, False), (False, True, False), (False, False, True)]
+    assert agent.memory.llm_calls == 6 and agent._breaker_skips == 2 and agent._all_failed == 4
+
+
+def test_one_failure_followed_by_an_answer_never_trips_the_breaker(tmp_path):
+    from examples.llm.providers import ProviderError
+
+    answer = {"slot_0": {"option": 0}, "reasoning_summary": "ok"}
+    agent, provider, choice, lines = _breaker_agent(tmp_path, ProviderError("every model failed: x"), answer,
+                                                    ProviderError("every model failed: x"), answer)
+    for _ in range(4):
+        agent._ask(choice, {}, kind="turn")
+    assert len(provider.calls) == 4 and agent._breaker_skips == 0
+    assert not [line for line in lines if "OPEN" in line]
+
+
+def test_the_breaker_skip_is_visible_in_the_decision_log(tmp_path):
+    from examples.llm.providers import ProviderError
+
+    dead = ProviderError("every model failed: x")
+    lines: list[str] = []
+    provider = _FakeProvider(dead, dead)
+    agent = PokemonAgent(provider, version="f4", log_dir=tmp_path, capture_dir="", log=lines.append)
+    for _ in range(3):
+        agent.choose_action(_doubles(GOOD_SLOTS), CTX)
+    turns = [r for r in _rows(tmp_path) if r["kind"] == "turn"]
+    assert [t.get("breaker") for t in turns] == [None, "open", "skipped"]
+    assert turns[2]["fallback"] is True and turns[2]["model"] is None and len(provider.calls) == 2
+    assert "breaker skips 1" in agent.match_summary()

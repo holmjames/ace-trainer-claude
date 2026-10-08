@@ -58,6 +58,7 @@ MAX_ATTEMPTS = 2  # first answer + one retry carrying the validation error
 SECOND_CALL_CUTOFF_SECONDS = 10.0  # a retry/recheck after this many seconds could push a decision past Showdown's 55 s clock
 MIN_DECISION_SECONDS_FOR_MODEL = 25.0  # below this the model chain (worst case ~30 s) could run the decision out: play the computed move
 MIN_BANK_SECONDS_FOR_MODEL = 90.0      # a nearly empty bank forfeits the battle; stop spending it on model calls
+BREAKER_FAILURES = 2  # consecutive decisions on which every model failed before one decision skips the model entirely
 
 
 def _clock_budget(clock: dict | None) -> tuple[float | None, float | None, float]:
@@ -140,6 +141,8 @@ class PokemonAgent:
         self.decision_log: DecisionLog | None = None
         self._all_failed = 0  # decisions on which every model failed (the ALL MODELS FAILED banner)
         self._breaker_skips = 0  # decisions the circuit breaker kept away from the model
+        self._consecutive_failures = 0  # all-model failures in a row (reset by any model answer)
+        self._breaker_open = False  # the next decision skips the model
         self._lineup_model: str | None = None  # who answered Team Preview (None: code)
         self._summarized = False
 
@@ -369,6 +372,20 @@ class PokemonAgent:
             info["fallback"] = True
             self.memory.fallbacks += 1
             return choice.fallback(), None, info
+        if self._breaker_open:
+            # Two decisions in a row on which every model failed (timeouts, 5xx, a dead key): each costs the whole
+            # chain's timeouts (~30 s of a 50 s decision). Skip the model once, play the computed move at once, then
+            # try the model again on the next decision.
+            self._breaker_open = False
+            self._breaker_skips += 1
+            info["errors"].append(f"circuit breaker: {self._consecutive_failures} consecutive all-model failures; "
+                                  "skipping the model this decision, retrying on the next")
+            info["fallback"] = True
+            info["breaker"] = "skipped"
+            self.memory.fallbacks += 1
+            self._say(f"[agent] circuit breaker: SKIPPING the model on this {kind} after {self._consecutive_failures} "
+                      "consecutive failures (code plays #1); retrying on the next decision")
+            return choice.fallback(), None, info
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -382,11 +399,21 @@ class PokemonAgent:
             except ProviderError as exc:
                 info["errors"].append(str(exc))
                 self._all_failed += 1
+                self._consecutive_failures += 1
                 # Loud on purpose: a dead key or a dead API plays the whole match code-only, and the runtime log is
                 # the only place anyone would see it (the provider's own lines say "trying next provider").
                 self._say(f"[agent] !!! ALL MODELS FAILED on this {kind} ({self._all_failed} so far this match): {exc} "
                           "— playing the computed move !!!")
+                if self._consecutive_failures >= BREAKER_FAILURES:
+                    self._breaker_open = True
+                    info["breaker"] = "open"
+                    self._say(f"[agent] circuit breaker OPEN after {self._consecutive_failures} consecutive all-model failures: "
+                              "the next decision skips the model")
                 break  # every model failed; retrying the same question won't help
+            if self._consecutive_failures:
+                self._say(f"[agent] circuit breaker CLOSED: the model answered again after {self._consecutive_failures} failure(s)")
+                info["breaker"] = "closed"
+                self._consecutive_failures = 0
             info["model"] = getattr(self._provider, "last_model", None) or getattr(self._provider, "model", None)
             info["latency_ms"] = getattr(self._provider, "last_latency_ms", None)
             info["usage"] = getattr(self._provider, "last_usage", None)
