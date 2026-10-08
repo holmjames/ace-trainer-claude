@@ -46,9 +46,11 @@ def base_args(g, *extra: str) -> list[str]:
 class FakeRunner:
     """Stands in for run_logged: answers check commands with canned output and series commands with a --out file."""
 
-    def __init__(self, series: dict[str, tuple[int, int]], checks: dict[str, tuple[int, str]] | None = None) -> None:
+    def __init__(self, series: dict[str, tuple[int, int]], checks: dict[str, tuple[int, str]] | None = None,
+                 logs: list[dict] | None = None) -> None:
         self.series = series      # opponent-spec substring -> (A's wins, decided games)
         self.checks = checks or {}
+        self.logs = logs or []    # decision-log rows written under --log-dir, when a series asks for one
         self.calls: list[tuple[list[str], dict | None]] = []
 
     def __call__(self, cmd: list[str], log_path: Path, env: dict | None = None) -> tuple[int, float, str]:
@@ -63,6 +65,10 @@ class FakeRunner:
                     fh.write(json.dumps({"seed": i, "specs": {"p1": a, "p2": b}, "first": "p1", "winner": "p1" if i < wins else "p2",
                                          "turns": 7, "seconds": 0.5, "seat_seconds": {"p1": 0.2, "p2": 0.2}}) + "\n")
                 fh.write(json.dumps({"seed": games, "specs": {"p1": a, "p2": b}, "first": "p1", "winner": None, "turns": 120, "seconds": 9.0}) + "\n")
+            if "--log-dir" in cmd:
+                log_dir = Path(cmd[cmd.index("--log-dir") + 1])
+                log_dir.mkdir(parents=True, exist_ok=True)
+                (log_dir / "eval-1-0.jsonl").write_text("".join(json.dumps(r) + "\n" for r in self.logs))
             return 0, 12.0, f"{a} vs {b}: done"
         for key, (rc, tail) in self.checks.items():
             if any(key in part for part in cmd):
@@ -169,6 +175,7 @@ def test_quick_tier_log_lines_and_verdicts(gate, monkeypatch, capsys):
     assert (mirror["games"], mirror["wins"], mirror["point"], mirror["seed"], mirror["pairs"]) == (600, 306, 51.0, 7, 300)
     assert mirror["lo"] == pytest.approx(47.0, abs=0.1) and mirror["hi"] == pytest.approx(55.0, abs=0.1) and mirror["seconds_per_game"] == pytest.approx(0.51, abs=0.01)
     assert mirror["pass"] is True and mirror["kind"] == "reliability" and mirror["spec"] == {"a": "agent.versions.code_only", "b": f"checkout:{g['mirror']}"}
+    assert mirror["games_per_minute"] == 3000.0  # 600 games in the fake's 12 s
     clone = rows["quick:clone"]
     assert clone["budgets"] == {"preview": 2.0, "turn": None} and clone["pass"] is None and "baseline" in clone["note"]
     assert rows["quick:old"]["pass"] is True and rows["quick:old"]["point"] == 90.0
@@ -217,6 +224,36 @@ def test_the_pinned_clone_is_the_first_pin_and_the_latest_is_the_newest(tmp_path
     assert (args.clone, args.clone_latest) == (opponents / "x-2026-10-01", opponents / "x-2026-10-02")
     args = ship_gate.parse_args(["--adoption", "--clone", str(opponents / "x-2026-10-01"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
     assert args.clone_latest is None  # an explicit --clone never grows a --clone-latest by itself
+
+
+OK_ROWS = [{"kind": "turn", "latency_ms": 9000, "fallback": False, "attempts": 1, "model": "m"}] * 10 + [
+    {"kind": "lineup", "latency_ms": 15000, "fallback": False, "attempts": 1, "model": "m"},
+    {"kind": "turn", "latency_ms": None, "fallback": True, "attempts": 0, "model": None, "errors": ["clock too short for a model call"]},
+    {"kind": "config", "commit": None}]
+
+
+def test_the_opus_stage_reads_latency_and_fallbacks_from_the_decision_logs(gate, monkeypatch, capsys):
+    g = gate
+    runner = FakeRunner({"checkout_shim": (12, 20)}, logs=OK_ROWS)
+    monkeypatch.setattr(ship_gate, "run_logged", runner)
+    rc = ship_gate.main(base_args(g, "--adoption", "--skip-checks", "--previous", "30", "--opus-games", "20", "--opus-clock"))
+    capsys.readouterr()
+    rows = {r["stage"]: r for r in ship_gate.load_log(g["log"])}
+    opus = rows["adoption:opus"]
+    assert rc == 0 and opus["pass"] is True and opus["spec"]["a"] == "fable" and opus["pairs"] == 10
+    assert (opus["decisions"], opus["model_calls"], opus["model_fallbacks"], opus["clock_fallbacks"]) == (12, 11, 0, 1)
+    assert opus["p95_latency_s"] == 15.0 and opus["mean_latency_s"] == pytest.approx(9.55, abs=0.01) and opus["games_per_minute"] == 100.0  # 11 samples: the 95th percentile is the slowest
+    cmd = next(c for c, _ in runner.calls if "fable" in c)
+    assert "--log-dir" in cmd and "--clock" in cmd and cmd[cmd.index("--log-dir") + 1] == opus["decision_logs"]
+    # a decision every model failed on, or a slow p95, or no model at all, each fails the stage
+    for logs, why in ((OK_ROWS + [{"kind": "turn", "latency_ms": 30000, "fallback": True, "attempts": 2, "model": "m"}], "all-models-failed 1"),
+                      ([{"kind": "turn", "latency_ms": 25000, "fallback": False, "attempts": 1, "model": "m"}] * 3, "p95 25.0"),
+                      ([{"kind": "turn", "latency_ms": None, "fallback": True, "attempts": 0, "model": None}], "no model answered")):
+        monkeypatch.setattr(ship_gate, "run_logged", FakeRunner({"checkout_shim": (12, 20)}, logs=logs))
+        assert ship_gate.main(base_args(g, "--adoption", "--skip-checks", "--previous", "30", "--opus-games", "4")) == 1
+        capsys.readouterr()
+        last = ship_gate.load_log(g["log"])[-1]
+        assert last["stage"] == "adoption:opus" and last["pass"] is False and why in last["note"]
 
 
 def test_record_deploy_writes_one_row(gate, capsys):
