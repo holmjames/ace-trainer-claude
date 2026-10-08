@@ -102,6 +102,7 @@ class Scenario:
     # Who just switched in this turn (Fake Out live). On turn 1 everyone is fresh; after that, nobody unless listed.
     my_fresh: tuple[str, ...] = ()
     their_fresh: tuple[str, ...] = ()
+    my_protected_last: tuple[str, ...] = ()  # our actives that used Protect last turn (streak 1): a repeat works 1 in 3
 
 
 def move_of(payload: dict, slot: str) -> str | None:
@@ -192,6 +193,14 @@ HARD: list[Scenario] = [
         mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
         accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and (move_of(p, "slot_1") in ("dazzlinggleam", "moonblast", "shadowball", "protect") or p["slot_1"].get("type") == "switch"),
         accept_text="Garchomp must Protect or pivot to Incineroar (Chien-Pao speed-ties/outspeeds it and Icicle Crash is 4x). Flutter Mane either breaks the sash with Dazzling Gleam, or, since Sword of Ruin makes Kingambit's Sucker Punch and Chien-Pao's Icicle Crash both lethal to it, Protects or pivots out. Attacking with Garchomp just loses it.",
+    ),
+    Scenario(
+        "repeat_protect_pinned", "Garchomp Protected LAST turn and Chien-Pao's 4x Icicle Crash still KOs it before it moves; Incineroar waits on the bench. A second Protect works 1 time in 3.",
+        ("garchomp", "fluttermane"), ("chienpao", "kingambit"), hard=True, turn=3, my_protected_last=("garchomp",), my_bench=("incineroar", "rillaboom"),
+        their_hp={"chienpao": 0.35},
+        mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
+        accept=lambda p: p["slot_0"].get("type") == "switch",
+        accept_text="Garchomp must switch out (Incineroar resists Ice and Intimidates). Protecting again is a 1-in-3 gamble with the game on the line, and attacking loses Garchomp before it moves.",
     ),
     Scenario(
         "intimidate_the_dancer", "Gyarados sits at +1 Attack after Dragon Dance beside Pelipper; our Amoonguss + Whimsicott, Incineroar (Intimidate) on the bench.",
@@ -322,6 +331,12 @@ def run(sc: Scenario, *, code_only: bool, log_dir: Path) -> dict:
     if sc.turn and sc.turn > 1:
         agent.memory.last_active = [species_key(CARDS[s]["species"]) for s in sc.my_active if s not in sc.my_fresh]
         agent.memory.opp_last_active = [species_key(CARDS[s]["species"]) for s in sc.their_active if s not in sc.their_fresh]
+        if sc.my_protected_last:
+            payload = {"type": "doubles_turn"}
+            for n, key in enumerate(sc.my_active):
+                payload[f"slot_{n}"] = {"type": "move", "move_id": "protect"} if key in sc.my_protected_last else {"type": "move", "move_id": "tackle", "target": 1}
+            agent.memory.record_turn(turn=sc.turn - 1, payload=payload, model=None,
+                                     actives=[species_key(CARDS[s]["species"]) for s in sc.my_active])
     template = build_template(sc, mine_bring)
     obs = build_observation(sc, mine_bring)
     state = GameState.from_mcp_state({

@@ -565,8 +565,11 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             sheet.notes.append(f"Their {opp.species} holds an intact Focus Sash: it needs two hits or a multi-hit move to KO this turn.")
 
     for number, me in sorted(ours.items()):
-        if memory.our_protect_last_turn(me.species, number):
-            sheet.notes.append(f"Our {me.species} used Protect LAST turn: a repeat only works 1 time in 3.")
+        streak = memory.protect_streak(me.species, number)
+        if streak:
+            odds = 3 ** streak
+            sheet.notes.append(f"Our {me.species} used Protect {'LAST turn' if streak == 1 else f'{streak} turns in a row'}: another one works only 1 time in {odds}. "
+                               "Switch it out or attack instead of protecting again.")
     for key in memory.opp_protected_last_turn:
         name = next((o.species for o in theirs.values() if species_key(o.species) == key), key)
         sheet.notes.append(f"Their {name} probably Protected last turn (we hit it and its HP did not move): a second Protect in a row fails 2/3 of the time, so this is the turn to attack it.")
@@ -1106,22 +1109,26 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 note = f"{threat['species']}'s {hit['move']} goes THROUGH Protect (Unseen Fist / Protect-piercing move): switch slot {endangered} out instead of protecting."
                 if note not in sheet.warnings:
                     sheet.warnings.append(note)
+            me_e = ours.get(endangered)
+            streak = memory.protect_streak(me_e.species, endangered) if (me_e is not None and memory is not None) else 0
             if protect is not None and best[other][0]:
                 answers = {endangered: {"option": protect, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
                 bonus = P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"] * (0.5 + ko_probability(hit))
-                me_e = ours.get(endangered)
-                if me_e is not None and memory is not None and memory.our_protect_last_turn(me_e.species, endangered):
-                    bonus *= 0.33  # consecutive Protect succeeds 1/3 of the time
+                bonus *= 0.33 ** streak  # each consecutive Protect succeeds 1/3 as often: 1/3, then 1/9 (seen: 3 in a row in self-play)
                 add("protect_threatened", answers[0], answers[1],
-                    f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
+                    f"{threat['species']}'s {hit['move']} can KO slot {endangered} ({hit['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks"
+                    + (f" (Protect used {streak} turn(s) in a row already: only 1 in {3 ** streak} to work)" if streak else ""),
                     best[other][2] + bonus)
-            elif slot and best[other][0]:
+            if slot and best[other][0] and (protect is None or streak >= 1):
+                # No Protect, or Protect is a coin we already flipped: offer the switch so the judge sees the alternative.
                 switch = best_switch(slot, theirs, memory)[0] if memory is not None else _option_index(slot, "switch")
                 if switch is not None:
                     answers = {endangered: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
                     add("switch_threatened", answers[0], answers[1],
-                        f"{threat['species']}'s {hit['move']} can KO slot {endangered}" + (" and pierces Protect" if pierces_protect else "") + f"; switch it out, slot {other} attacks",
-                        best[other][2] + P["switch_threatened_bonus"] + (P["protect_bonus_guaranteed"] if pierces_protect else 0) * ko_probability(hit))
+                        f"{threat['species']}'s {hit['move']} can KO slot {endangered}" + (" and pierces Protect" if pierces_protect else "")
+                        + (f"; it already Protected {streak} turn(s) in a row" if streak else "") + f"; switch it out, slot {other} attacks",
+                        best[other][2] + P["switch_threatened_bonus"] + (P["protect_bonus_guaranteed"] if pierces_protect else 0) * ko_probability(hit)
+                        + (P["protect_bonus_guaranteed"] * (1 - 0.33 ** streak) if streak else 0))
 
     # 3b. Redirection: Follow Me / Rage Powder soaks a single-target lethal hit aimed at our partner, who then
     #     gets its turn (setup or attack). Only when the redirector is sturdier than the partner against that hit.

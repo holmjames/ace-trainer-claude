@@ -163,11 +163,31 @@ class MatchMemory:
     last_opp_hp: dict[str, float] = field(default_factory=dict)  # species_key -> hp fraction seen last turn
     opp_protected_last_turn: list[str] = field(default_factory=list)  # inferred: we hit it, its HP did not move
 
+    PROTECT_LIKE = frozenset({"protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "wideguard", "quickguard", "obstruct", "kingsshield"})
+
     def record_turn(self, **fields: Any) -> None:
+        fields.setdefault("actives", list(self.last_active))  # who stood in each slot when this was played
         self.turns.append(fields)
         payload = fields.get("payload")
         if isinstance(payload, dict):
             self.last_payload = payload
+
+    def protect_streak(self, species: str, slot: int) -> int:
+        """How many turns in a row the Pokémon now in ``slot`` has just used a Protect-like move (0 = none).
+        Each repeat succeeds with probability 1/3 of the previous one, so a streak of 2 means the next try works 1 in 9."""
+        me = species_key(species)
+        streak = 0
+        for fields in reversed(self.turns):
+            payload = fields.get("payload") or {}
+            actives = fields.get("actives") or []
+            choice = payload.get(f"slot_{slot}") or {}
+            if len(actives) <= slot or actives[slot] != me:
+                break
+            if choice.get("type") == "move" and species_key(choice.get("move_id")) in self.PROTECT_LIKE:
+                streak += 1
+            else:
+                break
+        return streak
 
     def our_protect_last_turn(self, species: str, slot: int) -> bool:
         """Did the Pokémon now in ``slot`` use a Protect-like move last turn? (Consecutive Protect fails 2/3 of the time.)"""

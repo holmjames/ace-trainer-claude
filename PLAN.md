@@ -550,7 +550,14 @@ below runs on this laptop and is ordered by expected value per dollar. Adoption 
 - Oct 7 night, sweep 2 (real pool, 3,000 games each, seed 8): draft_offense_w=14 50.7 ± 1.8; draft_mode_w=8 50.1 ± 1.8;
   draft_offense_w=14 + lead_ohko_w=3 48.4; draft_offense_w=14 + draft_mode_w=8 48.0. **No variant clears 50%; defaults unchanged.**
   The code brain's weights are at a local optimum on the real pool; further gains must come from new logic (scenarios from real
-  losses), not from re-weighting. Gotcha: two simulator runs at once (sweep + sparring) both deadlocked on their engine bridges
+  losses), not from re-weighting.
+- Oct 7 late, first fix from the override grader: **repeated Protect**. In a self-play game Hatterene Protected on turns 5, 6 and 7
+  against the same lethal threat while a 1%-HP Sneasler stood there; the code only offered the switch when Protect was unavailable.
+  Now `MatchMemory.protect_streak` counts consecutive Protects by the Pokémon still in the slot, the Protect candidate's bonus
+  scales by 0.33^streak, the sheet says "another one works only 1 time in 3 / 9", and `switch_threatened` is offered whenever a
+  Protect was used last turn. New hard scenario `repeat_protect_pinned` (20/20 code-only). Same-seed 1,000-game baselines after
+  the change: vs random 94% (was 93%), vs smoke 84% (unchanged). 900 tests.
+  Gotcha: two simulator runs at once (sweep + sparring) both deadlocked on their engine bridges
   after ~15 min; run one simulator at a time.
 
 ### 5m. Oct 7 late: the project was living in iCloud, and that was the cause of every stall
