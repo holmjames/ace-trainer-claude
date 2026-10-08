@@ -128,14 +128,15 @@ def test_card_weight_and_tier_adjust_are_independent_knobs():
 
 
 # Live, the Oct 7 opponent took Incineroar first whenever it could; before the clamp our drafter had it 18th (L2),
-# 11th (L3) and 8th (L4) at pick 1. The clamp alone lifts it to 12th / 10th / 4th. The variant that lifts it to the
-# top five everywhere (draft_card_w 0 + draft_tier_adjust 1.25, Oct 8 draft-only replay: 4th / 2nd / 1st) showed no
-# gain over the eight live drafts and is not shipped (see test_card_weight_and_tier_adjust_are_independent_knobs), so
-# L2 and L3 are pinned as the known tension: these xfails are strict and will flag the day a change lifts it.
+# 11th (L3) and 8th (L4) at pick 1. The clamp alone lifts it to 8th / 7th / 6th (on the mech lane's Oct 8 calculator;
+# 12th / 10th / 3rd-4th before it). The variant that lifts it to the top five everywhere (draft_card_w 0 +
+# draft_tier_adjust 1.25, Oct 8 draft-only replay: 4th / 2nd / 1st) showed no gain over the eight live drafts and is
+# not shipped (see test_card_weight_and_tier_adjust_are_independent_knobs), so the three pools are pinned as the
+# known tension: these xfails are strict and will flag the day a change lifts it.
 @pytest.mark.parametrize("name", [
-    pytest.param("L2", marks=pytest.mark.xfail(strict=True, reason="clamp-only ranks Incineroar 12th on the L2 pool")),
-    pytest.param("L3", marks=pytest.mark.xfail(strict=True, reason="clamp-only ranks Incineroar 10th-11th on the L3 pool")),
-    "L4",
+    pytest.param("L2", marks=pytest.mark.xfail(strict=True, reason="clamp-only ranks Incineroar 8th-12th on the L2 pool")),
+    pytest.param("L3", marks=pytest.mark.xfail(strict=True, reason="clamp-only ranks Incineroar 7th-11th on the L3 pool")),
+    pytest.param("L4", marks=pytest.mark.xfail(strict=True, reason="clamp-only ranks Incineroar 6th on the L4 pool with the Oct 8 calculator")),
 ])
 def test_incineroar_is_a_top_five_first_pick_on_the_live_pools_that_offered_it(name):
     assert "Incineroar" not in POOLS["L1"][2]  # pool L1 never offered it (they opened with Dragonite)
