@@ -1,0 +1,1311 @@
+{
+ "session_id": "da9c168e-3ca5-457e-9e6a-6426870287b1",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 1,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-204",
+  "turn": 1,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {},
+  "fields": {},
+  "side_conditions": {},
+  "opponent_side_conditions": {},
+  "team": {
+   "p2: Iron Valiant": {
+    "species": "ironvaliant",
+    "name": "Iron Valiant",
+    "current_hp": 149,
+    "max_hp": 149,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "boosterenergy",
+    "types": [
+     "FAIRY",
+     "FIGHTING"
+    ],
+    "base_stats": {
+     "atk": 130,
+     "def": 90,
+     "hp": 74,
+     "spa": 120,
+     "spd": 60,
+     "spe": 116
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "moonblast",
+     "closecombat",
+     "thunderbolt",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p2: Thundurus": {
+    "species": "thundurus",
+    "name": "Thundurus",
+    "current_hp": 154,
+    "max_hp": 154,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "defiant",
+    "item": "lifeorb",
+    "types": [
+     "ELECTRIC",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "thunderbolt",
+     "sludgebomb",
+     "taunt",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p2: Landorus": {
+    "species": "landorustherian",
+    "name": "Landorus",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "choicescarf",
+    "types": [
+     "GROUND",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 90,
+     "hp": 89,
+     "spa": 105,
+     "spd": 80,
+     "spe": 91
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "uturn",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Tornadus": {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 186,
+    "max_hp": 186,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "prankster",
+    "item": "mentalherb",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "bleakwindstorm",
+     "taunt",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p2: Kingambit": {
+    "species": "kingambit",
+    "name": "Kingambit",
+    "current_hp": 207,
+    "max_hp": 207,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "supremeoverlord",
+    "item": "blackglasses",
+    "types": [
+     "DARK",
+     "STEEL"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 120,
+     "hp": 100,
+     "spa": 60,
+     "spd": 85,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "suckerpunch",
+     "ironhead",
+     "kowtowcleave",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Arcanine": {
+    "species": "arcanine",
+    "name": "Arcanine",
+    "current_hp": 197,
+    "max_hp": 197,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "safetygoggles",
+    "types": [
+     "FIRE"
+    ],
+    "base_stats": {
+     "atk": 110,
+     "def": 80,
+     "hp": 90,
+     "spa": 100,
+     "spd": 80,
+     "spe": 95
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "flareblitz",
+     "extremespeed",
+     "snarl",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p1: Flutter Mane": {
+    "species": "fluttermane",
+    "name": "Flutter Mane",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": null,
+    "types": [
+     "GHOST",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 55,
+     "def": 55,
+     "hp": 55,
+     "spa": 135,
+     "spd": 135,
+     "spe": 135
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Incineroar": {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   false
+  ],
+  "can_tera": [
+   true,
+   true
+  ],
+  "active_pokemon": [
+   {
+    "species": "landorustherian",
+    "name": "Landorus",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "choicescarf",
+    "types": [
+     "GROUND",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 90,
+     "hp": 89,
+     "spa": 105,
+     "spd": 80,
+     "spe": 91
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "uturn",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "kingambit",
+    "name": "Kingambit",
+    "current_hp": 207,
+    "max_hp": 207,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "supremeoverlord",
+    "item": "blackglasses",
+    "types": [
+     "DARK",
+     "STEEL"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 120,
+     "hp": 100,
+     "spa": 60,
+     "spd": 85,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "suckerpunch",
+     "ironhead",
+     "kowtowcleave",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_active_pokemon": [
+   {
+    "species": "fluttermane",
+    "name": "Flutter Mane",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": null,
+    "types": [
+     "GHOST",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 55,
+     "def": 55,
+     "hp": 55,
+     "spa": 135,
+     "spd": 135,
+     "spe": 135
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [
+    {
+     "id": "earthquake",
+     "type": "GROUND",
+     "category": "PHYSICAL",
+     "base_power": 100,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "ALL_ADJACENT",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "rockslide",
+     "type": "ROCK",
+     "category": "PHYSICAL",
+     "base_power": 75,
+     "accuracy": 0.9,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "ALL_ADJACENT_FOES",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "uturn",
+     "type": "BUG",
+     "category": "PHYSICAL",
+     "base_power": 70,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 32,
+     "max_pp": 32,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "kingambit"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "incineroar"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "id": "suckerpunch",
+     "type": "DARK",
+     "category": "PHYSICAL",
+     "base_power": 70,
+     "accuracy": 1.0,
+     "priority": 1,
+     "current_pp": 8,
+     "max_pp": 8,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "landorustherian"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "incineroar"
+      }
+     ]
+    },
+    {
+     "id": "ironhead",
+     "type": "STEEL",
+     "category": "PHYSICAL",
+     "base_power": 80,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 24,
+     "max_pp": 24,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "landorustherian"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "incineroar"
+      }
+     ]
+    },
+    {
+     "id": "kowtowcleave",
+     "type": "DARK",
+     "category": "PHYSICAL",
+     "base_power": 85,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "landorustherian"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "fluttermane"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "incineroar"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ]
+  ],
+  "available_switches": [
+   [
+    {
+     "species": "thundurus",
+     "name": "Thundurus",
+     "current_hp": 154,
+     "max_hp": 154,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "defiant",
+     "item": "lifeorb",
+     "types": [
+      "ELECTRIC",
+      "FLYING"
+     ],
+     "base_stats": {
+      "atk": 115,
+      "def": 70,
+      "hp": 79,
+      "spa": 125,
+      "spd": 80,
+      "spe": 111
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "thunderbolt",
+      "sludgebomb",
+      "taunt",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    },
+    {
+     "species": "arcanine",
+     "name": "Arcanine",
+     "current_hp": 197,
+     "max_hp": 197,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "intimidate",
+     "item": "safetygoggles",
+     "types": [
+      "FIRE"
+     ],
+     "base_stats": {
+      "atk": 110,
+      "def": 80,
+      "hp": 90,
+      "spa": 100,
+      "spd": 80,
+      "spe": 95
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "flareblitz",
+      "extremespeed",
+      "snarl",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ],
+   [
+    {
+     "species": "thundurus",
+     "name": "Thundurus",
+     "current_hp": 154,
+     "max_hp": 154,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "defiant",
+     "item": "lifeorb",
+     "types": [
+      "ELECTRIC",
+      "FLYING"
+     ],
+     "base_stats": {
+      "atk": 115,
+      "def": 70,
+      "hp": 79,
+      "spa": 125,
+      "spd": 80,
+      "spe": 111
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "thunderbolt",
+      "sludgebomb",
+      "taunt",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    },
+    {
+     "species": "arcanine",
+     "name": "Arcanine",
+     "current_hp": 197,
+     "max_hp": 197,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "intimidate",
+     "item": "safetygoggles",
+     "types": [
+      "FIRE"
+     ],
+     "base_stats": {
+      "atk": 110,
+      "def": 80,
+      "hp": 90,
+      "spa": 100,
+      "spd": 80,
+      "spe": 95
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "flareblitz",
+      "extremespeed",
+      "snarl",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ]
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-da9c16 1 vs. able-p1-da9c16 1",
+   "|j|☆able-p0-da9c16 1",
+   "|j|☆able-p1-da9c16 1",
+   "|gametype|doubles",
+   "|player|p1|able-p0-da9c16 1|266|",
+   "|player|p2|able-p1-da9c16 1|102|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Flutter Mane, L50|",
+   "|poke|p1|Incineroar, L50, F|",
+   "|poke|p1|Talonflame, L50, M|",
+   "|poke|p1|Gyarados, L50, F|",
+   "|poke|p1|Indeedee-F, L50, F|",
+   "|poke|p1|Lucario, L50, F|",
+   "|poke|p2|Iron Valiant, L50|",
+   "|poke|p2|Thundurus, L50, M|",
+   "|poke|p2|Landorus-Therian, L50, M|",
+   "|poke|p2|Tornadus, L50, M|",
+   "|poke|p2|Kingambit, L50, M|",
+   "|poke|p2|Arcanine, L50, F|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p1-da9c16 1)",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p0-da9c16 1 also wants the timer to be on.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Flutter Mane|Flutter Mane, L50|100/100",
+   "|switch|p1b: Incineroar|Incineroar, L50, F|100/100",
+   "|switch|p2a: Landorus|Landorus-Therian, L50, M|164/164",
+   "|switch|p2b: Kingambit|Kingambit, L50, M|207/207",
+   "|-ability|p2a: Landorus|Intimidate|boost",
+   "|-unboost|p1a: Flutter Mane|atk|1",
+   "|-unboost|p1b: Incineroar|atk|1",
+   "|-ability|p1b: Incineroar|Intimidate|boost",
+   "|-unboost|p2a: Landorus|atk|1",
+   "|-unboost|p2b: Kingambit|atk|1",
+   "|-enditem|p1a: Flutter Mane|Booster Energy",
+   "|-activate|p1a: Flutter Mane|ability: Protosynthesis|[fromitem]",
+   "|-start|p1a: Flutter Mane|protosynthesisspe",
+   "|turn|1"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 420
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "58c7bf70-038a-486b-a38d-9d64c585ec66",
+  "position": 1
+ },
+ "legal_actions": {
+  "session_id": "da9c168e-3ca5-457e-9e6a-6426870287b1",
+  "state_version": 1,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "da9c168e-3ca5-457e-9e6a-6426870287b1",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "landorustherian",
+         "name": "Landorus",
+         "current_hp": 164,
+         "max_hp": 164,
+         "current_hp_fraction": 1.0,
+         "status": null,
+         "ability": "intimidate",
+         "item": "choicescarf",
+         "types": [
+          "GROUND",
+          "FLYING"
+         ],
+         "base_stats": {
+          "atk": 145,
+          "def": 90,
+          "hp": 89,
+          "spa": 105,
+          "spd": 80,
+          "spe": 91
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": -1,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "earthquake",
+          "rockslide",
+          "uturn",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "earthquake",
+          "base_power": 100,
+          "category": "PHYSICAL",
+          "move_type": "GROUND",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "rockslide",
+          "base_power": 75,
+          "category": "PHYSICAL",
+          "move_type": "ROCK",
+          "current_pp": 16,
+          "accuracy": 0.9,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "uturn",
+          "base_power": 70,
+          "category": "PHYSICAL",
+          "move_type": "BUG",
+          "current_pp": 32,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "kingambit"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "incineroar"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "thundurus"
+         },
+         {
+          "type": "switch",
+          "species": "arcanine"
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": {
+         "species": "kingambit",
+         "name": "Kingambit",
+         "current_hp": 207,
+         "max_hp": 207,
+         "current_hp_fraction": 1.0,
+         "status": null,
+         "ability": "supremeoverlord",
+         "item": "blackglasses",
+         "types": [
+          "DARK",
+          "STEEL"
+         ],
+         "base_stats": {
+          "atk": 135,
+          "def": 120,
+          "hp": 100,
+          "spa": 60,
+          "spd": 85,
+          "spe": 50
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": -1,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "suckerpunch",
+          "ironhead",
+          "kowtowcleave",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "suckerpunch",
+          "base_power": 70,
+          "category": "PHYSICAL",
+          "move_type": "DARK",
+          "current_pp": 8,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "landorustherian"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "incineroar"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "ironhead",
+          "base_power": 80,
+          "category": "PHYSICAL",
+          "move_type": "STEEL",
+          "current_pp": 24,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "landorustherian"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "incineroar"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "kowtowcleave",
+          "base_power": 85,
+          "category": "PHYSICAL",
+          "move_type": "DARK",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "landorustherian"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "fluttermane"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "incineroar"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "thundurus"
+         },
+         {
+          "type": "switch",
+          "species": "arcanine"
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 1
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}
