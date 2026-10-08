@@ -35,5 +35,5 @@ logs/
 tests/fixtures/captured/
 
 # Local Showdown engine for self-play (npm install in sim/)
-sim/node_modules/
+sim/node_modules
 sim/package-lock.json
