@@ -203,6 +203,22 @@ def test_tripwires_and_the_adoption_bar_read_the_log(gate, monkeypatch, capsys):
     assert rows[-1]["stage"] == "adoption:clone" and rows[-1]["pass"] is False and "deploy" in rows[-1]["note"]
 
 
+def test_the_pinned_clone_is_the_first_pin_and_the_latest_is_the_newest(tmp_path, monkeypatch):
+    opponents = tmp_path / "opponents"
+    for name in ("x-2026-10-01", "x-2026-10-02"):
+        (opponents / name / "agent").mkdir(parents=True)
+        (opponents / name / "agent" / "agent.py").write_text("")
+    monkeypatch.setattr(ship_gate, "OPPONENTS", opponents)
+    assert ship_gate.pinned_clone() == opponents / "x-2026-10-01" and ship_gate.newest_clone() == opponents / "x-2026-10-02"
+    (opponents / "PINS.txt").write_text("abc1234 2026-10-02 x-2026-10-02\nzzz 2026-10-01 x-2026-10-01\n")
+    assert ship_gate.pinned_clone() == opponents / "x-2026-10-02"  # the first pin wins, whatever the dates say
+    (opponents / "PINS.txt").write_text("abc1234 2026-10-01 x-2026-10-01\n")
+    args = ship_gate.parse_args(["--adoption", "--clone-python", str(tmp_path / "py"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
+    assert (args.clone, args.clone_latest) == (opponents / "x-2026-10-01", opponents / "x-2026-10-02")
+    args = ship_gate.parse_args(["--adoption", "--clone", str(opponents / "x-2026-10-02"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
+    assert args.clone_latest is None  # the pin already is the newest
+
+
 def test_record_deploy_writes_one_row(gate, capsys):
     g = gate
     assert ship_gate.main(base_args(g, "--record-deploy", "48.3")) == 0

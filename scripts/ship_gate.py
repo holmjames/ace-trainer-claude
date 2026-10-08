@@ -96,9 +96,28 @@ def run_logged(cmd: list[str], log_path: Path, env: dict | None = None) -> tuple
     return proc.returncode, seconds, tail
 
 
+def dated_clones() -> list[Path]:
+    """The external checkouts under ~/projects/opponents, oldest first (one dated directory per refresh)."""
+    return sorted(p.parent.parent for p in OPPONENTS.glob("*/agent/agent.py")) if OPPONENTS.is_dir() else []
+
+
+def pinned_clone() -> Path | None:
+    """The clone the baselines were measured against: the first line of PINS.txt (``<sha> <date> <dir>``), else the oldest."""
+    pins = OPPONENTS / "PINS.txt"
+    if pins.exists():
+        for line in pins.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                candidate = OPPONENTS / line.split()[-1]
+                if (candidate / "agent" / "agent.py").exists():
+                    return candidate
+                break
+    clones = dated_clones()
+    return clones[0] if clones else None
+
+
 def newest_clone() -> Path | None:
-    found = sorted(p.parent.parent for p in OPPONENTS.glob("*/agent/agent.py")) if OPPONENTS.is_dir() else []
-    return found[-1] if found else None
+    clones = dated_clones()
+    return clones[-1] if clones else None
 
 
 # ---------------------------------------------------------------- the gate log
@@ -333,8 +352,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--base", default="origin/pokemon-agent", help="commit the greps diff against (the previous next tip, or what is public)")
     ap.add_argument("--mirror", help="worktree checked out at the previous next tip (quick tier)")
     ap.add_argument("--old", default=str(Path.home() / "projects" / "ace-trainer-wt-old"), help="the Oct 7 worktree")
-    ap.add_argument("--clone", type=Path, default=None, help="the pinned external checkout (default: the newest dated one)")
-    ap.add_argument("--clone-latest", type=Path, default=None, help="the latest dated external checkout (adoption tier)")
+    ap.add_argument("--clone", type=Path, default=None, help="the pinned external checkout (default: the first line of PINS.txt, else the oldest dated one)")
+    ap.add_argument("--clone-latest", type=Path, default=None, help="the latest dated external checkout (adoption tier; default: the newest dated one when it differs from the pin)")
     ap.add_argument("--clone-python", type=Path, default=OPPONENTS / "venv" / "bin" / "python")
     ap.add_argument("--candidate", default="agent.versions.code_only", help="the build under test, in sim/draft_eval.py spelling")
     ap.add_argument("--seed", type=int, default=1)
@@ -358,7 +377,11 @@ def build_parser() -> argparse.ArgumentParser:
 def parse_args(argv: list[str] | None = None):
     args = build_parser().parse_args(argv)
     if args.clone is None:
-        args.clone = newest_clone()
+        args.clone = pinned_clone()
+    if args.adoption and args.clone_latest is None:
+        latest = newest_clone()
+        if latest is not None and args.clone is not None and latest.resolve() != Path(args.clone).expanduser().resolve():
+            args.clone_latest = latest
     for name in ("clone", "clone_latest", "clone_python"):
         value = getattr(args, name)
         if value is not None:
