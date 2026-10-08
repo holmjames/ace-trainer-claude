@@ -43,6 +43,7 @@ function run(name, a, moveName, d, opts = {}) {
   defender.originalCurHP = Math.max(1, Math.floor(defender.maxHP() * hp));
   const gameType = opts.gameType || 'Doubles';
   const field = new Field({ gameType, weather: opts.weather, terrain: opts.terrain, ...(opts.fieldExtra || {}),
+    attackerSide: { isHelpingHand: !!opts.helpingHand },
     defenderSide: { isReflect: !!opts.reflect, isLightScreen: !!opts.lightScreen } });
   const move = new Move(gen, moveName, { ...(opts.hits ? { hits: opts.hits } : {}), ...(opts.crit ? { isCrit: true } : {}) });
   const result = calculate(gen, attacker, defender, move, field);
@@ -57,6 +58,8 @@ function run(name, a, moveName, d, opts = {}) {
              ruin: Object.keys(opts.fieldExtra || {}).filter(k => /Ruin$/.test(k)) },
     spread_in_calc: gameType !== 'Singles' && SPREAD.includes(move.target),
     damage: [range[0], range[1]],
+    recoil_pct: result.recoil('%').recoil,  // the calculator's own recoil (% of the attacker's max HP; [min, max] or a number)
+    helping_hand: !!opts.helpingHand,
   };
   cases.push(c);
   return c;
@@ -234,6 +237,15 @@ run('stamina_woodhammer_archaludon_plus1', by['Rillaboom'], 'Wood Hammer', by['A
 // 48-57% sheet. The protocol log has '|-crit|p1a: Iron Hands' before the damage line: the crit range, not a modifier.
 run('oct7_hypervoice_ironhands', by['Sylveon'], 'Hyper Voice', by['Iron Hands'], {});
 run('oct7_hypervoice_ironhands_crit', by['Sylveon'], 'Hyper Voice', by['Iron Hands'], { crit: true });
+
+// -- Brief 2: self-damage (the calculator's recoil()), Helping Hand, Earthquake with one foe and our own ally ---------
+run('recoil_flareblitz_incineroar_rillaboom', by['Incineroar'], 'Flare Blitz', by['Rillaboom'], {});
+run('recoil_wavecrash_basculegion_cresselia', by['Basculegion'], 'Wave Crash', by['Cresselia'], {});
+run('recoil_wildcharge_ironhands_pelipper', by['Iron Hands'], 'Wild Charge', by['Pelipper'], {});
+run('recoil_woodhammer_rillaboom_milotic', by['Rillaboom'], 'Wood Hammer', by['Milotic'], {});  // overflow: recoil from the HP that was there
+run('helpinghand_flareblitz_incineroar_rillaboom', by['Incineroar'], 'Flare Blitz', by['Rillaboom'], { helpingHand: true });
+run('eq_ally_dondozo', by['Garchomp'], 'Earthquake', by['Dondozo'], {});       // one foe plus our own ally: still the spread 0.75x
+run('eq_ally_rillaboom', by['Garchomp'], 'Earthquake', by['Rillaboom'], {});   // the ally's share of it
 
 const out = path.join(root, 'tests', 'fixtures', 'smogon_calc_mech.json');
 fs.writeFileSync(out, JSON.stringify(cases, null, 0));

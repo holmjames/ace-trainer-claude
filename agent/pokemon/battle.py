@@ -887,7 +887,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             move = {**move, "id": data.to_id(option.get("move_id")), "type": move.get("type") or option.get("move_type"),
                     "category": move.get("category") or str(option.get("category") or "").capitalize() or None,
                     "base_power": move.get("base_power") or option.get("base_power") or 0}
-            spread = move.get("target") in SPREAD_TARGETS and len(theirs) > 1
+            spread = is_spread(move, foes=len(theirs), allies=len(ours) - 1)  # Earthquake with one foe and our ally is still 0.75x (batch 2)
             eff = effective_move(me, move, me, fs)
             psychic_spread = move["id"] == "expandingforce" and fs.terrain == "psychic" and me.grounded and len(theirs) > 1
             per_target = []

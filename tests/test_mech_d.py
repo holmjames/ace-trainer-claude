@@ -648,3 +648,177 @@ def test_oct7_hyper_voice_into_iron_hands_was_a_crit():
     assert error_vs_calc(crit, est) < TOLERANCE
     assert crit["damage"][0] <= 216 <= crit["damage"][1] and not plain["damage"][0] <= 216 <= plain["damage"][1]
     assert 47 <= pct(plain, 0) <= 49 and 55 <= pct(plain, 1) <= 58  # the sheet's 48-57%
+
+
+# -- Brief 2: self-damage, conditional moves, blocked effects, berries, speed ties, Choice locks ---------------------
+
+
+def recoil_error(c: dict, user: battle.Mon, which: int) -> float:
+    """Gap between self_damage's recoil (% of the user's max HP) and the calculator's recoil() for the min (0) / max (1) roll."""
+    move = {**(data.move_info(c["move"]) or {}), "id": data.to_id(c["move"])}
+    target = _mon(c["defender"], side="theirs", position=1, hp=c["defender_hp_fraction"])
+    cost = data.self_damage(move, user, target, c["damage"][which])
+    ref = c["recoil_pct"] if isinstance(c["recoil_pct"], (int, float)) else c["recoil_pct"][which]
+    return abs(cost["pct_max"] - ref)
+
+
+@pytest.mark.parametrize("name", ["recoil_flareblitz_incineroar_rillaboom", "recoil_wavecrash_basculegion_cresselia",
+                                  "recoil_wildcharge_ironhands_pelipper", "recoil_woodhammer_rillaboom_milotic"])
+def test_recoil_matches_the_calculator(name):
+    c = case(name)
+    user = _mon(c["attacker"], side="mine", position=0)
+    plain = replace(user, item=None)  # the calculator's recoil() leaves Life Orb out; ours adds it as its own line
+    assert recoil_error(c, plain, 0) < 1.0 and recoil_error(c, plain, 1) < 1.0, (name, c["recoil_pct"])
+    if name == "recoil_woodhammer_rillaboom_milotic":
+        over = data.self_damage("Wood Hammer", plain, _mon(c["defender"], side="theirs", position=1), 10 ** 6)
+        assert over["hp"] == pytest.approx(c["defender_cur_hp"] / 3, abs=1.0)  # recoil counts the HP that was there, not the overkill
+    if name == "recoil_wavecrash_basculegion_cresselia":
+        with_orb = data.self_damage("Wave Crash", user, _mon(c["defender"], side="theirs", position=1), c["damage"][1])
+        assert with_orb["pct_max"] == pytest.approx(data.self_damage("Wave Crash", plain, _mon(c["defender"], side="theirs", position=1), c["damage"][1])["pct_max"] + 10.0, abs=0.2)
+        assert any("Life Orb" in n for n in with_orb["notes"]) and any("recoil" in n for n in with_orb["notes"])
+
+
+def test_self_damage_contact_punishers_and_self_ko():
+    incineroar = catalog_mon("Incineroar", side="mine", position=0)
+    amoonguss, garchomp = catalog_mon("Amoonguss", side="theirs", position=1), catalog_mon("Garchomp", side="theirs", position=2)
+    helmet = data.self_damage("Flare Blitz", incineroar, amoonguss, 100)
+    assert helmet["pct_max"] == pytest.approx(100 / 3 / 201 * 100 + 100 / 6, abs=0.2) and any("rockyhelmet" in n for n in helmet["notes"])
+    skin = data.self_damage("Flare Blitz", incineroar, garchomp, 100)
+    assert skin["pct_max"] == pytest.approx(100 / 3 / 201 * 100 + 100 / 8, abs=0.2)
+    assert data.self_damage("Knock Off", incineroar, garchomp, 50)["pct_max"] == pytest.approx(12.5, abs=0.1)  # contact, no recoil
+    assert data.self_damage("Snarl", incineroar, garchomp, 50)["pct_max"] == 0.0  # no contact, no recoil
+    assert data.self_damage("Flare Blitz", incineroar, garchomp, 0)["pct_max"] == 0.0  # it did not connect
+    assert data.self_damage("Flare Blitz", replace(incineroar, ability="Rock Head"), amoonguss, 100)["pct_max"] == pytest.approx(100 / 6, abs=0.1)
+    assert data.self_damage("Flare Blitz", replace(incineroar, ability="Magic Guard"), amoonguss, 100)["pct_max"] == 0.0
+    assert data.self_damage("Flare Blitz", replace(incineroar, item="Protective Pads"), amoonguss, 100)["pct_max"] == pytest.approx(100 / 3 / 201 * 100, abs=0.2)
+    # Ten contact strikes into a Rocky Helmet: the user KOs itself (pct_current reaches 100).
+    bomb = data.self_damage(data.move_info("Population Bomb"), incineroar, amoonguss, 120, hits=10)
+    assert bomb["pct_max"] == pytest.approx(1000 / 6, abs=0.5) and bomb["pct_current"] >= 100
+    # At 20% HP the same Flare Blitz into the helmet is a self-KO in current-HP terms.
+    low = data.self_damage("Flare Blitz", replace(incineroar, hp_fraction=0.2), amoonguss, 100)
+    assert low["pct_current"] >= 100 and low["pct_max"] == helmet["pct_max"]
+    assert data.self_damage("Mind Blown", incineroar, garchomp, 0)["pct_max"] == pytest.approx(50.0)
+
+
+def test_glaive_rush_volatile_and_conditional_moves():
+    assert data.after_move_volatiles("Glaive Rush") == {"glaiverush"} and data.after_move_volatiles("Icicle Spear") == frozenset()
+    assert data.incoming_multiplier(["glaiverush"]) == 2.0 and data.incoming_multiplier("Glaive Rush") == 2.0
+    assert data.incoming_multiplier([]) == 1.0 and data.incoming_multiplier(None) == 1.0 and data.incoming_multiplier(["confusion"]) == 1.0
+    assert data.needs_target_attacking("Sucker Punch") and data.needs_target_attacking(data.move_info("Thunderclap"))
+    assert not data.needs_target_attacking("Extreme Speed") and not data.needs_target_attacking("Protect")
+    assert data.helping_hand_boost("helpinghand", "flareblitz") == 1.5 and data.helping_hand_boost("Helping Hand", data.move_info("Rock Slide")) == 1.5
+    assert data.helping_hand_boost("helpinghand", "protect") == 1.0 and data.helping_hand_boost("helpinghand", None) == 1.0
+    assert data.helping_hand_boost("tailwind", "flareblitz") == 1.0
+    c = case("helpinghand_flareblitz_incineroar_rillaboom")
+    attacker, move, defender, fs = _pair(c)
+    est = battle.damage_percent(attacker, move, defender, field=fs)
+    boost = data.helping_hand_boost("helpinghand", move)
+    assert error_vs_calc(c, (est[0] * boost, est[1] * boost)) < TOLERANCE
+
+
+def test_redirect_ignored_and_blocked_effects():
+    rillaboom, hatterene = catalog_mon("Rillaboom", side="theirs", position=1), catalog_mon("Hatterene", side="theirs", position=2)
+    gholdengo, scream_tail = catalog_mon("Gholdengo", side="theirs", position=1), catalog_mon("Scream Tail", side="theirs", position=2)
+    assert "Grass" in data.redirect_ignored("Rage Powder", rillaboom)
+    assert "Safety Goggles" in data.redirect_ignored("Rage Powder", hatterene)
+    assert data.redirect_ignored("Follow Me", rillaboom) is None and data.redirect_ignored("Follow Me", hatterene) is None
+    assert data.redirect_ignored("Rage Powder", gholdengo) is None  # Good as Gold does not ignore redirection
+    assert "stalwart" in data.redirect_ignored("Follow Me", replace(gholdengo, ability="Stalwart"))
+    assert "Covert Cloak" in data.secondary_blocked(scream_tail) and data.secondary_blocked(rillaboom) is None
+    assert "Shield Dust" in data.secondary_blocked(replace(rillaboom, ability="Shield Dust"))
+    assert "clearbody" in data.stat_drop_blocked(replace(rillaboom, ability="Clear Body"))
+    assert "Clear Amulet" in data.stat_drop_blocked(replace(rillaboom, item="Clear Amulet"))
+    assert "Mirror Armor" in data.stat_drop_blocked(replace(rillaboom, ability="Mirror Armor")) and data.stat_drop_blocked(rillaboom) is None
+    assert "+2 Atk" in data.stat_drop_backfires(catalog_mon("Thundurus", side="theirs", position=1))  # Defiant (the catalog Kingambit runs Supreme Overlord)
+    assert "+2 SpA" in data.stat_drop_backfires(catalog_mon("Milotic", side="theirs", position=1)) and data.stat_drop_backfires(rillaboom) is None
+
+
+def test_status_move_blocked():
+    mon = lambda s, **f: catalog_mon(s, side="theirs", position=1, **f)
+    assert "Grass" in data.status_move_blocked("Spore", mon("Rillaboom"))
+    assert "Magic Bounce" in data.status_move_blocked("Spore", mon("Hatterene"))
+    assert "Safety Goggles" in data.status_move_blocked("Spore", mon("Arcanine"))  # Incineroar / Arcanine carry them
+    assert "Good as Gold" in data.status_move_blocked("Spore", mon("Gholdengo")) and "Good as Gold" in data.status_move_blocked("Taunt", mon("Gholdengo"))
+    assert data.status_move_blocked("Spore", mon("Garchomp")) is None
+    assert "Misty Terrain" in data.status_move_blocked("Spore", mon("Garchomp"), terrain="misty")
+    assert data.status_move_blocked("Spore", mon("Tornadus"), terrain="misty") is None  # Flying: not grounded
+    assert "Electric Terrain" in data.status_move_blocked("Spore", mon("Garchomp"), terrain="electric")
+    assert "Fire" in data.status_move_blocked("Will-O-Wisp", mon("Incineroar"))
+    assert "thermalexchange" in data.status_move_blocked("Will-O-Wisp", mon("Baxcalibur"))
+    assert "Lum Berry" in data.status_move_blocked("Will-O-Wisp", mon("Salamence"))
+    assert data.status_move_blocked("Will-O-Wisp", mon("Garchomp")) is None
+    assert "already" in data.status_move_blocked("Will-O-Wisp", replace(mon("Garchomp"), status="par"))
+    assert "Electric" in data.status_move_blocked("Thunder Wave", mon("Thundurus"))
+    assert "Ground" in data.status_move_blocked("Thunder Wave", mon("Great Tusk")) and "Ground" in data.status_move_blocked("Thunder Wave", mon("Landorus-Therian"))
+    assert "Mental Herb" in data.status_move_blocked("Taunt", mon("Tornadus")) and "Mental Herb" in data.status_move_blocked("Encore", mon("Tornadus"))
+    assert data.status_move_blocked("Taunt", mon("Garchomp")) is None
+    assert data.status_move_blocked("Parting Shot", mon("Kingambit")) is None  # Defiant reacts, it is not blocked
+    assert "does not switch out" in data.status_move_blocked("Parting Shot", replace(mon("Garchomp"), ability="Clear Body"))
+    assert "Prankster" in data.status_move_blocked("Encore", mon("Kingambit"), user=catalog_mon("Whimsicott", side="mine", position=0))
+    assert data.status_move_blocked("Encore", mon("Kingambit"), user=catalog_mon("Cresselia", side="mine", position=0)) is None
+    for move in ("Tailwind", "Protect", "Follow Me", "Rage Powder", "Helping Hand", "Trick Room"):
+        assert data.status_move_blocked(move, mon("Gholdengo")) is None, move  # not aimed at the foe
+    assert data.status_move_blocked("Rock Slide", mon("Gholdengo")) is None  # a damaging move: not this helper's business
+    assert "Poison" in data.status_move_blocked("Toxic", mon("Kingambit")) and "Poison" in data.status_move_blocked("Toxic", mon("Amoonguss"))
+
+
+def test_pinch_berry_heals_between_hits():
+    assert data.pinch_berry("Sitrus Berry") == (0.5, 0.25) and data.pinch_berry("Aguav Berry") == (0.25, pytest.approx(1 / 3))
+    assert data.pinch_berry("Wiki Berry", "Gluttony") == (0.5, pytest.approx(1 / 3)) and data.pinch_berry("Leftovers") is None
+    cresselia = catalog_mon("Cresselia", side="theirs", position=1)  # Sitrus Berry
+    kowtow = case("overlord_kowtow_cresselia_0")  # 134-158 of 227: 59-70%
+    assert data.heal_between_hits(cresselia, pct(kowtow, 0)) == pytest.approx(25.0)  # 41% left: the berry heals a quarter of max HP
+    assert data.heal_between_hits(cresselia, 40.0) == 0.0  # 60% left: it does not trigger yet
+    assert data.heal_between_hits(cresselia, 100.0) == 0.0 and data.heal_between_hits(cresselia, 120.0) == 0.0  # the hit KOs
+    hurt = replace(cresselia, hp_fraction=0.6)
+    assert data.heal_between_hits(hurt, 20.0) == pytest.approx(25 / 60 * 100, abs=0.1)  # a quarter of max HP is 41.7% of what it has now
+    sneasler = catalog_mon("Sneasler", side="theirs", position=1)  # Aguav Berry
+    assert data.heal_between_hits(sneasler, 80.0) == pytest.approx(100 / 3, abs=0.1) and data.heal_between_hits(sneasler, 70.0) == 0.0
+    assert data.heal_between_hits(catalog_mon("Garchomp", side="theirs", position=1), 60.0) == 0.0  # Focus Sash, no berry
+    # Eating the berry the turn it hits full HP: never above max HP.
+    assert data.heal_between_hits(replace(cresselia, hp_fraction=0.55), 10.0) == pytest.approx(min(0.25, 1 - 0.495) / 0.55 * 100, abs=0.1)
+
+
+def test_speed_ties_and_trick_room():
+    flutter = catalog_mon("Flutter Mane", side="mine", position=0)
+    twin = catalog_mon("Flutter Mane", side="theirs", position=1)
+    garchomp = catalog_mon("Garchomp", side="theirs", position=2)
+    landorus = catalog_mon("Landorus-Therian", side="theirs", position=1)  # Choice Scarf
+    assert data.speed_order_probability(flutter, twin) == 0.5
+    assert data.speed_order_probability(flutter, garchomp) == 1.0 and data.speed_order_probability(garchomp, flutter) == 0.0
+    assert data.speed_order_probability(flutter, garchomp, battle.FieldState(trick_room=True)) == 0.0
+    assert data.speed_order_probability(flutter, twin, battle.FieldState(trick_room=True)) == 0.5
+    assert data.speed_order_probability(landorus, garchomp) == 1.0  # the Scarf: 235 vs 169
+    assert data.speed_order_probability(landorus, flutter) == 0.0  # Booster Energy Flutter Mane runs at 307
+    assert data.speed_order_probability(replace(flutter, status="par"), garchomp) == 0.0  # halved by paralysis
+
+
+def test_locked_move_from_memory():
+    memory = MatchMemory()
+    their_lando = catalog_mon("Landorus-Therian", side="theirs", position=1)
+    assert data.locked_move(their_lando, memory) is None
+    memory.opp_last_move["landorustherian"] = "earthquake"
+    assert data.locked_move(their_lando, memory) == "earthquake"
+    assert data.locked_move(catalog_mon("Garchomp", side="theirs", position=2), memory) is None  # no Choice item
+    our_lando = catalog_mon("Landorus-Therian", side="mine", position=0)
+    assert data.locked_move(our_lando, memory) is None  # no turn recorded yet
+    memory.last_active = ["landorustherian", "amoonguss"]
+    memory.record_turn(turn=3, payload={"slot_0": {"type": "move", "move_id": "uturn", "target": 1}, "slot_1": {"type": "move", "move_id": "spore", "target": 2}})
+    assert data.locked_move(our_lando, memory) == "uturn"
+    memory.fresh_active = ["landorustherian"]
+    assert data.locked_move(our_lando, memory) is None  # it has just come back in
+    memory.fresh_active = []
+    memory.record_turn(turn=4, forced=True, payload={"slot_0": {"type": "switch", "species": "garchomp"}, "slot_1": {"type": "pass"}})
+    assert data.locked_move(our_lando, memory) == "uturn"  # a forced replacement decision is skipped
+    memory.record_turn(turn=5, payload={"slot_0": {"type": "switch", "species": "garchomp"}, "slot_1": {"type": "move", "move_id": "spore", "target": 2}})
+    assert data.locked_move(our_lando, memory) is None  # it switched out
+
+
+def test_earthquake_with_one_foe_and_our_ally_is_still_spread():
+    """Garchomp's Earthquake beside our Rillaboom with a single foe out: both rows at the 0.75x doubles modifier."""
+    sheet, _ = build(["Garchomp", "Rillaboom"], ["Dondozo"])
+    foe = option_row(sheet, 0, "earthquake", "Dondozo")
+    ally = option_row(sheet, 0, "earthquake", "Rillaboom")
+    assert error_vs_calc(case("eq_ally_dondozo"), foe["damage_pct_of_current_hp"]) < TOLERANCE
+    assert error_vs_calc(case("eq_ally_rillaboom"), ally["damage_pct_of_current_hp"]) < TOLERANCE and ally["side"] == "mine"
+    assert any("also hits our own Rillaboom" in n for n in sheet.notes)
