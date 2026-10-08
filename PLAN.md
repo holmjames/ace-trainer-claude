@@ -547,6 +547,11 @@ below runs on this laptop and is ordered by expected value per dollar. Adoption 
   lineup_answer_w=3 47.6; draft_role_w=8 47.3; lineup_answer_w=6 47.0. **Nothing clears 50% with its interval; no change.**
   The two best and their combinations are being re-tested at 3,000 games (seed 8). draft_role_w and lineup_answer_w look
   harmful on the real pool and stay off.
+- Oct 7 night, sweep 2 (real pool, 3,000 games each, seed 8): draft_offense_w=14 50.7 ± 1.8; draft_mode_w=8 50.1 ± 1.8;
+  draft_offense_w=14 + lead_ohko_w=3 48.4; draft_offense_w=14 + draft_mode_w=8 48.0. **No variant clears 50%; defaults unchanged.**
+  The code brain's weights are at a local optimum on the real pool; further gains must come from new logic (scenarios from real
+  losses), not from re-weighting. Gotcha: two simulator runs at once (sweep + sparring) both deadlocked on their engine bridges
+  after ~15 min; run one simulator at a time.
 
 ## 6. Milestones (Oct 6 → Oct 13)
 
