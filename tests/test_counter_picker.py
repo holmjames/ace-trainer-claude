@@ -105,7 +105,15 @@ def test_forced_player_drafts_its_roster_and_fills_memory():
     pick = player.choose_action(state, ctx)
     assert pick.action_id.split(":", 1)[1] in {c["card_id"] for c in ours}
     assert len(inner.memory.pool_cards) == 12 and len(inner.memory.my_cards) == 1
-    preview = translate.preview_state("t", my_cards=ours, opp_cards=theirs, version=1)
+    from sim import harness
+
+    bridge = harness.Bridge()  # Team Preview states come from a real Showdown request now (live format)
+    try:
+        reply = bridge.call(cmd="new", id="t", format="gen9vgc2025regi", seed=[1, 2, 3, 4],
+                            p1={"name": "A-p0", "team": translate.team_text(ours)}, p2={"name": "B-p1", "team": translate.team_text(theirs)})
+        preview = translate.preview_state("t", reply["state"], "p1", version=0, agent_id="p1")
+    finally:
+        bridge.close()
     answer = player.choose_action(preview, ctx)
     assert answer == {"type": "select_lineup", "bring": ["tornadus", "garchomp", "ursaluna", "indeedeef"], "leads": ["tornadus", "garchomp"]}
     assert len(inner.memory.opp_cards) == 6  # the battle sheet will know their sets
