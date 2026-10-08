@@ -498,8 +498,9 @@ def _drafted_ids(memory: MatchMemory) -> set[str]:
     return {str(c.get("card_id")) for c in (*memory.my_cards.values(), *memory.opp_cards.values()) if c.get("card_id")}
 
 
-def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> ScoredCard:
-    """Counter-aware pick: the offered card whose rest-of-draft lookahead gives our finished team the best odds."""
+def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> list[ScoredCard]:
+    """Every offered card, best first, valued by the rest-of-draft lookahead (what ``choose_pick_v2`` chooses from;
+    draft-only replays and tests read the whole ranking). Empty when nothing offered is a known card."""
     from . import matchup
 
     P = params or DEFAULTS
@@ -507,7 +508,7 @@ def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params
                if a.action_id.startswith(PREFIX) or "draft" in a.action_id]
     offered = [(a, c) for a, c in offered if c]
     if not offered:
-        return choose_pick(legal_actions, memory, {**P, "draft_v2": 0.0})
+        return []
     drafted = _drafted_ids(memory)
     mine_cards = [c for c in memory.my_cards.values() if c.get("moves")]
     their_cards = [c for c in memory.opp_cards.values() if c.get("moves")]
@@ -532,24 +533,33 @@ def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params
         if i in us:
             continue
         scored.append((search.plan(i, us, them, pool, order), action, i))
-    if not scored:
-        return choose_pick(legal_actions, memory, {**P, "draft_v2": 0.0})
     scored.sort(key=lambda t: (-t[0].value, legal_actions.index(t[1])))
-    best_plan, best_action, best_i = scored[0]
-    me = board.units[best_i]
-    notes = [f"v2: finished-draft win chance {100 * matchup.win_probability(best_plan.value):.0f}%"]
-    if best_plan.responses:
-        notes.append("their likely replies: " + ", ".join(f"{s} ({100 * matchup.win_probability(v):.0f}%)" for s, v in best_plan.responses))
-    answered = [board.units[j].species for j in them if board.base[best_i][j] >= 0.2]
-    if answered:
-        notes.append(f"beats {answered[:3]}")
-    threats = [board.units[j].species for j in pool if j != best_i and board.base[j][best_i] >= 0.2]
-    if len(scored) > 1:
-        runner = scored[1]
-        notes.append(f"next best {board.units[runner[2]].species} ({100 * matchup.win_probability(runner[0].value):.0f}%)")
-    if threats:
-        notes.append(f"loses to {threats[:3]} still in the pool")
-    final_them = [board.units[j].species for j in best_plan.final_them if j not in them]
-    if final_them:
-        notes.append(f"expected rest of their draft: {final_them}")
-    return ScoredCard(best_action, card_id_of(best_action), me.species, round(best_plan.value, 3), notes)
+    ranked: list[ScoredCard] = []
+    for rank, (plan, action, i) in enumerate(scored):
+        me = board.units[i]
+        notes = [f"v2: finished-draft win chance {100 * matchup.win_probability(plan.value):.0f}%"]
+        if plan.responses:
+            notes.append("their likely replies: " + ", ".join(f"{s} ({100 * matchup.win_probability(v):.0f}%)" for s, v in plan.responses))
+        answered = [board.units[j].species for j in them if board.base[i][j] >= 0.2]
+        if answered:
+            notes.append(f"beats {answered[:3]}")
+        threats = [board.units[j].species for j in pool if j != i and board.base[j][i] >= 0.2]
+        if rank == 0 and len(scored) > 1:
+            runner = scored[1]
+            notes.append(f"next best {board.units[runner[2]].species} ({100 * matchup.win_probability(runner[0].value):.0f}%)")
+        if threats:
+            notes.append(f"loses to {threats[:3]} still in the pool")
+        final_them = [board.units[j].species for j in plan.final_them if j not in them]
+        if final_them:
+            notes.append(f"expected rest of their draft: {final_them}")
+        ranked.append(ScoredCard(action, card_id_of(action), me.species, round(plan.value, 3), notes))
+    return ranked
+
+
+def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> ScoredCard:
+    """Counter-aware pick: the offered card whose rest-of-draft lookahead gives our finished team the best odds."""
+    P = params or DEFAULTS
+    ranked = rank_picks_v2(legal_actions, memory, P)
+    if not ranked:
+        return choose_pick(legal_actions, memory, {**P, "draft_v2": 0.0})
+    return ranked[0]

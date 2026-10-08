@@ -13,11 +13,13 @@ winning (+25 ~ "turns a 50% game into a 56% game"). It is measured, not guessed,
 
 ``rating`` = sim_rating + ``adjust``: a small, written-down prior where the simulator's code-only pilot is known
 to misplay a card (Intimidate cycling, Prankster support, Tailwind turns) and live play disagrees (the Oct 7 opponent,
-4-0 against us on Oct 7, took Incineroar 3/3 and Dragonite 2/2). ``draft_tier_adjust`` = 0 turns the
-adjustments off. Tiers: S >= 40, A >= 12, B >= -2, C >= -16, D below.
+4-0 against us on Oct 7, took Incineroar 3/3 and Dragonite 2/2). ``draft_tier_adjust`` scales the adjustments
+(default 1.25 since Oct 8; 0 turns them off). Tiers: S >= 40, A >= 12, B >= -2, C >= -16, D below.
 
-The drafter (agent/pokemon/matchup.py, ``Board``) uses ``rating`` as the card's base value and adds the
-matchup reactions on top; editing a rating here moves the drafter by exactly that much. Rebuild after refitting.
+The drafter (agent/pokemon/matchup.py, ``Board``) adds ``draft_tier_adjust`` x ``adjust`` to the card's base value
+(with ``draft_card_w`` = 0, the Oct 8 default, the fitted card part is not used: it came from games piloted by an
+older battle brain) and the matchup reactions on top. Since Oct 8 ``matchup.load_model`` clamps the fitted role
+weights at >= 0, so a rebuild also refreshes every sim rating under the clamped weights. Rebuild after refitting.
 """
 
 from __future__ import annotations
@@ -42,8 +44,10 @@ PRIORS: dict[str, dict] = {
                    "live": "the Oct 7 opponent took it 3/3 at pick 1-2"},
     "Dragonite": {"adjust": 17, "flag": "engine spends Tailwind as a flat-value move; Multiscale + Extreme Speed under Tailwind is the real plan",
                   "live": "the Oct 7 opponent took it 2/2"},
-    "Tornadus": {"adjust": 10, "flag": "Prankster Tailwind / Taunt valued by fixed constants in the engine"},
-    "Whimsicott": {"adjust": 10, "flag": "Prankster Tailwind / Encore valued by fixed constants in the engine"},
+    # Tornadus / Whimsicott carried +10 while the fitted card part offset it; with draft_card_w = 0 the +10 stood alone
+    # and made a Prankster Tailwind user the first pick of the Oct 7 pool L3 (the pick that lost that game): 0 since Oct 8.
+    "Tornadus": {"adjust": 0, "flag": "Prankster Tailwind / Taunt valued by fixed constants in the engine"},
+    "Whimsicott": {"adjust": 0, "flag": "Prankster Tailwind / Encore valued by fixed constants in the engine"},
     "Amoonguss": {"adjust": 10, "flag": "engine redirects only to save a partner from a KO; Spore + Rage Powder do more in good hands"},
     "Hatterene": {"adjust": 0, "flag": "engine sets Trick Room whether or not its own team wants it"},
     "Porygon2": {"adjust": 0, "flag": "engine sets Trick Room whether or not its own team wants it"},

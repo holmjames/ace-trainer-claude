@@ -962,16 +962,25 @@ ROLE_CAPS = {"fakeout": 2, "redirect": 1, "intimidate": 2, "tailwind": 1, "trick
 MATCHUP_FEATURES = ("answers", "backup", "mean", "top4", "spread", "ohko", "tw_gain", "tr_gain")
 FEATURES = MATCHUP_FEATURES + tuple(f"role_{r}" for r in ROLE_CAPS)
 
-# Used only when data/draft_model.json is missing: hand-set, in the spirit of the fitted values.
+# Used when data/draft_model.json is missing, and as the VGC prior for every doubles-role weight the fit got wrong
+# (see ``load_model``): hand-set from how the roles are valued in real doubles play. tw_gain / tr_gain (the average
+# race-margin shift our speed control buys) count half of a full-game margin: Tailwind lasts four turns, Trick Room
+# five. (Measured on the four Oct 7 pools: at 1.0 a Prankster Tailwind user was the first pick of pool L3.)
 DEFAULT_MODEL: dict = {
     "alpha_tw": 0.5, "alpha_tr": 0.5, "answer_cap": 0.5,
-    "weights": {"answers": 0.35, "backup": 0.1, "mean": 2.0, "top4": 1.0, "spread": 0.5, "ohko": 0.1, "tw_gain": 1.0, "tr_gain": 1.0,
+    "weights": {"answers": 0.35, "backup": 0.1, "mean": 2.0, "top4": 1.0, "spread": 0.5, "ohko": 0.1, "tw_gain": 0.5, "tr_gain": 0.5,
                 "role_fakeout": 0.15, "role_redirect": 0.1, "role_intimidate": 0.15, "role_tailwind": 0.1,
-                "role_trickroom": 0.0, "role_speed_drop": 0.05, "role_screens": 0.0, "role_sleep": 0.05,
+                "role_trickroom": 0.1, "role_speed_drop": 0.05, "role_screens": 0.0, "role_sleep": 0.05,
                 "role_burn_para": 0.0, "role_disrupt": 0.0, "role_helpinghand": 0.0, "role_priority": 0.1,
                 "role_prankster": 0.0, "role_pivot": 0.0, "role_wideguard": 0.0},
     "cards": {},
 }
+# Weights a fit may never turn negative: a doubles role (Fake Out, Intimidate, speed control, redirection...) or the
+# gain from our own speed control. The fitted file carries negative values for several of them because it was fitted
+# on games piloted by an older battle brain that misplayed those roles (Fake Out -0.32, Tailwind -0.08, Trick Room
+# -0.16 at Team Preview); until a refit from games piloted by a brain that uses them, a negative fitted value is
+# replaced by the prior above.
+PRIOR_CLAMPED = ("tw_gain", "tr_gain") + tuple(f"role_{r}" for r in ROLE_CAPS)
 
 _MODEL_CACHE: dict[str, dict] = {}
 
@@ -990,8 +999,26 @@ def load_model(path: str | Path | None = None, *, section: str = "draft") -> dic
             model = {**DEFAULT_MODEL, **blob[section]}
     except (OSError, ValueError, AttributeError):
         pass
+    model = clamp_roles(model)
     _MODEL_CACHE[cache_key] = model
     return model
+
+
+def clamp_roles(model: dict) -> dict:
+    """The model with every role / speed-control weight at >= 0: a negative fitted value becomes the VGC prior from
+    ``DEFAULT_MODEL`` (never below 0). The replaced keys are listed under ``model["clamped"]``. Other weights
+    (answers, mean, spread...) are left exactly as fitted."""
+    weights = dict(model.get("weights") or {})
+    prior = DEFAULT_MODEL["weights"]
+    clamped = {}
+    for key in PRIOR_CLAMPED:
+        value = float(weights.get(key, prior.get(key, 0.0)))
+        if value < 0:
+            clamped[key] = value
+            weights[key] = max(0.0, float(prior.get(key, 0.0)))
+    if not clamped:
+        return model
+    return {**model, "weights": weights, "clamped": clamped}
 
 
 _TIERS_CACHE: dict[str, dict] = {}
@@ -1042,15 +1069,15 @@ class Board:
         cards = self.model.get("cards") or {}
         # Each card's base value is its tier rating (data/card_tiers.json): the fit's per-card term ("wins more than
         # its matchups explain") plus the tier list's written-down adjustment, while the matchup features below add
-        # the reactions to this particular opponent. card_weight scales the per-card part (0 = matchups and roles
-        # only); tier_adjust scales the adjustments (0 = the simulator's ratings as fitted).
+        # the reactions to this particular opponent. card_weight scales the fitted per-card part only (0 = matchups,
+        # roles and the written-down adjustments); tier_adjust scales the adjustments only (0 = the fit as it is).
         self.resid = []
         for u in self.units:
-            term = float((cards.get(u.key) or {}).get("s", 0.0))
+            term = card_weight * float((cards.get(u.key) or {}).get("s", 0.0))
             tier = tiers.get(u.key)
             if tier:
                 term += tier_adjust * (float(tier.get("rating", 0.0)) - float(tier.get("sim_rating", 0.0))) / 100.0
-            self.resid.append(card_weight * term)
+            self.resid.append(term)
         w = self.model.get("weights") or {}
         self.w = [float(w.get(f, 0.0)) for f in FEATURES]
         self.alpha_tw = float(self.model.get("alpha_tw", 0.5))

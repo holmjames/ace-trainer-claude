@@ -32,8 +32,8 @@ DEFAULTS: dict[str, float] = {
     "draft_v2": 1.0,               # 1 = counter-aware drafter (matchup model + lookahead over their next picks); 0 = the greedy scorer above
     "draft_lookahead": 3.0,        # v2: how many of the opponent's best replies to try at their next pick (0 = greedy rollout only)
     "draft_minimax": 0.5,          # v2: weight on their most damaging reply vs the average of those tried (1 = pure worst case)
-    "draft_card_w": 1.0,           # v2: weight on the fitted per-card strengths (0 = matchups and roles only)
-    "draft_tier_adjust": 0.0,      # v2 + Team Preview v2: apply data/card_tiers.json's written-down adjustments (0 = simulator ratings only)
+    "draft_card_w": 0.0,           # v2: weight on the fitted per-card strengths (0 = matchups, roles and tier adjustments only; the fit came from an older battle brain, Oct 8)
+    "draft_tier_adjust": 1.25,     # v2 + Team Preview v2: weight on data/card_tiers.json's written-down adjustments (0 = off); 1.25 = the smallest value that ranks Incineroar top-5 at first pick on the three Oct 7 pools that offered it, with the pick-2 cases intact (draft-only replay, Oct 8)
     "draft_reply_depth": 1.0,      # v2: their consecutive picks to branch on (2 = both picks of a snake double; else greedy)
     # lineup
     "lineup_offense_w": 6.0,
