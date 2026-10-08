@@ -1061,27 +1061,151 @@ def intimidate_notes(incoming: "Mon", foes: "Iterable[Mon]") -> list[str]:
     return out
 
 
+def entry_field(fs: "FieldState | None", *, add: "Iterable[Mon]", drop: "Iterable[Mon | None]" = ()) -> "FieldState":
+    """The field as it stands once the Pokémon in ``add`` are out and those in ``drop`` have left: the same weather,
+    terrain, screens and fainted counts, the actives updated, so a switch-in's own Ruin ability and the Ruin abilities
+    still out price every hit (Oct 8 live match: our Wo-Chien's Tablets of Ruin cut Body Press into Ting-Lu by a
+    quarter the turn it came in, its leaving gave the foes their Attack back, and their Ting-Lu's Vessel of Ruin cut
+    Draco Meteor), and each newcomer's paradox boost read with the real field."""
+    base = fs if fs is not None else FieldState()
+    dropped = {id(m) for m in drop if m is not None}
+    added = list(add)
+    actives = [m for m in base.actives if id(m) not in dropped and not any(m is a for a in added)] + added
+    new = FieldState(weather=base.weather, terrain=base.terrain, trick_room=base.trick_room, my_side=set(base.my_side),
+                     their_side=set(base.their_side), actives=actives, fainted=dict(base.fainted), party_base_atk=dict(base.party_base_atk))
+    for mon in added:
+        mon.boosted_stat = paradox_boosted_stat(mon, new)
+    return new
+
+
 def entry_hits(attacker: "Mon", incoming: "Mon", fs: "FieldState | None", *, our_actives: int = 2, their_actives: int = 2,
-               locked: str | None = None) -> list[dict]:
+               locked: str | None = None, outgoing: "Mon | None" = None) -> list[dict]:
     """What ``attacker`` can do to ``incoming`` on the turn it comes in: one hit profile per damaging move it can use,
     worst first, each with ``move``, ``effect`` and ``ko_chance`` (hit count, damage rolls AND accuracy: a 70%-accurate
-    guaranteed KO is a 70% KO). The incoming Pokémon's Intimidate is applied to the attacker; a spread move gets the
-    0.75x when our side has two Pokémon out (``our_actives``, the switch-in included) or, for Earthquake-likes, when
-    the attacker's partner is there too; a Choice lock limits the moves. Fake Out / First Impression are left out
-    (a fresh attacker's Fake Out is the threat list's business)."""
+    guaranteed KO is a 70% KO). The incoming Pokémon's Intimidate is applied to the attacker; the field is the one AFTER
+    the switch (``entry_field``: the incoming Pokémon's Ruin ability counts, ``outgoing``'s no longer does); a spread
+    move gets the 0.75x when our side has two Pokémon out (``our_actives``, the switch-in included) or, for
+    Earthquake-likes, when the attacker's partner is there too; a Choice lock limits the moves. Fake Out / First
+    Impression are left out (a fresh attacker's Fake Out is the threat list's business)."""
+    original = attacker
     attacker = intimidated_foes(incoming, [attacker])[0]
+    after = entry_field(fs, add=[attacker, incoming], drop=[outgoing, original])
     out = []
     for mv in attacker.moves:
         if not data.is_damaging(mv) or mv["id"] in ("fakeout", "firstimpression") or (locked and mv["id"] != locked):
             continue
-        prof = hit_profile(attacker, mv, incoming, field=fs, spread=is_spread(mv, foes=our_actives, allies=their_actives - 1))
+        prof = hit_profile(attacker, mv, incoming, field=after, spread=is_spread(mv, foes=our_actives, allies=their_actives - 1))
         if prof is None:
             continue
-        hit = {"move": mv["id"], **prof, "effect": effect_label(type_multiplier(attacker, mv, incoming, fs))}
+        hit = {"move": mv["id"], **prof, "effect": effect_label(type_multiplier(attacker, mv, incoming, after))}
         hit["ko_chance"] = round(ko_probability(hit, with_accuracy=True), 3)
         out.append(hit)
     out.sort(key=lambda h: -_danger(_avg(h["damage_pct_of_current_hp"]), h.get("hit_chance", 1.0), h["ko_chance"]))
     return out
+
+
+HAZARD_IDS = ("spikes", "stealthrock", "stickyweb", "toxicspikes")
+SPIKES_CHIP = (0.0, 1 / 8, 1 / 6, 1 / 4)  # by layer count
+
+
+def normalize_hazards(hazards: object, fs: "FieldState | None" = None) -> dict[str, int]:
+    """Entry hazards on the switch-in's side as {id: layers}. ``hazards`` is a dict ({"spikes": 2}), a list / set of ids
+    (one layer each, repeats add up), or None: then whatever the field's side conditions name, one layer each (the
+    exact layer count from the protocol log's -sidestart lines arrives through the ops lane's memory.hazards(side))."""
+    out: dict[str, int] = {}
+    if hazards is None:
+        hazards = [h for h in HAZARD_IDS if fs is not None and h in fs.my_side]
+    if isinstance(hazards, dict):
+        for name, value in hazards.items():
+            key = data.to_id(name)
+            if key in HAZARD_IDS and value:
+                out[key] = max(1, int(value)) if isinstance(value, (int, float)) else 1
+    else:
+        for name in hazards or ():
+            key = data.to_id(name)
+            if key in HAZARD_IDS:
+                out[key] = out.get(key, 0) + 1
+    return out
+
+
+def hazard_chip(incoming: "Mon", hazards: dict[str, int]) -> tuple[float, list[str]]:
+    """What the hazards on its side do to a Pokémon as it comes in: the fraction of its MAX HP lost (Spikes 1/8, 1/6,
+    1/4 by layer, grounded only; Stealth Rock 1/8 times the Rock effectiveness) and notes (Sticky Web: -1 Speed on a
+    grounded switch-in; Toxic Spikes: poisoned, badly with two layers, absorbed by a grounded Poison type, nothing to
+    Steel types). Heavy-Duty Boots ignore all of it."""
+    if not hazards:
+        return 0.0, []
+    if data.to_id(incoming.item) == "heavydutyboots":
+        return 0.0, ["Heavy-Duty Boots: hazards do nothing"]
+    chip, notes = 0.0, []
+    spikes = hazards.get("spikes", 0)
+    if spikes and incoming.grounded:
+        frac = SPIKES_CHIP[min(3, spikes)]
+        chip += frac
+        notes.append(f"Spikes x{min(3, spikes)}: -{frac * 100:.1f}% on entry")
+    if hazards.get("stealthrock"):
+        frac = data.effectiveness("rock", incoming.types) / 8
+        chip += frac
+        notes.append(f"Stealth Rock: -{frac * 100:.1f}% on entry")
+    if hazards.get("stickyweb") and incoming.grounded:
+        notes.append("Sticky Web: -1 Speed on entry")
+    if hazards.get("toxicspikes") and incoming.grounded and "steel" not in incoming.types:
+        if "poison" in incoming.types:
+            notes.append("Toxic Spikes: absorbed (Poison type)")
+        else:
+            notes.append("Toxic Spikes: " + ("badly poisoned" if hazards["toxicspikes"] >= 2 else "poisoned") + " on entry")
+    return min(1.0, chip), notes
+
+
+def entry_verdict(incoming: "Mon", foes: "Iterable[Mon]", fs: "FieldState | None", *, outgoing: "Mon | None" = None,
+                  our_actives: int = 2, hazards: object = None, locked: dict[str, str] | None = None) -> dict:
+    """Is this switch-in safe against BOTH foes? HP after the hazard chip, each foe's worst entry hit (``entry_hits``:
+    Intimidate, the post-switch field, spread, Choice locks, accuracy), the two foes' double-target (the faster foe's hit
+    first; the slower one's meets +1 Defense on a Stamina holder) and ``ko_on_entry``: the KO odds when they pick their
+    best line (one hit or the double). ``verdict`` is "ko_on_entry" from 50% up, else "safe". Oct 8 live match T12: the
+    sheet checked Milotic only against the foe whose threat triggered the switch and offered it into Rillaboom's Wood
+    Hammer (152-181% once Wo-Chien's Tablets left, more after Spikes); it died on entry."""
+    foes = list(foes)
+    chip, notes = hazard_chip(incoming, normalize_hazards(hazards, fs))
+    x = incoming if chip <= 0 else Mon(**{**incoming.__dict__, "hp_fraction": max(0.01, incoming.hp_fraction - chip)})
+    takes: list[dict] = []
+    for foe in foes:
+        hits = entry_hits(foe, x, fs, our_actives=our_actives, their_actives=len(foes),
+                          locked=(locked or {}).get(species_key(foe.species)), outgoing=outgoing)
+        if hits:
+            takes.append({"_foe": foe, "_hit": hits[0]})
+    double = None
+    if len(takes) == 2:
+        first, second = sorted(takes, key=lambda t: -t["_foe"].stat("spe"))  # the faster foe's hit lands first
+        a, b = first["_hit"], second["_hit"]
+        braced = False
+        if data.to_id(x.ability) == "stamina" and (data.move_info(b["move"]) or {}).get("category") == "Physical":
+            # Stamina: the first hit raises Defense, so the second hit of a double lands on +1.
+            up = Mon(**{**x.__dict__, "boosts": {**x.boosts, "def": min(6, x.boosts.get("def", 0) + 1)}})
+            again = [h for h in entry_hits(second["_foe"], up, fs, our_actives=our_actives, their_actives=len(foes),
+                                           locked=(locked or {}).get(species_key(second["_foe"].species)), outgoing=outgoing)
+                     if h["move"] == b["move"]]
+            if again:
+                b, braced = again[0], True
+        lo = a["damage_pct_of_current_hp"][0] + b["damage_pct_of_current_hp"][0]
+        hi = a["damage_pct_of_current_hp"][1] + b["damage_pct_of_current_hp"][1]
+        acc_a, acc_b = a.get("hit_chance", 1.0), b.get("hit_chance", 1.0)
+        both = acc_a * acc_b * data.rolls_reach(2, lo / 2, hi / 2, 100.0)
+        p_double = both + acc_a * (1 - acc_b) * ko_probability(a) + (1 - acc_a) * acc_b * ko_probability(b)
+        double = {"moves": [f"{first['_foe'].species} {a['move']}", f"{second['_foe'].species} {b['move']}"],
+                  "damage_pct": [round(lo, 1), round(hi, 1)], "ko_chance": round(min(1.0, p_double), 3),
+                  **({"note": f"Stamina: {second['_foe'].species}'s hit lands on +1 Defense"} if braced else {})}
+    entries = []
+    for t in takes:
+        hit = t["_hit"]
+        entries.append({"from": t["_foe"].species, "move": hit["move"], "damage_pct": list(hit["damage_pct_of_current_hp"]),
+                        "effect": hit["effect"], "ko_chance": hit["ko_chance"],
+                        **{k: hit[k] for k in ("hit_chance", "per_hit", "first_hit", "hits") if k in hit}})
+    p_single = max((e["ko_chance"] for e in entries), default=0.0)
+    ko = max(p_single, double["ko_chance"] if double else 0.0)
+    worst = max(entries, key=lambda e: _danger(_avg(e["damage_pct"]), e.get("hit_chance", 1.0), e["ko_chance"]), default=None)
+    return {"hp_pct": int(round(100 * x.hp_fraction)), "hazards": notes, "takes": entries, "takes_worst": worst,
+            "double_target": double, "ko_on_entry": round(ko, 3), "verdict": "ko_on_entry" if ko >= 0.5 else "safe"}
 
 
 def _danger(avg_pct: float, hit_chance: float, ko_chance: float) -> float:
@@ -1091,72 +1215,88 @@ def _danger(avg_pct: float, hit_chance: float, ko_chance: float) -> float:
 
 
 def _switch_previews(sheet: "TurnSheet", slots: list[dict], theirs: dict[int, "Mon"], obs: dict, memory: MatchMemory,
-                     fs: "FieldState") -> None:
-    """For every Pokémon we could bring in now: the worst hit each opposing active can give it (its own Intimidate
-    applied to them, the spread modifier when the move also hits our partner, the field, and KO odds that include
-    accuracy and hit counts), its best hit back, and who it outspeeds, all from the real damage model. Replaces 'type
-    chart only' switch judgement (Oct 7: Garchomp came in because it 'resists Make It Rain' (it is neutral) and died
-    before moving)."""
-    names: list[str] = []
+                     fs: "FieldState", *, hazards: object = None) -> None:
+    """For every Pokémon we could bring in now: ``entry_verdict`` against BOTH foes (its own Intimidate on them, the
+    post-switch field with its own Ruin ability and without the outgoing Pokémon's, the spread modifier when our partner
+    stays out, the hazard chip, accuracy and hit counts, their double-target), its best hit back with that field, who it
+    outspeeds, and a score that ``best_switch`` reads. A switch-in both slots can make is priced for each (the outgoing
+    Pokémon differs) and reported at its worse slot, with ``by_slot`` when the two differ. ``hazards`` is the memory's
+    layer count for our side (ops lane); None reads the side conditions as one layer each. Replaces 'type chart only'
+    switch judgement (Oct 7: Garchomp came in because it 'resists Make It Rain' (it is neutral) and died before moving)."""
+    offered: dict[str, list[int]] = {}
+    labels: dict[str, str] = {}
     for slot in slots:
         for o in slot.get("options") or []:
-            if o.get("type") == "switch" and o.get("species") and species_key(o["species"]) not in {species_key(n) for n in names}:
-                names.append(o["species"])
-    if not names or not theirs:
+            if o.get("type") == "switch" and o.get("species"):
+                key = species_key(o["species"])
+                labels.setdefault(key, o["species"])
+                if slot.get("slot", 0) not in offered.setdefault(key, []):
+                    offered[key].append(slot.get("slot", 0))
+    if not offered or not theirs:
         return
+    ours_by_pos = {m.position: m for m in fs.actives if m.side == "mine"}
     our_live = max(1, len(_active_summaries(obs.get("team"))))  # the switch replaces one of them: the count stays
-    for name in names:
-        key = species_key(name)
-        summary = _find_summary(obs.get("team"), name)
+    locks = {species_key(opp.species): memory.opp_last_move[species_key(opp.species)] for opp in theirs.values()
+             if data.to_id(opp.item) in CHOICE_ITEMS and memory.opp_last_move.get(species_key(opp.species))}
+    for key, slot_numbers in offered.items():
+        summary = _find_summary(obs.get("team"), labels[key])
         x = build_mon({**summary, "boosts": {}}, memory.my_cards.get(key), side="mine", position=None)  # boosts reset on switch
         if x is None:
             continue
         x.tailwind = "tailwind" in fs.my_side
-        takes, deals = [], []
-        for opp in theirs.values():
-            locked = memory.opp_last_move.get(species_key(opp.species)) if data.to_id(opp.item) in CHOICE_ITEMS else None
-            hits = entry_hits(opp, x, fs, our_actives=our_live, their_actives=len(theirs), locked=locked)  # applies x's Intimidate to opp
-            if hits:
-                worst = hits[0]
-                takes.append({"from": opp.species, "move": worst["move"], "damage_pct": list(worst["damage_pct_of_current_hp"]),
-                              "effect": worst["effect"], "ko_chance": worst["ko_chance"],
-                              **({"hit_chance": worst["hit_chance"]} if "hit_chance" in worst else {})})
-            best = None
-            for mv in x.moves:
-                if not data.is_damaging(mv) or mv["id"] in ("fakeout", "firstimpression"):
-                    continue
-                prof = hit_profile(x, mv, opp, field=fs, spread=is_spread(mv, foes=len(theirs), allies=our_live - 1))
-                if prof is None:
-                    continue
-                est = prof["damage_pct_of_current_hp"]
-                acc = prof.get("hit_chance", 1.0)
-                if best is None or min(_avg(est), 100) * acc > min(_avg(best[1]), 100) * best[3]:
-                    best = (mv["id"], est, type_multiplier(x, mv, opp, fs), acc, round(ko_probability(prof, with_accuracy=True), 3))
-            if best:
-                deals.append({"to": opp.species, "move": best[0], "damage_pct": list(best[1]), "effect": effect_label(best[2]),
-                              "ko_chance": best[4], **({"hit_chance": best[3]} if best[3] < 1 else {})})
-        my_speed = x.stat("spe")
-        outspeeds = [o.species for o in theirs.values() if (my_speed > o.stat("spe")) != fs.trick_room]
-        danger_of = {id(t): _danger(_avg(t["damage_pct"]), t.get("hit_chance", 1.0), t["ko_chance"]) for t in takes}
-        worst_in = max(takes, key=lambda t: danger_of[id(t)], default=None)
-        offense = sum(min(_avg(d["damage_pct"]), 100) * d.get("hit_chance", 1.0) + 25 * d["ko_chance"] for d in deals) / max(len(theirs), 1)
-        danger = 0.0
-        if worst_in:
-            danger = danger_of[id(worst_in)]
-            others = sorted((min(_avg(t["damage_pct"]), 100) * t.get("hit_chance", 1.0) for t in takes if t is not worst_in), reverse=True)
-            danger += 0.35 * others[0] if others else 0.0  # they may double into the newcomer
         fake_out = any(m["id"] == "fakeout" for m in x.moves)
-        score = offense - 0.8 * danger + 8 * len(outspeeds) + (10 if fake_out else 0)
+        per_slot: dict[int, dict] = {}
+        for number in sorted(slot_numbers):
+            outgoing = ours_by_pos.get(number)
+            verdict = entry_verdict(x, theirs.values(), fs, outgoing=outgoing, our_actives=our_live, hazards=hazards, locked=locks)
+            after = entry_field(fs, add=[x], drop=[outgoing])
+            deals = []
+            for opp in theirs.values():
+                best = None
+                for mv in x.moves:
+                    if not data.is_damaging(mv) or mv["id"] in ("fakeout", "firstimpression"):
+                        continue
+                    prof = hit_profile(x, mv, opp, field=after, spread=is_spread(mv, foes=len(theirs), allies=our_live - 1))
+                    if prof is None:
+                        continue
+                    est = prof["damage_pct_of_current_hp"]
+                    acc = prof.get("hit_chance", 1.0)
+                    if best is None or min(_avg(est), 100) * acc > min(_avg(best[1]), 100) * best[3]:
+                        best = (mv["id"], est, type_multiplier(x, mv, opp, after), acc, round(ko_probability(prof, with_accuracy=True), 3))
+                if best:
+                    deals.append({"to": opp.species, "move": best[0], "damage_pct": list(best[1]), "effect": effect_label(best[2]),
+                                  "ko_chance": best[4], **({"hit_chance": best[3]} if best[3] < 1 else {})})
+            my_speed = x.stat("spe")
+            outspeeds = [o.species for o in theirs.values() if (my_speed > o.stat("spe")) != fs.trick_room]
+            takes, worst_in = verdict["takes"], verdict["takes_worst"]
+            offense = sum(min(_avg(d["damage_pct"]), 100) * d.get("hit_chance", 1.0) + 25 * d["ko_chance"] for d in deals) / max(len(theirs), 1)
+            danger = 0.0
+            if worst_in:
+                danger = _danger(_avg(worst_in["damage_pct"]), worst_in.get("hit_chance", 1.0), worst_in["ko_chance"])
+                others = sorted((min(_avg(t["damage_pct"]), 100) * t.get("hit_chance", 1.0) for t in takes if t is not worst_in), reverse=True)
+                danger += 0.35 * others[0] if others else 0.0  # they may double into the newcomer
+            score = offense - 0.8 * danger + 8 * len(outspeeds) + (10 if fake_out else 0) - 100 * verdict["ko_on_entry"]
+            per_slot[number] = {**verdict, "deals_best": deals, "outspeeds": outspeeds, "score": round(score, 1)}
+        head = min(per_slot.values(), key=lambda v: v["score"])
         notes = intimidate_notes(x, theirs.values())
-        sheet.switch_ins[key] = {
-            "hp_pct": int(round(100 * x.hp_fraction)),
-            "takes_worst": worst_in,
-            "deals_best": deals,
-            "outspeeds": outspeeds,
+        entry = {
+            "hp_pct": head["hp_pct"],
+            **({"hazards": head["hazards"]} if head["hazards"] else {}),
+            "takes_worst": head["takes_worst"],
+            "takes": head["takes"],
+            **({"double_target": head["double_target"]} if head["double_target"] else {}),
+            "ko_on_entry": head["ko_on_entry"],
+            "verdict": head["verdict"],
+            "deals_best": head["deals_best"],
+            "outspeeds": head["outspeeds"],
             **({"intimidate": notes} if notes else {}),
             **({"fake_out_next_turn": True} if fake_out else {}),
-            "score": round(score, 1),
+            "score": head["score"],
         }
+        if len(per_slot) > 1 and len({v["score"] for v in per_slot.values()}) > 1:
+            entry["by_slot"] = {n: {"replacing": ours_by_pos[n].species if n in ours_by_pos else None, "takes_worst": v["takes_worst"],
+                                    "ko_on_entry": v["ko_on_entry"], "verdict": v["verdict"], "score": v["score"]} for n, v in per_slot.items()}
+        sheet.switch_ins[key] = entry
 
 
 def _flinchable(me: "Mon", ours: dict[int, "Mon"], fs: "FieldState") -> bool:
@@ -1436,12 +1576,15 @@ def switch_value(species: str, theirs: dict[int, "Mon"], memory: "MatchMemory") 
 def best_switch(slot: dict, theirs: dict[int, "Mon"], memory: "MatchMemory", *, exclude: str | None = None,
                 sheet: "TurnSheet | None" = None) -> tuple[int | None, str | None]:
     """(option index, species) of the best switch option in this slot, skipping ``exclude``. Uses the sheet's
-    switch-in preview (real damage both ways, speed) when there is one, else the type-chart estimate."""
+    switch-in preview (real damage both ways against both foes, hazards, entry effects, speed; the slot's own
+    pricing when the two slots differ) when there is one, else the type-chart estimate."""
     best: tuple[int | None, str | None, float] = (None, None, float("-inf"))
     for index, option in enumerate(slot.get("options") or []):
         if option.get("type") != "switch" or option.get("species") == exclude:
             continue
         preview = (sheet.switch_ins.get(species_key(option["species"])) if sheet is not None else None)
+        if preview and isinstance(preview.get("by_slot"), dict):
+            preview = preview["by_slot"].get(slot.get("slot", 0), preview)
         value = preview["score"] if preview else switch_value(option["species"], theirs, memory)
         if value > best[2]:
             best = (index, option["species"], value)
@@ -1798,17 +1941,30 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 # unless the switch-in is KO'd on entry by the same attacker (a pivot that just donates a Pokémon).
                 switch, switch_species = best_switch(slot, theirs, memory, sheet=sheet) if memory is not None else (_option_index(slot, "switch"), None)
                 if switch is not None and switch_species and attacker is not None and memory is not None:
-                    incoming = build_mon({"species": switch_species, "current_hp_fraction": sheet.bench_hp.get(species_key(switch_species), 1.0)},
-                                         memory.my_cards.get(species_key(switch_species)), side="mine", position=endangered)
-                    # Entry hits: the switch-in's Intimidate on the attacker, the spread modifier when the move also hits our
-                    # partner, the field, and a Choice lock (mech lane, D1k / Intimidate on switch-in).
-                    hits = entry_hits(attacker, incoming, sheet.field, our_actives=len(ours), their_actives=len(theirs),
-                                      locked=threat.get("locked_move")) if incoming is not None else []
-                    killers = [h for h in hits if h["ko"] == "guaranteed"]
-                    if killers:
-                        acc = killers[0].get("hit_chance", 1.0)
-                        note = (f"No safe pivot for slot {endangered}: {switch_species} would be KO'd on entry by {threat['species']}'s {killers[0]['move']}"
-                                + (f" ({int(round(acc * 100))}% of the time: it can miss)" if acc < 1 else "")
+                    # The switch-in preview's verdict (mech lane): both foes' entry hits with the switch-in's Intimidate, the
+                    # post-switch field, the spread modifier, hazards and their double-target. Without a preview, the
+                    # triggering attacker alone.
+                    preview = sheet.switch_ins.get(species_key(switch_species)) or {}
+                    preview = (preview.get("by_slot") or {}).get(endangered, preview)
+                    killer, odds = None, 0.0
+                    if preview.get("verdict") == "ko_on_entry":
+                        odds = preview["ko_on_entry"]
+                        worst, double = preview.get("takes_worst") or {}, preview.get("double_target")
+                        if double and double["ko_chance"] > worst.get("ko_chance", 0.0):
+                            killer = " + ".join(double["moves"]) + " together"
+                        else:
+                            killer = f"{worst['from']}'s {worst['move']}"
+                    elif not preview:
+                        incoming = build_mon({"species": switch_species, "current_hp_fraction": sheet.bench_hp.get(species_key(switch_species), 1.0)},
+                                             memory.my_cards.get(species_key(switch_species)), side="mine", position=endangered)
+                        hits = entry_hits(attacker, incoming, sheet.field, our_actives=len(ours), their_actives=len(theirs),
+                                          locked=threat.get("locked_move"), outgoing=ours.get(endangered)) if incoming is not None else []
+                        sure = [h for h in hits if h["ko"] == "guaranteed"]
+                        if sure:
+                            killer, odds = f"{threat['species']}'s {sure[0]['move']}", sure[0]["ko_chance"]
+                    if killer:
+                        note = (f"No safe pivot for slot {endangered}: {switch_species} would be KO'd on entry by {killer}"
+                                + f" ({int(round(odds * 100))}% of the time" + (", hazards included" if preview.get("hazards") else "") + ")"
                                 + (f" (it is Choice-locked into {threat['locked_move']})" if threat.get("locked_move") else "")
                                 + ". Switching just donates a Pokémon; attack (or Protect, if it works) instead.")
                         if note not in sheet.warnings:

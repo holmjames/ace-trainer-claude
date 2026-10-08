@@ -42,18 +42,19 @@ function run(name, a, moveName, d, opts = {}) {
   const hp = opts.hp == null ? 1.0 : opts.hp;
   defender.originalCurHP = Math.max(1, Math.floor(defender.maxHP() * hp));
   const gameType = opts.gameType || 'Doubles';
-  const field = new Field({ gameType, weather: opts.weather, terrain: opts.terrain,
+  const field = new Field({ gameType, weather: opts.weather, terrain: opts.terrain, ...(opts.fieldExtra || {}),
     defenderSide: { isReflect: !!opts.reflect, isLightScreen: !!opts.lightScreen } });
-  const move = new Move(gen, moveName, opts.hits ? { hits: opts.hits } : {});
+  const move = new Move(gen, moveName, { ...(opts.hits ? { hits: opts.hits } : {}), ...(opts.crit ? { isCrit: true } : {}) });
   const result = calculate(gen, attacker, defender, move, field);
   const range = result.range();
   const c = {
     name,
     attacker: spec(a, attacker, { hp_fraction: 1.0, allies_fainted: opts.alliesFainted || 0 }),
     defender: spec(d, defender),
-    move: moveName, hits: opts.hits || null,
+    move: moveName, hits: opts.hits || null, crit: !!opts.crit,
     defender_hp_fraction: hp, defender_max_hp: defender.maxHP(), defender_cur_hp: defender.curHP(),
-    field: { weather: opts.weather || null, terrain: opts.terrain || null, defender_reflect: !!opts.reflect, defender_light_screen: !!opts.lightScreen, game_type: gameType },
+    field: { weather: opts.weather || null, terrain: opts.terrain || null, defender_reflect: !!opts.reflect, defender_light_screen: !!opts.lightScreen, game_type: gameType,
+             ruin: Object.keys(opts.fieldExtra || {}).filter(k => /Ruin$/.test(k)) },
     spread_in_calc: gameType !== 'Singles' && SPREAD.includes(move.target),
     damage: [range[0], range[1]],
   };
@@ -203,6 +204,36 @@ search: for (const a of cards) {
     }
   }
 }
+
+// -- Entry / exit effects and hazard-aware switch safety (post-mortem of the Oct 8 live match bcbaabe2) --------------
+// T4: our Wo-Chien entered and its Tablets of Ruin cut Archaludon's Body Press into Ting-Lu (Body Press uses the
+// Defense stat but Attack modifiers still apply). T8: their Ting-Lu entered with Vessel of Ruin against Draco Meteor.
+run('t4_bodypress_tinglu_plain', by['Archaludon'], 'Body Press', by['Ting-Lu'], {});
+run('t4_bodypress_tinglu_tablets', by['Archaludon'], 'Body Press', by['Ting-Lu'], { fieldExtra: { isTabletsOfRuin: true } });
+run('t8_draco_salamence_plain', by['Archaludon'], 'Draco Meteor', by['Salamence'], {});
+run('t8_draco_salamence_vessel', by['Archaludon'], 'Draco Meteor', by['Salamence'], { fieldExtra: { isVesselOfRuin: true } });
+// T12: Milotic in for Wo-Chien (Tablets leave) against Rillaboom's Wood Hammer under Grassy Terrain, before and after
+// one layer of Spikes (202 -> 177 HP); the same hit with Wo-Chien still out (the other slot switching).
+run('t12_woodhammer_milotic_full', by['Rillaboom'], 'Wood Hammer', by['Milotic'], { terrain: 'Grassy' });
+run('t12_woodhammer_milotic_spikes', by['Rillaboom'], 'Wood Hammer', by['Milotic'], { terrain: 'Grassy', hp: 177 / 202 });
+run('t12_woodhammer_milotic_spikes_tablets', by['Rillaboom'], 'Wood Hammer', by['Milotic'], { terrain: 'Grassy', hp: 177 / 202, fieldExtra: { isTabletsOfRuin: true } });
+// T12: Arcanine in for Wo-Chien: its Intimidate drops Dragonite to -1 and the Tablets leave; 89 HP before Spikes, 65 after.
+for (const [tag, hp] of [['plain', 89 / 197], ['spikes', 65 / 197]]) {
+  for (const hits of [1, 4, 5]) run(`t12_scaleshot_arcanine_${tag}_${hits}hits`, by['Dragonite'], 'Scale Shot', by['Arcanine'], { hp, hits, terrain: 'Grassy', aBoosts: { atk: -1 } });
+}
+// T14: Wo-Chien in for Arcanine: its own Tablets of Ruin on the field, Dragonite still at -1; 83 HP before Spikes, 59 after.
+for (const [tag, hp] of [['plain', 83 / 192], ['spikes', 59 / 192]]) {
+  for (const hits of [1, 4, 5]) run(`t14_scaleshot_wochien_${tag}_${hits}hits`, by['Dragonite'], 'Scale Shot', by['Wo-Chien'], { hp, hits, aBoosts: { atk: -1 }, fieldExtra: { isTabletsOfRuin: true } });
+}
+// Stamina on a double-target: the faster foe's hit lands first, the slower one's meets +1 Defense.
+run('stamina_headlongrush_archaludon', by['Great Tusk'], 'Headlong Rush', by['Archaludon'], {});
+run('stamina_headlongrush_archaludon_plus1', by['Great Tusk'], 'Headlong Rush', by['Archaludon'], { dBoosts: { def: 1 } });
+run('stamina_woodhammer_archaludon_plus0', by['Rillaboom'], 'Wood Hammer', by['Archaludon'], {});
+run('stamina_woodhammer_archaludon_plus1', by['Rillaboom'], 'Wood Hammer', by['Archaludon'], { dBoosts: { def: 1 } });
+// Oct 7 match 2, turn 1 (session 1aef9227): Sylveon's Pixilate Hyper Voice took 216 of Iron Hands' 259 HP against a
+// 48-57% sheet. The protocol log has '|-crit|p1a: Iron Hands' before the damage line: the crit range, not a modifier.
+run('oct7_hypervoice_ironhands', by['Sylveon'], 'Hyper Voice', by['Iron Hands'], {});
+run('oct7_hypervoice_ironhands_crit', by['Sylveon'], 'Hyper Voice', by['Iron Hands'], { crit: true });
 
 const out = path.join(root, 'tests', 'fixtures', 'smogon_calc_mech.json');
 fs.writeFileSync(out, JSON.stringify(cases, null, 0));

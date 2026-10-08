@@ -71,13 +71,15 @@ def catalog_mon(species: str, *, side: str, position: int | None, hp: float = 1.
 
 
 def build(mine: list[str], opp: list[str], *, bench: list[str] = (), hp: dict[str, float] | None = None, obs_extra: dict | None = None,
-          cards: dict[str, dict] | None = None, drop_moves: set[str] = frozenset(), their_fainted: list[str] = ()) -> tuple[battle.TurnSheet, MatchMemory]:
+          cards: dict[str, dict] | None = None, drop_moves: set[str] = frozenset(), their_fainted: list[str] = (),
+          boosts: dict[str, dict] | None = None) -> tuple[battle.TurnSheet, MatchMemory]:
     """A doubles turn from catalog sets: ``mine`` are our actives (slot 0, 1), ``opp`` theirs (positions 1, 2), ``bench``
     our switch options, ``hp`` species -> HP fraction, ``cards`` per-species set overrides, ``drop_moves`` move names
-    left out of our option lists, ``their_fainted`` extra fainted members of their team."""
+    left out of our option lists, ``their_fainted`` extra fainted members of their team, ``boosts`` species -> stages."""
     m = MatchMemory()
     cards = cards or {}
     hp = hp or {}
+    boosts = boosts or {}
     for s in list(mine) + list(bench):
         m.my_cards[species_key(s)] = cards.get(s) or CATALOG[s]
     for s in list(opp) + list(their_fainted):
@@ -95,8 +97,9 @@ def build(mine: list[str], opp: list[str], *, bench: list[str] = (), hp: dict[st
                             "target_options": targets if single else []})
         options += [{"type": "switch", "species": data.to_id(b)} for b in bench]
         slots.append({"slot": i, "active": s, "force_switch": False, "options": options})
-    team = {f"p1: {s}": {"species": s, "active": s in mine, "fainted": False, "current_hp_fraction": hp.get(s, 1.0)} for s in list(mine) + list(bench)}
-    opp_team = {f"p2: {s}": {"species": s, "active": True, "fainted": False, "current_hp_fraction": hp.get(s, 1.0)} for s in opp}
+    team = {f"p1: {s}": {"species": s, "active": s in mine, "fainted": False, "current_hp_fraction": hp.get(s, 1.0), "boosts": boosts.get(s, {})}
+            for s in list(mine) + list(bench)}
+    opp_team = {f"p2: {s}": {"species": s, "active": True, "fainted": False, "current_hp_fraction": hp.get(s, 1.0), "boosts": boosts.get(s, {})} for s in opp}
     opp_team.update({f"p2: {s}": {"species": s, "active": False, "fainted": True, "current_hp_fraction": 0.0} for s in their_fainted})
     obs = {"turn": 3, "weather": None, "field": {}, "team": team, "opponent_team": opp_team,
            "active_pokemon": [{"species": s} for s in mine], "opponent_active_pokemon": [{"species": s} for s in opp], **(obs_extra or {})}
@@ -270,8 +273,11 @@ def test_switch_preview_uses_spread_and_the_field():
 def test_no_safe_pivot_check_uses_the_spread_modifier():
     """Dondozo's Earthquake would KO an incoming Sneasler at single-target power (158-186 of 156) but not at the doubles
     0.75x (118-140): with our partner on the field the switch is offered instead of 'No safe pivot'."""
-    sheet, _ = build(["Amoonguss", "Cresselia"], ["Dondozo", "Scream Tail"], bench=["Sneasler"], hp={"Amoonguss": 0.2})
+    # Their partner carries no attack here: with Dazzling Gleam beside Earthquake the double-target would KO Sneasler anyway.
+    support = {"Whimsicott": {**CATALOG["Whimsicott"], "moves": ["Tailwind", "Encore", "Light Screen", "Protect"]}}
+    sheet, _ = build(["Amoonguss", "Cresselia"], ["Dondozo", "Whimsicott"], bench=["Sneasler"], hp={"Amoonguss": 0.2}, cards=support)
     assert not any("No safe pivot" in w for w in sheet.warnings), sheet.warnings
+    assert sheet.switch_ins["sneasler"]["verdict"] == "safe" and "double_target" not in sheet.switch_ins["sneasler"]
     switch = [c for c in sheet.candidates if c["name"] == "switch_threatened" and c["slot_0"]["option"] == len(CATALOG["Amoonguss"]["moves"])]
     assert switch, sheet.candidates
 
@@ -487,3 +493,157 @@ def test_lead_ohkos_applies_the_partner_intimidate():
     assert error_vs_calc(minus, battle.damage_percent(a_mon, move, d_mon, field=fs)) < TOLERANCE
     twice = replace(a_mon, boosts={"atk": -2})
     assert battle.damage_percent(twice, move, d_mon, field=fs)[1] < battle.damage_percent(a_mon, move, d_mon, field=fs)[0]
+
+
+# -- Entry / exit effects and hazard-aware switch safety (post-mortem of the Oct 8 live match bcbaabe2) -------------
+
+
+def hp_error(c: dict, pct_range, hp_now: float) -> float:
+    """Gap between a range in % of ``hp_now`` HP and the calculator's HP range, in % of max HP (for post-hazard HP)."""
+    ours = (pct_range[0] * hp_now / 100, pct_range[1] * hp_now / 100)
+    return max(abs(ours[0] - c["damage"][0]), abs(ours[1] - c["damage"][1])) / c["defender_max_hp"] * 100
+
+
+def test_entry_field_prices_the_switch_ins_ruin_ability():
+    """T4: our Wo-Chien enters and its Tablets of Ruin cut Archaludon's Body Press into Ting-Lu (Body Press uses the
+    Defense stat, Attack modifiers still apply); T8: their Ting-Lu enters with Vessel of Ruin against Draco Meteor; and
+    a Pokémon that leaves takes its ability with it."""
+    plain, tablets = case("t4_bodypress_tinglu_plain"), case("t4_bodypress_tinglu_tablets")
+    archaludon, body_press, tinglu, fs = _pair(plain)
+    assert error_vs_calc(plain, battle.damage_percent(archaludon, body_press, tinglu, field=fs)) < TOLERANCE
+    wochien = catalog_mon("Wo-Chien", side="mine", position=1)
+    after = battle.entry_field(fs, add=[wochien], drop=[])
+    assert after.actives == [archaludon, tinglu, wochien] and fs.actives == [archaludon, tinglu]  # the original field is untouched
+    assert error_vs_calc(tablets, battle.damage_percent(archaludon, body_press, tinglu, field=after)) < TOLERANCE
+    gone = battle.entry_field(after, add=[], drop=[wochien])
+    assert error_vs_calc(plain, battle.damage_percent(archaludon, body_press, tinglu, field=gone)) < TOLERANCE
+    draco_plain, vessel = case("t8_draco_salamence_plain"), case("t8_draco_salamence_vessel")
+    archaludon, draco, salamence, fs = _pair(draco_plain)
+    assert error_vs_calc(draco_plain, battle.damage_percent(archaludon, draco, salamence, field=fs)) < TOLERANCE
+    their_tinglu = catalog_mon("Ting-Lu", side="theirs", position=2)
+    assert error_vs_calc(vessel, battle.damage_percent(archaludon, draco, salamence, field=battle.entry_field(fs, add=[their_tinglu]))) < TOLERANCE
+
+
+def test_entry_hits_use_the_post_switch_field():
+    """T12: Milotic in for Wo-Chien meets Rillaboom's Wood Hammer at full Attack once the Tablets leave (152-181% of
+    full HP under Grassy Terrain); with Wo-Chien staying (the other slot switching) the Tablets keep pricing it."""
+    full, tablets = case("t12_woodhammer_milotic_full"), case("t12_woodhammer_milotic_spikes_tablets")
+    rillaboom, wood_hammer, milotic, fs = _pair(full)
+    milotic = replace(milotic, side="mine")
+    archaludon, wochien = catalog_mon("Archaludon", side="mine", position=0), catalog_mon("Wo-Chien", side="mine", position=1)
+    fs.actives = [archaludon, wochien, rillaboom]
+    for_wochien = next(h for h in battle.entry_hits(rillaboom, milotic, fs, outgoing=wochien) if h["move"] == "woodhammer")
+    assert error_vs_calc(full, for_wochien["damage_pct_of_current_hp"]) < TOLERANCE and for_wochien["ko"] == "guaranteed"
+    hurt = replace(milotic, hp_fraction=tablets["defender_hp_fraction"])
+    for_archaludon = next(h for h in battle.entry_hits(rillaboom, hurt, fs, outgoing=archaludon) if h["move"] == "woodhammer")
+    assert error_vs_calc(tablets, for_archaludon["damage_pct_of_current_hp"]) < TOLERANCE
+
+
+def test_hazard_chip_and_normalisation():
+    milotic, tornadus = catalog_mon("Milotic", side="mine", position=None), catalog_mon("Tornadus", side="mine", position=None)
+    arcanine, lucario, amoonguss = (catalog_mon(s, side="mine", position=None) for s in ("Arcanine", "Lucario", "Amoonguss"))
+    assert battle.normalize_hazards({"spikes": 2, "Stealth Rock": 1, "tailwind": 3, "toxicspikes": 0}) == {"spikes": 2, "stealthrock": 1}
+    assert battle.normalize_hazards(["Spikes", "spikes", "Sticky Web"]) == {"spikes": 2, "stickyweb": 1}
+    assert battle.normalize_hazards(None, battle.FieldState(my_side={"spikes", "tailwind"})) == {"spikes": 1}
+    assert battle.normalize_hazards(None, None) == {} and battle.normalize_hazards({}, None) == {}
+    assert battle.hazard_chip(milotic, {"spikes": 1})[0] == pytest.approx(1 / 8)
+    assert battle.hazard_chip(milotic, {"spikes": 2})[0] == pytest.approx(1 / 6) and battle.hazard_chip(milotic, {"spikes": 3})[0] == pytest.approx(1 / 4)
+    assert battle.hazard_chip(tornadus, {"spikes": 3})[0] == 0.0  # Flying: Spikes miss it
+    assert battle.hazard_chip(arcanine, {"stealthrock": 1})[0] == pytest.approx(1 / 4)  # Fire takes 2x from Rock
+    assert battle.hazard_chip(lucario, {"stealthrock": 1})[0] == pytest.approx(1 / 32)  # Fighting / Steel: Rock is 0.25x
+    chip, notes = battle.hazard_chip(amoonguss, {"toxicspikes": 2, "stickyweb": 1})
+    assert chip == 0.0 and any("absorbed" in n for n in notes) and any("Sticky Web" in n for n in notes)
+    assert battle.hazard_chip(milotic, {})[0] == 0.0
+    assert battle.hazard_chip(replace(milotic, item="Heavy-Duty Boots"), {"spikes": 3, "stealthrock": 1})[0] == 0.0
+
+
+def test_t12_switch_safety_sees_both_foes_and_the_spikes():
+    """Oct 8 live T12: Milotic in for Wo-Chien faces Rillaboom's Wood Hammer, not the Dragonite whose threat triggered
+    the switch, at 177 of 202 HP after one layer of Spikes: KO'd on entry. Arcanine (89 -> 65 HP) is the better pivot
+    even though Scale Shot's four strikes KO it when they land (90%): its Intimidate at least drops Dragonite to -1."""
+    sheet, memory = build(["Archaludon", "Wo-Chien"], ["Dragonite", "Rillaboom"], bench=["Arcanine", "Milotic"],
+                          hp={"Arcanine": 89 / 197}, obs_extra={"fields": ["Grassy Terrain"], "side_conditions": ["Spikes"]})
+    milotic = sheet.switch_ins["milotic"]
+    assert milotic["verdict"] == "ko_on_entry" and milotic["ko_on_entry"] == 1.0
+    assert milotic["takes_worst"]["from"] == "Rillaboom" and milotic["takes_worst"]["move"] == "woodhammer"
+    assert milotic["hp_pct"] == 88 and any(n.startswith("Spikes x1") for n in milotic["hazards"])
+    spikes = case("t12_woodhammer_milotic_spikes")
+    assert hp_error(spikes, milotic["takes_worst"]["damage_pct"], milotic["hp_pct"] / 100 * 202) < TOLERANCE  # the Tablets left with Wo-Chien
+    by_slot = milotic["by_slot"]
+    assert by_slot[1]["replacing"] == "Wo-Chien" and by_slot[0]["replacing"] == "Archaludon"
+    tablets = case("t12_woodhammer_milotic_spikes_tablets")
+    assert hp_error(tablets, by_slot[0]["takes_worst"]["damage_pct"], milotic["hp_pct"] / 100 * 202) < TOLERANCE  # Wo-Chien stays: Tablets priced
+    arcanine = sheet.switch_ins["arcanine"]
+    assert arcanine["hp_pct"] == 33 and any("Dragonite: -1 Atk" in n for n in arcanine["intimidate"])
+    worst = arcanine["takes_worst"]
+    assert worst["from"] == "Dragonite" and worst["move"] == "scaleshot" and worst["hits"] == {4: 0.5, 5: 0.5}
+    one, four = case("t12_scaleshot_arcanine_spikes_1hits"), case("t12_scaleshot_arcanine_spikes_4hits")
+    hp_now = arcanine["hp_pct"] / 100 * 197
+    assert hp_error(one, worst["per_hit"], hp_now) < TOLERANCE
+    assert pct(four, 0) >= 100  # the calculator: four strikes at the minimum roll already KO 65 HP
+    assert arcanine["ko_on_entry"] == pytest.approx(0.9, abs=0.01) and arcanine["verdict"] == "ko_on_entry"  # it lands 90% of the time
+    theirs = {m.position: m for m in sheet.field.actives if m.side == "theirs"}
+    slot = {"slot": 1, "options": [{"type": "switch", "species": "milotic"}, {"type": "switch", "species": "arcanine"}]}
+    assert battle.best_switch(slot, theirs, memory, sheet=sheet)[1] == "arcanine"
+    # Before the Spikes went down Arcanine would have come in at 89 HP: four strikes are no longer a sure KO for Dragonite
+    # alone (the double with Rillaboom still is, so the verdict stands), and the single-hit odds say so.
+    clean, _ = build(["Archaludon", "Wo-Chien"], ["Dragonite", "Rillaboom"], bench=["Arcanine"], hp={"Arcanine": 89 / 197},
+                     obs_extra={"fields": ["Grassy Terrain"]})
+    plain4 = case("t12_scaleshot_arcanine_plain_4hits")
+    assert pct(plain4, 0) < 100 <= pct(plain4, 1)
+    assert clean.switch_ins["arcanine"]["hp_pct"] == 45
+    assert clean.switch_ins["arcanine"]["takes_worst"]["ko_chance"] < worst["ko_chance"] == pytest.approx(0.9, abs=0.01)
+    assert clean.switch_ins["arcanine"]["double_target"]["ko_chance"] == pytest.approx(0.9, abs=0.02)
+
+
+def test_t14_switch_in_brings_its_own_ruin_ability():
+    """Oct 8 live T14: Wo-Chien in for Arcanine at 83 HP (59 after Spikes): its own Tablets of Ruin cut Dragonite's
+    Scale Shot, with Dragonite still at -1 from Arcanine's Intimidate."""
+    sheet, _ = build(["Archaludon", "Arcanine"], ["Dragonite"], bench=["Wo-Chien"], hp={"Wo-Chien": 83 / 192},
+                     boosts={"Dragonite": {"atk": -1}}, obs_extra={"side_conditions": ["Spikes"]})
+    wochien = sheet.switch_ins["wochien"]
+    assert wochien["hp_pct"] == 31
+    worst = wochien["takes_worst"]
+    assert worst["from"] == "Dragonite" and worst["move"] == "scaleshot"
+    one = case("t14_scaleshot_wochien_spikes_1hits")
+    hp_now = wochien["hp_pct"] / 100 * 192
+    assert hp_error(one, worst["per_hit"], hp_now) < TOLERANCE
+    dragonite = next(m for m in sheet.field.actives if m.species == "Dragonite")
+    plain = replace(catalog_mon("Wo-Chien", side="mine", position=1, hp=wochien["hp_pct"] / 100), ability="Pressure")
+    without = next(h for h in battle.entry_hits(dragonite, plain, sheet.field, our_actives=2, their_actives=1) if h["move"] == "scaleshot")
+    assert without["per_hit"][0] > worst["per_hit"][0] * 1.2  # a quarter harder without the Tablets
+
+
+def test_double_target_meets_stamina_on_the_second_hit():
+    """Archaludon switching in against Great Tusk + Rillaboom: the faster foe's hit lands first, the slower one's meets
+    +1 Defense from Stamina; the double-target sum uses both calculator numbers."""
+    tusk, rilla = catalog_mon("Great Tusk", side="theirs", position=1), catalog_mon("Rillaboom", side="theirs", position=2)
+    archaludon = catalog_mon("Archaludon", side="mine", position=None)
+    fs = battle.FieldState(actives=[tusk, rilla])
+    v = battle.entry_verdict(archaludon, [tusk, rilla], fs, our_actives=2)
+    first, second = (tusk, rilla) if tusk.stat("spe") > rilla.stat("spe") else (rilla, tusk)
+    moves = {"Great Tusk": "headlongrush", "Rillaboom": "woodhammer"}
+    assert v["double_target"]["moves"] == [f"{first.species} {moves[first.species]}", f"{second.species} {moves[second.species]}"]
+    assert v["double_target"]["note"] == f"Stamina: {second.species}'s hit lands on +1 Defense"
+    takes = {t["from"]: t for t in v["takes"]}
+    assert error_vs_calc(case("stamina_headlongrush_archaludon"), takes["Great Tusk"]["damage_pct"]) < TOLERANCE
+    assert error_vs_calc(case("stamina_woodhammer_archaludon_plus0"), takes["Rillaboom"]["damage_pct"]) < TOLERANCE
+    tags = {"Great Tusk": "stamina_headlongrush_archaludon", "Rillaboom": "stamina_woodhammer_archaludon_plus0"}
+    plus1 = {"Great Tusk": "stamina_headlongrush_archaludon_plus1", "Rillaboom": "stamina_woodhammer_archaludon_plus1"}
+    lo, hi = v["double_target"]["damage_pct"]
+    assert lo == pytest.approx(pct(case(tags[first.species]), 0) + pct(case(plus1[second.species]), 0), abs=TOLERANCE)
+    assert hi == pytest.approx(pct(case(tags[first.species]), 1) + pct(case(plus1[second.species]), 1), abs=TOLERANCE)
+    assert v["verdict"] in ("safe", "ko_on_entry") and 0.0 <= v["ko_on_entry"] <= 1.0
+
+
+def test_oct7_hyper_voice_into_iron_hands_was_a_crit():
+    """Oct 7 match 2, turn 1 (session 1aef9227): Sylveon's Pixilate Hyper Voice took 216 of Iron Hands' 259 HP against a
+    48-57% sheet. The protocol log shows '|-crit|p1a: Iron Hands' before the damage line; the calculator's non-crit range
+    is the sheet's (122-146) and only its crit range holds 216. Nothing is missing from the model."""
+    plain, crit = case("oct7_hypervoice_ironhands"), case("oct7_hypervoice_ironhands_crit")
+    sylveon, hyper_voice, iron_hands, fs = _pair(plain)
+    assert error_vs_calc(plain, battle.damage_percent(sylveon, hyper_voice, iron_hands, field=fs, spread=True)) < TOLERANCE
+    est = battle.damage_percent(sylveon, {**hyper_voice, "will_crit": True}, iron_hands, field=fs, spread=True)
+    assert error_vs_calc(crit, est) < TOLERANCE
+    assert crit["damage"][0] <= 216 <= crit["damage"][1] and not plain["damage"][0] <= 216 <= plain["damage"][1]
+    assert 47 <= pct(plain, 0) <= 49 and 55 <= pct(plain, 1) <= 58  # the sheet's 48-57%
