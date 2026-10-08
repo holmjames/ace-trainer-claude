@@ -60,7 +60,7 @@ DEFAULTS: dict[str, float] = {
     "switch_weak_bonus": 15.0,     # (was 10)
     "choice_lock_rerank": 1.0,     # steer a Choice holder away from locking into a move that is dead against a remaining opponent (0 = off)
     "focus_risk": 0.35,            # chance the opponent double-targets a slot that both of its actives can KO together (Oct 7 losses)
-    "hp_units": 0.0,               # 1 = value damage in % of the target's MAX HP (capped at what it has left) instead of % of current HP
+    "hp_units": 1.0,               # value damage in % of the target's MAX HP (capped at what it has left), not % of current HP (+3.7 pts, 2,000 games, Oct 8)
     "opp_protect_risk": 0.3,       # chance an opposing Pokémon in KO range Protects (if it can and didn't last turn): discounts focus fire
 }
 
