@@ -174,6 +174,7 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
     order = [first if i in (0, 3, 4, 7, 8, 11) else ("p2" if first == "p1" else "p1") for i in range(12)]
     rosters: dict[str, list[dict]] = {seats["p1"]: [], seats["p2"]: []}  # seat 0 first, as live
     picks: list[dict] = []
+    pick_log: list[dict] = []  # per pick: side, species, the public reason (what the live draft shows the other seat)
     version = 0
     if fixed_rosters:
         rosters = {seats["p1"]: list(fixed_rosters["p1"]), seats["p2"]: list(fixed_rosters["p2"])}
@@ -192,6 +193,7 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
         reason = answer.reasoning_summary if isinstance(answer, WithReasoning) else None
         picks.append({"pick_number": len(picks) + 1, "seat_id": seats[side], "card_id": card_id, "species": card["species"],
                       "public_reason": reason or "", "auto": False, "auto_reason": None})
+        pick_log.append({"side": side, "species": card["species"], "public_reason": reason or ""})
         version += 1
     # ---- team preview: Showdown gets all six (draft order) and each side picks 4, leads first
     seed = [rng.randrange(1, 65536) for _ in range(4)]
@@ -257,7 +259,7 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
             "first_drafter": first, "rejected": rejected,
             "versions": {s: getattr(players[s], "_version", getattr(players[s], "name", names[s])) for s in ("p1", "p2")},
             "teams": {s: [rosters[seats[s]][i]["species"] for i in lineups[s]] for s in ("p1", "p2")},
-            "rosters": {s: [c["species"] for c in rosters[seats[s]]] for s in ("p1", "p2")}}
+            "rosters": {s: [c["species"] for c in rosters[seats[s]]] for s in ("p1", "p2")}, "picks": pick_log}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -296,10 +298,11 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:  # noqa: BLE001
                 print(f"game {g + 1}: ERROR {type(exc).__name__}: {exc}")
                 continue
+            result["seconds"] = round(time.monotonic() - t0, 3)
             if result["winner"]:
                 wins[result["winner"]] = wins.get(result["winner"], 0) + 1
             print(f"game {g + 1}: {names['p1']} vs {names['p2']} -> winner {result['winner']} in {result['turns']} turns "
-                  f"({int(time.monotonic() - t0)} s; rejected choices {result['rejected']})")
+                  f"({result['seconds']:.1f} s; rejected choices {result['rejected']})")
             with (out_dir / "results.jsonl").open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps({"ts": time.time(), "p1": names["p1"], "p2": names["p2"], **result}) + "\n")
     finally:
