@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 
 from . import data
-from .battle import FieldState, build_mon, damage_percent
+from .battle import FieldState, build_mon, damage_percent, hit_profile
 from .draft import Profile, hit_quality, profile
 from .tuning import DEFAULTS
 
@@ -140,17 +140,21 @@ INTIMIDATE_IMMUNE = {"innerfocus", "owntempo", "oblivious", "scrappy", "guarddog
 
 def lead_ohkos(pair: list[Profile], theirs: list[Profile]) -> list[str]:
     """Which opposing sets can knock out one of our leads at full HP before it moves (faster, or a priority move),
-    using the real damage model with both leads' Intimidate applied. Returns notes like 'Maushold OHKOs Hatterene'."""
+    using the real damage model with EVERY lead's Intimidate applied to them (two Intimidate leads are -2; Defiant /
+    Guard Dog / Competitive, Clear Amulet and the blocking abilities honoured). Returns notes like 'Maushold OHKOs
+    Hatterene with populationbomb before it moves'; a move that can miss says how often it lands, and a multi-hit move
+    counts its fewest strikes (Low Kick and the other weight-based moves count too)."""
     out: list[str] = []
     leads = [build_mon({"species": p.species, "current_hp_fraction": 1.0}, p.card, side="mine", position=i) for i, p in enumerate(pair)]
     leads = [m for m in leads if m]
     if len(leads) < 2:
         return out
-    intimidate = any(p.ability == "intimidate" for p in pair)
+    intimidates = sum(1 for p in pair if p.ability == "intimidate")
     for opp in theirs:
-        boosts = {}
-        if intimidate and opp.ability not in INTIMIDATE_IMMUNE and opp.card_item != "clearamulet":
-            boosts = {"atk": -1}
+        boosts: dict[str, int] = {}
+        for _ in range(intimidates):
+            for stat, delta in data.intimidate_stages(opp.ability, opp.card_item).items():
+                boosts[stat] = max(-6, min(6, boosts.get(stat, 0) + delta))
         mon = build_mon({"species": opp.species, "current_hp_fraction": 1.0, "boosts": boosts}, opp.card, side="theirs", position=1)
         if not mon:
             continue
@@ -158,16 +162,18 @@ def lead_ohkos(pair: list[Profile], theirs: list[Profile]) -> list[str]:
         for lead in leads:
             faster = mon.stat("spe") > lead.stat("spe")
             for move in mon.moves:
-                if (move.get("base_power") or 0) <= 0:
+                if not data.is_damaging(move):
                     continue
                 if not (faster or (move.get("priority") or 0) > 0):
                     continue
                 if move["id"] in ("fakeout", "firstimpression"):
                     continue
                 spread = move.get("target") in ("allAdjacentFoes", "allAdjacent")
-                est = damage_percent(mon, move, lead, field=fs, spread=spread)
-                if est and est[0] >= 100:
-                    out.append(f"{opp.species} OHKOs {lead.species} with {move['id']} before it moves")
+                prof = hit_profile(mon, move, lead, field=fs, spread=spread)
+                if prof and prof["ko"] == "guaranteed":
+                    acc = prof.get("hit_chance", 1.0)
+                    out.append(f"{opp.species} OHKOs {lead.species} with {move['id']} before it moves"
+                               + (f" ({int(round(acc * 100))}% accurate)" if acc < 1 else ""))
                     break
     return out
 

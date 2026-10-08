@@ -94,9 +94,10 @@ def test_damage_percent_matches_a_known_calc():
     gyara = _mon(THEIRS[0], side="theirs", position=1)
     low, high = battle.damage_percent(rilla, data.move_info("Wood Hammer") | {"id": "woodhammer"}, gyara)
     # By hand: Atk 194 (base 125, 252 EVs, Adamant), Def 99, HP 170. base = floor(floor(22*120*194/99)/50)+2 = 105;
-    # x1.5 STAB, x1.0 type (water 2x, flying 0.5x), random 0.85..1.0 -> 133.9..157.5 of 170 HP.
-    assert low == pytest.approx(105 * 0.85 * 1.5 / 170 * 100, abs=0.2)
-    assert high == pytest.approx(105 * 1.0 * 1.5 / 170 * 100, abs=0.2)
+    # x1.5 STAB, x1.0 type (water 2x, flying 0.5x), random 0.85..1.0 -> 133.9..157.5 of 170 HP. The engine floors after
+    # the roll and rounds the STAB half down (133..157, as @smogon/calc reports), hence the 0.6 band (Oct 8, mech lane).
+    assert low == pytest.approx(105 * 0.85 * 1.5 / 170 * 100, abs=0.6)
+    assert high == pytest.approx(105 * 1.0 * 1.5 / 170 * 100, abs=0.6)
 
 
 def test_damage_respects_immunity_stab_and_items():
