@@ -873,13 +873,15 @@ def _endgame(sheet: "TurnSheet", slots: list[dict], ours: dict[int, "Mon"], thei
     sheet.alone = True
     me = next(iter(ours.values()))
     reasons = []
-    if "tailwind" in fs.their_side:
-        reasons.append("their Tailwind runs out")
+    my_speed = me.stat("spe")
+    if "tailwind" in fs.their_side and not fs.trick_room and any(
+            opp.stat("spe") > my_speed >= opp.stat("spe") / 2 for opp in theirs.values()):
+        reasons.append("their Tailwind runs out (then we move first)")
     for screen in ("reflect", "lightscreen", "auroraveil"):
         if screen in fs.their_side:
             reasons.append(f"their {screen} runs out")
-    if fs.trick_room and any(r["side"] == "theirs" for r in sheet.speed_order[:1]):
-        reasons.append("Trick Room (which lets them move first) runs out")
+    if fs.trick_room and any(opp.stat("spe") < my_speed for opp in theirs.values()):
+        reasons.append("Trick Room runs out (then we move first)")
     for opp in theirs.values():
         if opp.status in ("brn", "psn", "tox"):
             reasons.append(f"their {opp.species} takes {opp.status} damage")
@@ -1219,10 +1221,13 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             where = f"slot {number} ({me.species if me else '?'})"
             dmg = f"{hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}%"
             if hit["ko"] == "guaranteed" or chance >= 0.5:
+                advice = ("This is our last Pokémon and nothing runs out in our favour: Protect only delays the same KO by a "
+                          "turn, so attack." if sheet.alone and not sheet.stall_reasons else
+                          "Protect/switch that slot unless trading it wins the game.")
                 sheet.warnings.append(
                     f"LETHAL: {threat['species']}'s {hit['move']}{prio_note} hits {where} for {dmg} BEFORE it can move"
                     + (f" ({int(round(chance * 100))}% KO chance)" if hit["ko"] != "guaranteed" else "")
-                    + f"{escape}. Protect/switch that slot unless trading it wins the game (last Pokémon: see ENDGAME).")
+                    + f"{escape}. {advice}")
             elif chance >= 0.2:
                 sheet.warnings.append(
                     f"HIGH RISK: {threat['species']}'s {hit['move']}{prio_note} hits {where} for {dmg} before it can move: a "

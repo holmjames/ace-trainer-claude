@@ -100,6 +100,8 @@ def _lethal_recheck(value: Any, sheet: Any) -> str | None:
     lethal = [w for w in getattr(sheet, "warnings", []) if str(w).startswith("LETHAL:")]
     if not lethal:
         return None
+    if getattr(sheet, "alone", False) and not getattr(sheet, "stall_reasons", None):
+        return None  # our last Pokémon with nothing to wait for: Protect only delays, so attacking is right (Oct 7)
     problems = []
     for number in (0, 1):
         slot = payload.get(f"slot_{number}") or {}
@@ -225,7 +227,7 @@ class PokemonAgent:
                 for i, c in enumerate(candidates)
             ],
             "known_sets": {"mine": self.memory.known_sets("mine"), "opponent": self.memory.known_sets("opponent")},
-            "observation": _compact(obs, ("your_roster", "opponent_roster", "battle_format")),
+            "observation": _compact(_preview_view(obs), ("your_roster", "opponent_roster", "battle_format")),
         }
         value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"))
         if isinstance(value, dict):
@@ -266,7 +268,7 @@ class PokemonAgent:
             "turn_sheet": sheet.as_prompt(),
             "known_sets": {"mine": self.memory.known_sets("mine", only=roster["ours"]["in_this_battle"]),
                            "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])},
-            "observation": _compact(_battle_view(obs, roster), _BATTLE_KEYS),
+            "observation": _compact(_battle_view(obs, roster, self.memory), _BATTLE_KEYS),
         }
         value, answer, info = self._ask(choice, payload, kind="turn", recheck=lambda v: _lethal_recheck(v, sheet),
                                         clock=obs.get("clock"))
@@ -469,20 +471,60 @@ def battle_roster(obs: dict, template: dict, memory: MatchMemory) -> dict:
     return {"ours": ours, "theirs": theirs}
 
 
-def _battle_view(obs: dict, roster: dict) -> dict:
-    """The observation as the model sees it: our ``team`` without the two Pokémon left at Team Preview, and with
-    ``active`` matching who is actually on the field (the live flag can be wrong for benched entries)."""
+def _battle_view(obs: dict, roster: dict, memory: MatchMemory | None = None) -> dict:
+    """The observation as the model sees it.
+
+    - Our ``team`` without the two Pokémon left at Team Preview, with ``active`` matching who is actually on the field
+      (the live flag can be wrong for benched entries).
+    - Opponent entries carry the server's partial view (moves used so far, "unknown_item", ability null). Left as is,
+      "Dragonite moves: [tailwind]" reads like Dragonite only has Tailwind. Fill them from the drafted card and keep
+      what the battle has shown as ``revealed_moves``."""
+    out = dict(obs)
     team = obs.get("team")
-    if not isinstance(team, dict):
-        return obs
-    out_keys = set(roster["ours"]["NOT_IN_THIS_BATTLE"])
-    field_keys = {m["species"] for m in roster["ours"]["on_field"]}
-    view = {}
-    for name, summary in team.items():
-        if not isinstance(summary, dict) or species_key(summary.get("species")) in out_keys:
-            continue
-        view[name] = {**summary, "active": species_key(summary.get("species")) in field_keys}
-    return {**obs, "team": view}
+    if isinstance(team, dict):
+        out_keys = set(roster["ours"]["NOT_IN_THIS_BATTLE"])
+        field_keys = {m["species"] for m in roster["ours"]["on_field"]}
+        view = {}
+        for name, summary in team.items():
+            if not isinstance(summary, dict) or species_key(summary.get("species")) in out_keys:
+                continue
+            view[name] = {**summary, "active": species_key(summary.get("species")) in field_keys}
+        out["team"] = view
+    if memory is not None:
+        lost = set(memory.opp_items_lost)
+
+        def fill(summary: dict) -> dict:
+            if not isinstance(summary, dict):
+                return summary
+            key = species_key(summary.get("species"))
+            card = memory.opp_cards.get(key) or {}
+            if not card.get("moves"):
+                return summary
+            item = summary.get("item")
+            if key in lost or (item is None and "item" in summary and key in lost):
+                item_view = "none (used up or knocked off)"
+            elif item in (None, "", "unknown_item"):
+                item_view = f"{card.get('item')} (from its card; not revealed yet)"
+            else:
+                item_view = item
+            return {**summary, "item": item_view, "ability": summary.get("ability") or card.get("ability"),
+                    "moves": list(card.get("moves") or []), "revealed_moves": list(summary.get("moves") or [])}
+
+        if isinstance(obs.get("opponent_team"), dict):
+            out["opponent_team"] = {k: fill(v) for k, v in obs["opponent_team"].items()}
+        if isinstance(obs.get("opponent_active_pokemon"), list):
+            out["opponent_active_pokemon"] = [fill(v) for v in obs["opponent_active_pokemon"]]
+    return out
+
+
+def _preview_view(obs: dict) -> dict:
+    """Team Preview: the opponent roster entries are placeholders (moves [], item "unknown_item", HP 0/0). Their real
+    sets are in known_sets; show only species, types and base stats here so the two never contradict."""
+    out = dict(obs)
+    if isinstance(obs.get("opponent_roster"), list):
+        out["opponent_roster"] = [{k: e.get(k) for k in ("species", "name", "types", "base_stats") if k in e}
+                                  for e in obs["opponent_roster"] if isinstance(e, dict)]
+    return out
 
 
 def _compact(obs: dict, keys: tuple[str, ...]) -> Any:
