@@ -178,6 +178,7 @@ class MatchMemory:
 
     last_payload: dict | None = None
     opp_items_lost: list[str] = field(default_factory=list)  # species_keys of opponents whose item is gone (protocol log -enditem)
+    unburden_active: list[str] = field(default_factory=list)  # "mine:<species>"/"theirs:<species>" whose item was lost on the field (Unburden)
     opp_protect_streak: dict[str, int] = field(default_factory=dict)  # their species -> Protects in a row up to last turn (protocol log)
     paradox_active: dict[str, str] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> stat a running Protosynthesis/Quark Drive boosts
     opp_last_move: dict[str, str | None] = field(default_factory=dict)  # species_key -> last move it used since it last switched in (live server protocol log)
@@ -244,6 +245,7 @@ class MatchMemory:
         last: dict[str, str | None] = {}
         lost: set[str] = set()
         paradox: dict[str, str] = {}  # "mine:<species>" / "theirs:<species>" -> boosted stat
+        unburden: set[str] = set()  # same tags: lost its item during the current stint on the field
         nick_to_species: dict[str, str] = {}
         turn = 0
         moves_by_turn: dict[str, dict[int, str]] = {}  # their species -> {turn: move used}
@@ -266,6 +268,7 @@ class MatchMemory:
             if kind in ("switch", "drag", "replace") and len(parts) > 3:
                 species = species_key(parts[3].split(",")[0])
                 nick_to_species[nick] = species
+                unburden.discard(("mine:" if ours else "theirs:") + species)  # a new stint: Unburden only counts items lost on the field
                 if not ours:
                     last[species] = None  # fresh on the field: no lock yet
                 continue
@@ -280,9 +283,12 @@ class MatchMemory:
                 paradox.pop(tag, None)
             elif kind == "faint":
                 paradox.pop(tag, None)
-            elif ours:
-                continue
-            elif kind == "move" and len(parts) > 3:
+                unburden.discard(tag)
+            if kind == "-enditem":
+                unburden.add(tag)  # the item is gone while it stands on the field: Unburden doubles its speed
+            if ours:
+                continue  # below: what we track for the opponent only
+            if kind == "move" and len(parts) > 3:
                 last[species] = species_key(parts[3])
                 moves_by_turn.setdefault(species, {})[turn] = species_key(parts[3])
             elif kind == "-enditem":
@@ -292,6 +298,7 @@ class MatchMemory:
         self.opp_last_move = last
         self.opp_items_lost = sorted(lost)
         self.paradox_active = paradox
+        self.unburden_active = sorted(unburden)
         # Consecutive Protects by each opponent, ending with the turn that just finished (read from the log, not inferred).
         streaks: dict[str, int] = {}
         for species, by_turn in moves_by_turn.items():

@@ -63,6 +63,7 @@ class Mon:
     tailwind: bool = False
     boosted_stat: str | None = None  # Protosynthesis / Quark Drive: the stat the paradox boost raises (set by the sheet)
     paradox_stat: str | None = None  # the same, read from the battle log (-start protosynthesisatk): exact, and survives Booster Energy being used up
+    unburden: bool = False  # Unburden active: its item was used up during this stint on the field (speed x2), from the log
 
     def stat(self, name: str, *, min_stage: int | None = None, max_stage: int | None = None) -> float:
         """One stat with stages, status, item and paradox boosts applied. ``min_stage``/``max_stage`` clamp the
@@ -81,6 +82,8 @@ class Mon:
                 value *= 1.5
             if self.tailwind:
                 value *= 2
+            if self.unburden and data.to_id(self.ability) == "unburden":
+                value *= 2  # Oct 7: Sneasler after its Aguav Berry (378) was listed as slower than Gholdengo (298)
         if name == "atk" and data.to_id(self.item) == "choiceband":
             value *= 1.5
         if name == "spa" and data.to_id(self.item) == "choicespecs":
@@ -516,9 +519,32 @@ class TurnSheet:
         }
 
 
-def _row(target: int, defender: "Mon", est: tuple[float, float]) -> dict:
-    return {"target": target, "species": defender.species, "side": defender.side, "damage_pct_of_current_hp": list(est),
-            "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no")}
+def type_multiplier(attacker: "Mon", move: dict, defender: "Mon", fs: "FieldState | None") -> float:
+    """The type effectiveness this move will actually have (after -ate abilities, Weather Ball, Scrappy, Freeze-Dry,
+    and Ground into Levitate/Air Balloon): what the model needs to stop calling neutral hits 'resisted' (Oct 7)."""
+    eff = effective_move(attacker, move, defender, fs)
+    move_type = data.to_id(eff.get("type"))
+    types = defender.types
+    if data.to_id(attacker.ability) in ("scrappy", "mindseye") and move_type in ("normal", "fighting"):
+        types = [t for t in types if t != "ghost"]
+    mult = data.effectiveness(eff.get("type") or "", types)
+    if eff.get("id") == "freezedry" and "water" in types:
+        mult *= 4
+    if move_type == "ground" and not defender.grounded and eff.get("id") != "thousandarrows":
+        mult = 0.0
+    return mult
+
+
+def effect_label(mult: float) -> str:
+    return {0.0: "x0 immune", 0.25: "x0.25 resisted", 0.5: "x0.5 resisted", 1.0: "x1", 2.0: "x2 super effective", 4.0: "x4 super effective"}.get(mult, f"x{mult:g}")
+
+
+def _row(target: int, defender: "Mon", est: tuple[float, float], mult: float | None = None) -> dict:
+    row = {"target": target, "species": defender.species, "side": defender.side, "damage_pct_of_current_hp": list(est),
+           "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no")}
+    if mult is not None:
+        row["effect"] = effect_label(mult)
+    return row
 
 
 def _find_summary(team: Any, species: str) -> dict:
@@ -592,6 +618,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         if mon:
             mon.tailwind = my_tailwind
             mon.paradox_stat = memory.paradox_active.get("mine:" + key)
+            mon.unburden = "mine:" + key in memory.unburden_active
             ours[slot.get("slot", 0)] = mon
 
     # Their active Pokémon by board position (from target_options when present).
@@ -606,6 +633,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                     if mon:
                         mon.tailwind = their_tailwind
                         mon.paradox_stat = memory.paradox_active.get("theirs:" + key)
+                        mon.unburden = "theirs:" + key in memory.unburden_active
                         theirs[int(t["target"])] = mon
     if not theirs:
         for index, summary in enumerate(_active_summaries(obs.get("opponent_team"))[:2], start=1):
@@ -643,6 +671,12 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         {"species": m.species, "side": m.side, "position": m.position, "speed": int(s)} for m, s in speeds
     ]
 
+    for mon in list(ours.values()) + list(theirs.values()):
+        if data.to_id(mon.ability) == "prankster":
+            sheet.notes.append(f"{'Our' if mon.side == 'mine' else 'Their'} {mon.species} has Prankster: its status moves (Tailwind, "
+                               "Encore, Taunt, screens, Thunder Wave...) go first, +1 priority, but fail on Dark-type targets.")
+        if mon.unburden and data.to_id(mon.ability) == "unburden":
+            sheet.notes.append(f"{'Our' if mon.side == 'mine' else 'Their'} {mon.species}'s Unburden is active (item used up): speed doubled (in the speed order).")
     for number, me in sorted(ours.items()):
         if data.to_id(me.item) == "focussash":
             sheet.notes.append(f"Our {me.species} holds Focus Sash" + (" (intact at full HP: survives ONE single hit, not multi-hit or two hits)." if me.hp_fraction >= 0.999 else " but is not at full HP: the sash will not save it."))
@@ -728,7 +762,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                     est = damage_percent(me, move, defender, field=fs, spread=spread or psychic_spread)
                     if est is None:
                         continue
-                    per_target.append(_row(target, defender, est))
+                    per_target.append(_row(target, defender, est, type_multiplier(me, move, defender, fs)))
                 if psychic_spread:
                     note = "Expanding Force in Psychic Terrain hits BOTH opponents (120 power, spread): the numbers are per target."
             elif note is None and (move.get("base_power") or 0) > 0:
@@ -740,7 +774,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 for defender in victims:
                     est = damage_percent(me, move, defender, field=fs, spread=spread)
                     if est is not None:
-                        per_target.append({**_row(0, defender, est), "spread": True})
+                        per_target.append({**_row(0, defender, est, type_multiplier(me, move, defender, fs)), "spread": True})
                         if defender.side == "mine" and est[1] > 0:
                             sheet.notes.append(f"{move['id']} from slot {number} also hits our own {defender.species} for {est[0]}-{est[1]}%.")
             if per_target or move.get("base_power"):
@@ -792,7 +826,8 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 if me.fainted or me.hp_fraction <= 0:
                     continue
                 hit = {"move": move["id"], "into_slot": number, "species": me.species, "damage_pct_of_current_hp": list(est),
-                       "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no"), "priority": eff.get("priority", 0)}
+                       "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no"), "priority": eff.get("priority", 0),
+                       "effect": effect_label(type_multiplier(opp, move, me, fs))}
                 if hit["ko"] == "possible":
                     hit["ko_chance_pct"] = int(round(100 * ko_probability(hit)))  # how often the damage roll actually reaches a KO
                 if data.expected_hits(move, item=opp.item) > 1:
@@ -935,6 +970,8 @@ def _expected(row: dict, priority: int, P: dict | None = None) -> float:
     bonus and a little for priority."""
     P = P or DEFAULTS
     lo, hi = row["damage_pct_of_current_hp"]
+    if hi <= 0:
+        return 0.0  # an immune or blocked hit is worth nothing, priority or not (Fake Out into a Ghost, Oct 7)
     return min((lo + hi) / 2, 100.0) + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0)) + P["priority_w"] * priority
 
 
@@ -1177,7 +1214,12 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if (info.get("base_power") or 0) > 0 or move_id in ("protect", "detect", "fakeout"):
                     continue
                 prio = info.get("priority", 0) or 0
+                if data.to_id(me.ability) == "prankster" and info.get("category") == "Status":
+                    prio += 1  # Prankster: status moves get +1 priority (Tailwind before their attacks land)
                 sv, target = status_value(move_id, me, theirs, sheet, number, has_ally=len(ours) > 1)
+                if data.to_id(me.ability) == "prankster" and info.get("target") in ("normal", "any", "adjacentFoe") \
+                        and target in theirs and "dark" in theirs[target].types:
+                    sv = 0.0  # a Prankster-boosted status move fails on a Dark-type target
                 sv *= survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else 1.0
                 if sv > 0 and sv > choice[2]:
                     legal = option.get("targets") or []
@@ -1488,6 +1530,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         # Armor Tail / Dazzling / Queenly Majesty on EITHER opponent blocks priority moves into both of them.
         priority_blocked = any(data.to_id(o.ability) in ("armortail", "dazzling", "queenlymajesty") for o in theirs.values())
         legal_targets = [t for t in fake_option.get("targets") or [] if t > 0 and t in theirs and not priority_blocked
+                         and (data.effectiveness("normal", theirs[t].types) > 0 or data.to_id(me.ability) in ("scrappy", "mindseye"))
+                         and not (sheet.field is not None and sheet.field.terrain == "psychic" and theirs[t].grounded)
                          and data.to_id(theirs[t].item) != "covertcloak" and data.to_id(theirs[t].ability) not in ("innerfocus", "shielddust")]
         if not legal_targets:
             continue  # nothing flinchable: a Fake Out would be wasted
