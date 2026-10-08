@@ -21,6 +21,7 @@ import random
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -111,7 +112,7 @@ class RestartingPlayer:
         from agent.pokemon.memory import observation_dict
 
         obs = observation_dict(state)
-        if not self.restarted and obs.get("phase") == "moving" and int(obs.get("turn") or 0) >= self.restart_turn:
+        if not self.restarted and state.phase == "moving" and int(obs.get("turn") or 0) >= self.restart_turn:
             self.inner, _ = make_player(self.spec, self.rng)
             self.restarted = True
             print(f"   [restart drill] fresh agent at turn {obs.get('turn')} (no draft/preview memory)", file=sys.stderr, flush=True)
@@ -148,58 +149,70 @@ def unwrap(decision):
     return decision.action if isinstance(decision, WithReasoning) else decision
 
 
+def seat_ids(game_id: str) -> dict[str, str]:
+    """Agent ids for the two seats. Live, seats, rosters, picks and current_actor are keyed by the agents' UUIDs;
+    deterministic per game so seeded runs stay reproducible (and no draw from the game's rng)."""
+    return {side: str(uuid.uuid5(uuid.NAMESPACE_URL, f"ace-trainer-sim/{game_id}/{side}")) for side in ("p1", "p2")}
+
+
 def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: dict[str, str], rng: random.Random, *, verbose: bool) -> dict:
-    ctx = {side: DecisionContext(session_id=game_id, tournament_id=None, game_type="pokemon_vgc_doubles_draft", agent_id=side,
+    """One match the way the live server runs it: draft (seat 0 is Showdown's p1), Team Preview over all six drafted
+    Pokémon, then the doubles battle. Every state the agents see is built by sim/translate.py in the live format."""
+    seats = seat_ids(game_id)
+    ctx = {side: DecisionContext(session_id=game_id, tournament_id=None, game_type="pokemon_vgc_doubles_draft", agent_id=seats[side],
                                  seat_position=0 if side == "p1" else 1) for side in ("p1", "p2")}
-    # ---- draft: 18-card pool, snake order, item clause
+    # ---- draft: 18-card pool, snake order, item clause (only the seat to pick is asked, as live)
     pool = rng.sample(CARDS, 18)
     first = rng.choice(["p1", "p2"])
     order = [first if i in (0, 3, 4, 7, 8, 11) else ("p2" if first == "p1" else "p1") for i in range(12)]
-    rosters: dict[str, list[dict]] = {"p1": [], "p2": []}
+    rosters: dict[str, list[dict]] = {seats["p1"]: [], seats["p2"]: []}  # seat 0 first, as live
     picks: list[dict] = []
     version = 0
-    for seat in order:
-        for side in ("p1", "p2"):
-            state = translate.draft_state(game_id, me=side, them="p2" if side == "p1" else "p1", pool=pool, rosters=rosters, picks=picks,
-                                          first_drafter=first, current_seat=seat, version=version)
-            if side != seat:
-                continue  # the other seat only observes; our agent is not asked
-            if not state.legal_actions:
-                raise RuntimeError("item clause left no legal cards")
-            decision = unwrap(players[side].choose_action(state, ctx[side]))
-            card_id = decision.action_id.split(":", 1)[1] if hasattr(decision, "action_id") else decision["card_id"]
-            card = next(c for c in pool if c["card_id"] == card_id)
-            pool.remove(card)
-            rosters[seat].append(card)
-            picks.append({"pick_number": len(picks) + 1, "seat_id": seat, "card_id": card_id, "species": card["species"], "public_reason": "", "auto": False, "auto_reason": None})
-            version += 1
-    # ---- team preview
-    lineups: dict[str, list[dict]] = {}
-    for side in ("p1", "p2"):
-        other = "p2" if side == "p1" else "p1"
-        state = translate.preview_state(game_id, my_cards=rosters[side], opp_cards=rosters[other], version=version)
-        decision = unwrap(players[side].choose_action(state, ctx[side]))
-        _, ordered = translate.preview_choice(decision["bring"], decision["leads"], rosters[side])
-        lineups[side] = ordered
-    # ---- battle
+    for side in order:
+        state = translate.draft_state(game_id, me=seats[side], pool=pool, rosters=rosters, picks=picks,
+                                      first_drafter=seats[first], current_seat=seats[side], version=version)
+        if not state.legal_actions:
+            raise RuntimeError("item clause left no legal cards")
+        answer = players[side].choose_action(state, ctx[side])
+        decision = unwrap(answer)
+        card_id = decision.action_id.split(":", 1)[1] if hasattr(decision, "action_id") else decision["card_id"]
+        card = next(c for c in pool if c["card_id"] == card_id)
+        pool.remove(card)
+        rosters[seats[side]].append(card)
+        reason = answer.reasoning_summary if isinstance(answer, WithReasoning) else None
+        picks.append({"pick_number": len(picks) + 1, "seat_id": seats[side], "card_id": card_id, "species": card["species"],
+                      "public_reason": reason or "", "auto": False, "auto_reason": None})
+        version += 1
+    # ---- team preview: Showdown gets all six (draft order) and each side picks 4, leads first
     seed = [rng.randrange(1, 65536) for _ in range(4)]
+    showdown_names = {"p1": f"{names['p1']}-p0", "p2": f"{names['p2']}-p1"}
     reply = bridge.call(cmd="new", id=game_id, format="gen9vgc2025regi", seed=seed,
-                        p1={"name": names["p1"], "team": translate.team_text(lineups["p1"])},
-                        p2={"name": names["p2"], "team": translate.team_text(lineups["p2"])})
+                        p1={"name": showdown_names["p1"], "team": translate.team_text(rosters[seats["p1"]])},
+                        p2={"name": showdown_names["p2"], "team": translate.team_text(rosters[seats["p2"]])})
     if not reply.get("ok"):
         raise RuntimeError(reply.get("error"))
     snap = reply["state"]
+    choices: dict[str, str] = {}
+    lineups: dict[str, list[int]] = {}
     for side in ("p1", "p2"):
-        reply = bridge.call(cmd="choose", id=game_id, side=side, choice="team 1234")
+        state = translate.preview_state(game_id, snap, side, version=0, agent_id=seats[side])
+        if state is None:
+            raise RuntimeError(f"no Team Preview request for {side}")
+        decision = unwrap(players[side].choose_action(state, ctx[side]))
+        roster = state.legal_actions[0].input["action"]["roster"]
+        choices[side], lineups[side] = translate.preview_choice(decision["bring"], decision["leads"], roster)
+    for side in ("p1", "p2"):
+        reply = bridge.call(cmd="choose", id=game_id, side=side, choice=choices[side])
         if not reply.get("ok"):
             raise RuntimeError(reply.get("error"))
         snap = reply["state"]
-    versions = {"p1": 0, "p2": 0}
+    # ---- battle (state_version counts each seat's decisions; Team Preview was 0)
+    versions = {"p1": 1, "p2": 1}
     rejected = {"p1": 0, "p2": 0}
     while not snap["ended"] and snap["turn"] <= MAX_TURNS:
         progressed = False
         for side in ("p1", "p2"):
-            state = translate.battle_state(game_id, snap, side, versions[side])
+            state = translate.battle_state(game_id, snap, side, versions[side], agent_id=seats[side])
             if state is None:
                 continue
             t_dec = time.monotonic()
@@ -229,12 +242,12 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
     bridge.call(cmd="close", id=game_id)
     winner_side = None
     if snap["winner"]:
-        winner_side = "p1" if snap["winner"] == names["p1"] else "p2"
+        winner_side = "p1" if snap["winner"] == showdown_names["p1"] else "p2"
     return {"game": game_id, "turns": snap["turn"], "winner_side": winner_side, "winner": names.get(winner_side) if winner_side else None,
             "first_drafter": first, "rejected": rejected,
             "versions": {s: getattr(players[s], "_version", getattr(players[s], "name", names[s])) for s in ("p1", "p2")},
-            "teams": {s: [c["species"] for c in lineups[s]] for s in ("p1", "p2")},
-            "rosters": {s: [c["species"] for c in rosters[s]] for s in ("p1", "p2")}}
+            "teams": {s: [rosters[seats[s]][i]["species"] for i in lineups[s]] for s in ("p1", "p2")},
+            "rosters": {s: [c["species"] for c in rosters[seats[s]]] for s in ("p1", "p2")}}
 
 
 def main(argv: list[str] | None = None) -> int:
