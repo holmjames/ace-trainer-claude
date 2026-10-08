@@ -51,6 +51,11 @@ def species_key(name: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
 
 
+def _complete(card: dict) -> bool:
+    """A card we know as a full set (drafted or from the catalog), not a roster placeholder or a battle summary."""
+    return bool(card.get("card_id")) and len(card.get("moves") or []) >= 4
+
+
 @dataclass
 class MatchMemory:
     my_seat_key: str | None = None  # the roster/seat key the draft uses for us
@@ -138,6 +143,13 @@ class MatchMemory:
             return
         known = side.get(key, {})
         fill = {k: v for k, v in entry.items() if k in CARD_FIELDS and v not in UNKNOWN_VALUES and known.get(k) in UNKNOWN_VALUES}
+        revealed = entry.get("moves")
+        if not _complete(known) and isinstance(revealed, list) and revealed and "moves" not in fill:
+            # A set we do not know (never offered, not in the catalog): keep every move the battle has shown so far.
+            shown = [m.get("id") if isinstance(m, dict) else m for m in revealed]
+            merged = list(known.get("moves") or []) + [m for m in shown if m and m not in (known.get("moves") or [])]
+            if merged != list(known.get("moves") or []):
+                fill["moves"] = merged
         side[key] = {**known, **fill}
 
     # -- battle ----------------------------------------------------------------------
@@ -148,25 +160,25 @@ class MatchMemory:
     opp_fresh_active: list[str] = field(default_factory=list)  # their actives that just came in (Fake Out is live)
 
     def observe_battle(self, obs: dict) -> None:
+        self.observe_opponent_hp(obs)  # uses last turn's opp_last_active, so it runs before the update below
+        self.observe_protocol(obs)
+        self._rebuild_cards(obs)
+        turn = obs.get("turn")
         actives = []
         for entry in obs.get("active_pokemon") or []:
             key = species_key(entry.get("species") if isinstance(entry, dict) else entry)
             if key:
                 actives.append(key)
         if actives:
-            turn = obs.get("turn")
-            self.fresh_active = [a for a in actives if a not in self.last_active] if (self.last_active or turn not in (None, 1)) else list(actives)
+            self.fresh_active = self._fresh("mine", actives, self.last_active, turn)
             self.last_active = actives
-        self.observe_opponent_hp(obs)  # uses last turn's opp_last_active, so it runs before the update below
-        self.observe_protocol(obs)
         opp_actives = []
         for entry in obs.get("opponent_active_pokemon") or []:
             key = species_key(entry.get("species") if isinstance(entry, dict) else entry)
             if key:
                 opp_actives.append(key)
         if opp_actives:
-            turn = obs.get("turn")
-            self.opp_fresh_active = [a for a in opp_actives if a not in self.opp_last_active] if (self.opp_last_active or turn not in (None, 1)) else list(opp_actives)
+            self.opp_fresh_active = self._fresh("theirs", opp_actives, self.opp_last_active, turn)
             self.opp_last_active = opp_actives
         opponent_team = obs.get("opponent_team")
         if isinstance(opponent_team, dict):
@@ -175,8 +187,91 @@ class MatchMemory:
                     key = species_key(summary.get("species"))
                     if key and key not in self.opp_lineup_seen:
                         self.opp_lineup_seen.append(key)
+        self._rebuild_lineup(obs)
+
+    def _fresh(self, side: str, actives: list[str], last: list[str], turn: Any) -> list[str]:
+        """Which of ``actives`` are on their first turn (Fake Out works): per the protocol log, those that have not
+        attempted a move since they last entered the field, exactly as Showdown counts it. That survives a restart
+        and a mid-turn replacement decision, which used to "consume" a newcomer's freshness: Incineroar switched in
+        during turn 2, the faint replacement decision saw it, and turn 3's sheet no longer feared its Fake Out.
+        Without a log: whoever was not active at our last decision (turn 1: everyone), as before."""
+        if self.acted_since_entry:
+            known = {a: self.acted_since_entry.get(f"{side}:{a}") for a in actives}
+            if all(v is not None for v in known.values()):
+                return [a for a in actives if not known[a]]
+        if last:
+            return [a for a in actives if a not in last]
+        return list(actives)
+
+    # -- restart safety: rebuild what the draft and Team Preview would have told us ---------------
+
+    def _rebuild_cards(self, obs: dict) -> None:
+        """Fill every card visible in a battle observation from the live catalog (``data/cards.json``).
+
+        The runtime starts a fresh worker per match, and a restarted worker starts with an empty notebook: it would
+        play the rest of the match blind to every unused move, item and EV spread. The platform's cards are fixed
+        sets, so a species seen live before is known for good. Cards learned here carry ``source: "catalog"`` (a
+        drafted card is public knowledge; a catalog card is our own record). Nothing drafted is overwritten, and the
+        catalog is consulted once per species per match."""
+        seen: list[tuple[dict[str, dict], str, dict | None]] = []
+        for key_name, side in (("team", self.my_cards), ("opponent_team", self.opp_cards)):
+            entries = obs.get(key_name)
+            if isinstance(entries, dict):
+                seen.extend((side, e["species"], e) for e in entries.values() if isinstance(e, dict) and e.get("species"))
+        for key_name, side in (("active_pokemon", self.my_cards), ("opponent_active_pokemon", self.opp_cards)):
+            seen.extend((side, e["species"], e) for e in obs.get(key_name) or [] if isinstance(e, dict) and e.get("species"))
+        for tag, species_list in self.roster_by_side.items():  # Team Preview's |poke| lines: all six per side
+            side = self.my_cards if tag == "mine" else self.opp_cards
+            seen.extend((side, species, None) for species in species_list)
+        for side, species, entry in seen:
+            key = species_key(species)
+            if not key:
+                continue
+            card = side.get(key) or {}
+            checked = ("mine:" if side is self.my_cards else "theirs:") + key
+            if not _complete(card) and checked not in self._catalog_checked:
+                self._catalog_checked.add(checked)
+                found = data.catalog_card(species=species)
+                if found is None and isinstance(entry, dict) and entry.get("name"):
+                    found = data.catalog_card(species=entry.get("name"))
+                if found:
+                    side[key] = {**card, **found, "source": "catalog"}
+            if entry is not None:
+                self._enrich(side, entry)
+            card = side.get(key)
+            if card and (card.get("types") in UNKNOWN_VALUES or card.get("base_stats") in UNKNOWN_VALUES):
+                info = data.species_info(card.get("species") or species)  # a reserve nobody has seen: the dex, spelled as the server does
+                if info:
+                    self._enrich(side, {"species": species, "types": [str(t).upper() for t in info.get("types") or []],
+                                        "base_stats": dict(info.get("base_stats") or {})})
+
+    def _rebuild_lineup(self, obs: dict) -> None:
+        """Our four for this battle when Team Preview is not in memory: everyone of ours the protocol log has seen on
+        the field, plus the fainted and the switches the server offers now. Only when that makes exactly four."""
+        if self.my_lineup or not self.entered_by_turn:
+            return
+        brought = {sp for entries in self.entered_by_turn.values() for tag, sp in entries if tag == "mine"}
+        brought.update(self.last_active)
+        team = obs.get("team")
+        if isinstance(team, dict):
+            brought.update(species_key(s.get("species")) for s in team.values() if isinstance(s, dict) and s.get("fainted") and s.get("species"))
+        for options in obs.get("available_switches") or []:
+            for o in options or []:
+                if isinstance(o, dict) and o.get("species"):
+                    brought.add(species_key(o["species"]))
+        brought.discard("")
+        if len(brought) == 4:
+            self.my_lineup = sorted(brought)
 
     last_payload: dict | None = None
+    # Rebuilt from the protocol log every turn (restart-safe): who entered the field on which turn, both sides'
+    # rosters from Team Preview, and every move each Pokémon used by turn.
+    entered_by_turn: dict[int, list[tuple[str, str]]] = field(default_factory=dict)  # turn -> [("mine"/"theirs", species)]
+    roster_by_side: dict[str, list[str]] = field(default_factory=dict)  # "mine"/"theirs" -> species as |poke| spelled them
+    moves_by_turn: dict[str, dict[str, dict[int, str]]] = field(default_factory=dict)  # side -> species -> {turn: move}
+    acted_since_entry: dict[str, bool] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> tried a move since it last came in
+    log_turn: int = 0  # the last |turn| marker seen in the protocol log (0: no log)
+    _catalog_checked: set[str] = field(default_factory=set)  # species already looked up in the catalog this match
     opp_items_lost: list[str] = field(default_factory=list)  # species_keys of opponents whose item is gone (protocol log -enditem)
     unburden_active: list[str] = field(default_factory=list)  # "mine:<species>"/"theirs:<species>" whose item was lost on the field (Unburden)
     opp_protect_streak: dict[str, int] = field(default_factory=dict)  # their species -> Protects in a row up to last turn (protocol log)
@@ -200,6 +295,10 @@ class MatchMemory:
         A replacement decision after a faint (the partner 'passes' mid-turn) is not a turn of its own and is skipped:
         counting it reset the streak on Oct 7, and a second Protect in a row was recommended as if it were fresh."""
         me = species_key(species)
+        if self.log_turn:
+            # The protocol log says what actually ran, as Showdown counts it (a Protect we clicked but never got off,
+            # asleep or Taunted, starts no streak), and it survives a restart of this process mid-battle.
+            return self.logged_streak("mine", me)
         streak = 0
         for fields in reversed(self.turns):
             if fields.get("forced"):
@@ -214,6 +313,15 @@ class MatchMemory:
             else:
                 break
         return streak
+
+    def logged_streak(self, side: str, species: str, *, before_turn: int | None = None) -> int:
+        """Consecutive Protect-like moves ``species`` (on ``side``) used per the protocol log, ending with the turn
+        before ``before_turn`` (default: the turn that just finished)."""
+        by_turn = (self.moves_by_turn.get(side) or {}).get(species_key(species)) or {}
+        n, t = 0, (before_turn if before_turn is not None else self.log_turn) - 1
+        while by_turn.get(t) in self.PROTECT_LIKE:
+            n, t = n + 1, t - 1
+        return n
 
     def our_protect_last_turn(self, species: str, slot: int) -> bool:
         """Did the Pokémon now in ``slot`` use a Protect-like move last turn? (Consecutive Protect fails 2/3 of the time.)"""
@@ -232,7 +340,9 @@ class MatchMemory:
         - which opposing items are gone (-enditem: a popped Air Balloon makes Earthquake hit again; Knock Off; berries);
         - which Protosynthesis / Quark Drive boosts are running, on both sides (-start ... protosynthesisatk). Booster
           Energy is consumed the moment it activates, but the boost lasts until the holder leaves the field, so the
-          item alone can't tell us.
+          item alone can't tell us;
+        - both rosters (Team Preview's |poke| lines), who entered the field on which turn, and every move used by
+          turn on both sides: what a worker started mid-battle needs to rebuild the notebook.
 
         The log is cumulative, so everything is rebuilt from scratch every turn; without a log the tables stay empty."""
         log = obs.get("protocol_log")
@@ -248,7 +358,10 @@ class MatchMemory:
         unburden: set[str] = set()  # same tags: lost its item during the current stint on the field
         nick_to_species: dict[str, str] = {}
         turn = 0
-        moves_by_turn: dict[str, dict[int, str]] = {}  # their species -> {turn: move used}
+        moves_by_turn: dict[str, dict[str, dict[int, str]]] = {"mine": {}, "theirs": {}}  # side -> species -> {turn: move}
+        entered: dict[int, list[tuple[str, str]]] = {}
+        acted: dict[str, bool] = {}
+        rosters: dict[str, list[str]] = {"mine": [], "theirs": []}
         for raw in log:
             parts = str(raw).split("|")
             if len(parts) >= 3 and parts[1] == "turn":
@@ -264,16 +377,27 @@ class MatchMemory:
             if not side.startswith("p"):
                 continue
             ours = side == my_side
+            tag_side = "mine" if ours else "theirs"
+            if kind == "poke" and len(parts) > 3:
+                name = parts[3].split(",")[0].strip()
+                if name and name not in rosters[tag_side]:
+                    rosters[tag_side].append(name)
+                continue
             nick = (side, species_key(actor.split(":", 1)[1].strip() if ":" in actor else actor))
             if kind in ("switch", "drag", "replace") and len(parts) > 3:
                 species = species_key(parts[3].split(",")[0])
                 nick_to_species[nick] = species
-                unburden.discard(("mine:" if ours else "theirs:") + species)  # a new stint: Unburden only counts items lost on the field
+                if kind != "replace":  # Illusion breaking is not an entry: the Pokémon has been acting all along
+                    unburden.discard(tag_side + ":" + species)  # a new stint: Unburden only counts items lost on the field
+                    entered.setdefault(turn, []).append((tag_side, species))
+                    acted[tag_side + ":" + species] = False
                 if not ours:
                     last[species] = None  # fresh on the field: no lock yet
                 continue
             species = nick_to_species.get(nick, nick[1])
-            tag = ("mine:" if ours else "theirs:") + species
+            tag = tag_side + ":" + species
+            if kind in ("move", "cant"):
+                acted[tag] = True  # a move action, even one that flinched or failed: Fake Out's first turn is spent
             if kind == "-start" and len(parts) > 3:
                 effect = species_key(parts[3])
                 for ability in ("protosynthesis", "quarkdrive"):
@@ -286,11 +410,12 @@ class MatchMemory:
                 unburden.discard(tag)
             if kind == "-enditem":
                 unburden.add(tag)  # the item is gone while it stands on the field: Unburden doubles its speed
+            if kind == "move" and len(parts) > 3:
+                moves_by_turn[tag_side].setdefault(species, {})[turn] = species_key(parts[3])
             if ours:
                 continue  # below: what we track for the opponent only
             if kind == "move" and len(parts) > 3:
                 last[species] = species_key(parts[3])
-                moves_by_turn.setdefault(species, {})[turn] = species_key(parts[3])
             elif kind == "-enditem":
                 lost.add(species)  # popped Air Balloon, eaten berry, used Booster Energy, Knock Off
             elif kind == "-item":
@@ -299,20 +424,25 @@ class MatchMemory:
         self.opp_items_lost = sorted(lost)
         self.paradox_active = paradox
         self.unburden_active = sorted(unburden)
+        self.moves_by_turn = moves_by_turn
+        self.entered_by_turn = entered
+        self.acted_since_entry = acted
+        self.roster_by_side = rosters
+        self.log_turn = turn
         # Consecutive Protects by each opponent, ending with the turn that just finished (read from the log, not inferred).
         streaks: dict[str, int] = {}
-        for species, by_turn in moves_by_turn.items():
-            n, t = 0, turn - 1
-            while by_turn.get(t) in self.PROTECT_LIKE:
-                n, t = n + 1, t - 1
+        for species in moves_by_turn["theirs"]:
+            n = self.logged_streak("theirs", species)
             if n:
                 streaks[species] = n
         self.opp_protect_streak = streaks
-        logged = [k for k in streaks if k not in self.opp_protected_last_turn]
-        self.opp_protected_last_turn = list(self.opp_protected_last_turn) + logged
+        # With a log, "who Protected last turn" is a fact, not an inference from an HP bar that did not move (which
+        # also fires after a miss, an immunity, a flinch or a Spore).
+        self.opp_protected_last_turn = sorted(streaks)
 
     def observe_opponent_hp(self, obs: dict) -> None:
-        """Infer who Protected: an opponent we targeted last turn whose HP did not change."""
+        """Infer who Protected: an opponent we targeted last turn whose HP did not change. Only without a protocol
+        log (``observe_protocol`` reads the executed Protect itself when there is one)."""
         current: dict[str, float] = {}
         for entry in obs.get("opponent_active_pokemon") or []:
             if isinstance(entry, dict) and entry.get("species") is not None:
@@ -322,7 +452,7 @@ class MatchMemory:
                 if frac is not None:
                     current[species_key(entry["species"])] = float(frac)
         targeted = set()
-        if self.last_payload:
+        if self.last_payload and not obs.get("protocol_log"):
             for slot_key in ("slot_0", "slot_1"):
                 choice = self.last_payload.get(slot_key) or {}
                 tgt = choice.get("target")
