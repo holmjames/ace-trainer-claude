@@ -140,22 +140,212 @@ def move_info(name: object) -> dict | None:
     return moves().get(to_id(name))
 
 
-def expected_hits(move: dict | None, *, item: object = None) -> float:
-    """How many times a move strikes: 1 for most, a fixed count (Surging Strikes 3, Dragon Darts 2),
-    or the average of a range (2–5 hit moves average 3.1; 4–5 with Loaded Dice)."""
-    multihit = (move or {}).get("multihit")
-    if not multihit:
+def expected_hits(move: dict | None, *, item: object = None, ability: object = None) -> float:
+    """How many times a move strikes on average: 1 for most, a fixed count (Surging Strikes 3, Dragon Darts 2),
+    or the mean of ``hit_count_distribution`` (2–5 hit moves average 3.1; 4–5 with Loaded Dice; 5 with Skill Link)."""
+    return sum(n * p for n, p in hit_count_distribution(move, {"item": item, "ability": ability}).items())
+
+
+# -- what the move table alone cannot say: weight, accuracy, hit counts, Intimidate -------------------------------
+
+# Weights in kg of every live-catalog species (data/cards.json), copied once from the Showdown dex in
+# sim/node_modules/pokemon-showdown (0.11.11). Low Kick / Grass Knot take their power from the target's weight and
+# Heavy Slam / Heat Crash from the user:target ratio; the move table lists them at 0 power, which read as "no damage"
+# (Oct 8 review: Tyranitar's Low Kick, 81-97% into Kingambit, had no row). ``species_weight`` falls back to the
+# vendored pokedex for anything else.
+SPECIES_WEIGHT_KG: dict[str, float] = {
+    "amoonguss": 10.5, "arcanine": 155.0, "archaludon": 60.0, "basculegion": 110.0, "baxcalibur": 210.0,
+    "chienpao": 152.2, "cresselia": 85.6, "dondozo": 220.0, "dragonite": 210.0, "fluttermane": 4.0,
+    "garchomp": 95.0, "gholdengo": 30.0, "greattusk": 320.0, "grimmsnarl": 61.0, "gyarados": 235.0,
+    "hatterene": 5.1, "incineroar": 83.0, "indeedeef": 28.0, "ironbundle": 11.0, "ironhands": 380.7,
+    "kingambit": 120.0, "klefki": 3.0, "landorustherian": 68.0, "lucario": 54.0, "milotic": 162.0,
+    "pelipper": 28.0, "porygon2": 32.5, "rillaboom": 90.0, "sableye": 11.0, "salamence": 102.6,
+    "screamtail": 8.0, "sneasler": 43.0, "sylveon": 23.5, "thundurus": 61.0, "tinglu": 699.7,
+    "torkoal": 80.4, "tornadus": 63.0, "tyranitar": 202.0, "ursaluna": 290.0, "whimsicott": 6.6, "wochien": 74.2,
+}
+WEIGHT_MOVES = frozenset({"lowkick", "grassknot"})          # power from the target's weight
+WEIGHT_RATIO_MOVES = frozenset({"heavyslam", "heatcrash"})  # power from user weight / target weight
+FIXED_DAMAGE_MOVES = frozenset({"ruination", "beatup"})     # damage with no base power of their own
+DAMAGING_WITHOUT_POWER = WEIGHT_MOVES | WEIGHT_RATIO_MOVES | FIXED_DAMAGE_MOVES
+# Low Kick / Grass Knot: (at least this many kg, power); Heavy Slam / Heat Crash: (at least this user:target ratio, power).
+WEIGHT_BANDS = ((200, 120), (100, 100), (50, 80), (25, 60), (10, 40), (0, 20))
+WEIGHT_RATIO_BANDS = ((5, 120), (4, 100), (3, 80), (2, 60), (0, 40))
+
+
+def species_weight(name: object) -> float:
+    """A species' weight in kg (0.0 when unknown): the catalog table first, then the vendored pokedex."""
+    key = to_id(name)
+    if key in SPECIES_WEIGHT_KG:
+        return SPECIES_WEIGHT_KG[key]
+    info = pokedex().get(key) or {}
+    try:
+        return float(info.get("weightkg") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _kg(value: object) -> float:
+    """Kilograms from a number, a species name, or a card / Mon-like object with a species."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict):
+        return species_weight(value.get("species") or value.get("name"))
+    species = getattr(value, "species", None)
+    return species_weight(species if species is not None else value)
+
+
+def _move_id(move: object) -> str:
+    if isinstance(move, dict):
+        return to_id(move.get("id") or move.get("name"))
+    return to_id(move)
+
+
+def weight_power(move: object, target: object, user: object = None) -> int | None:
+    """Base power of a weight-based move: Low Kick / Grass Knot from the target's weight, Heavy Slam / Heat Crash from
+    the user:target weight ratio. ``target`` / ``user`` may be kg, a species name, a card or a Mon. None for any other
+    move; an unknown weight gives the lowest band."""
+    mid = _move_id(move)
+    if mid in WEIGHT_MOVES:
+        kg = _kg(target)
+        return next(power for limit, power in WEIGHT_BANDS if kg >= limit)
+    if mid in WEIGHT_RATIO_MOVES:
+        user_kg, target_kg = _kg(user), _kg(target)
+        ratio = user_kg / target_kg if user_kg and target_kg else 0.0
+        return next(power for limit, power in WEIGHT_RATIO_BANDS if ratio >= limit)
+    return None
+
+
+def is_damaging(move: object) -> bool:
+    """Does this move deal direct damage: a Physical / Special move with base power, or one whose power the table
+    cannot hold (weight-based moves, Ruination, Beat Up). The one gate every "skip status moves" loop should use."""
+    info = move if isinstance(move, dict) else (move_info(move) or {})
+    mid = _move_id(move) or _move_id(info)
+    if info.get("category") not in ("Physical", "Special"):
+        return False
+    return (info.get("base_power") or 0) > 0 or mid in DAMAGING_WITHOUT_POWER
+
+
+RAIN_SURE_HIT = frozenset({"hurricane", "thunder", "bleakwindstorm", "wildboltstorm", "sandsearstorm"})
+SNOW_SURE_HIT = frozenset({"blizzard"})
+SUN_HALVED = frozenset({"hurricane", "thunder"})
+
+
+def hit_chance(move: object, weather: object = None) -> float:
+    """The move's chance to land as a probability: 1.0 for never-miss moves (accuracy ``true``) and for Hurricane /
+    Thunder / the storm moves in rain (Blizzard in snow), 0.5 for Hurricane / Thunder in sun, else accuracy / 100.
+    No evasion or accuracy stages: nothing in the catalog changes them."""
+    info = move if isinstance(move, dict) else (move_info(move) or {})
+    mid = _move_id(move) or _move_id(info)
+    acc = info.get("accuracy", True)
+    if acc is True or acc is None:
         return 1.0
+    w = to_id(weather)
+    if "rain" in w and mid in RAIN_SURE_HIT:
+        return 1.0
+    if ("snow" in w or "hail" in w) and mid in SNOW_SURE_HIT:
+        return 1.0
+    if ("sun" in w or "drought" in w) and mid in SUN_HALVED:
+        return 0.5
+    try:
+        return max(0.0, min(1.0, float(acc) / 100.0))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+MULTI_HIT_2_5 = {2: 0.35, 3: 0.35, 4: 0.15, 5: 0.15}
+
+
+def hit_count_distribution(move: object, mon: object = None) -> dict[int, float]:
+    """How many times the move strikes, as {hits: probability}: {1: 1.0} for ordinary moves, a fixed count for
+    Surging Strikes / Dragon Darts / Population Bomb, 2-5 hits at 35/35/15/15% for the variable moves, 4-5 at 50/50
+    with Loaded Dice and always 5 with Skill Link. ``mon`` (the user: a Mon, or a dict with item / ability) supplies
+    the item and ability."""
+    info = move if isinstance(move, dict) else (move_info(move) or {})
+    multihit = info.get("multihit")
+    if not multihit:
+        return {1: 1.0}
     if isinstance(multihit, (int, float)):
-        return float(multihit)
-    if isinstance(multihit, list) and len(multihit) == 2:
-        lo, hi = multihit
-        if to_id(item) == "loadeddice" and lo <= 4 <= hi:
-            return 4.5
-        if (lo, hi) == (2, 5):
-            return 3.1  # 2,3 at 35% each; 4,5 at 15% each
-        return (lo + hi) / 2
-    return 1.0
+        return {int(multihit): 1.0}
+    if not (isinstance(multihit, (list, tuple)) and len(multihit) == 2):
+        return {1: 1.0}
+    lo, hi = int(multihit[0]), int(multihit[1])
+    if lo >= hi:
+        return {lo: 1.0}
+    if isinstance(mon, dict):
+        item, ability = mon.get("item"), mon.get("ability")
+    else:
+        item, ability = getattr(mon, "item", None), getattr(mon, "ability", None)
+    if (lo, hi) == (2, 5):
+        if to_id(ability) == "skilllink":
+            return {5: 1.0}
+        if to_id(item) == "loadeddice":
+            return {4: 0.5, 5: 0.5}
+        return dict(MULTI_HIT_2_5)
+    return {n: 1.0 / (hi - lo + 1) for n in range(lo, hi + 1)}
+
+
+def rolls_reach(hits: int, per_hit_lo: float, per_hit_hi: float, need: float) -> float:
+    """Chance that ``hits`` strikes, each rolling uniformly between ``per_hit_lo`` and ``per_hit_hi``, add up to at
+    least ``need`` (the Irwin-Hall distribution: the sum of several rolls bunches around its mean, so five strikes
+    that reach a KO only when all roll high are a long shot, not a coin flip)."""
+    n = int(hits)
+    if n <= 0:
+        return 0.0
+    if n * per_hit_lo >= need:
+        return 1.0
+    if n * per_hit_hi < need:
+        return 0.0
+    width = per_hit_hi - per_hit_lo
+    if width <= 0:
+        return 0.0
+    s = (need - n * per_hit_lo) / width  # the sum of n uniform(0, 1) rolls must reach s
+    cdf = sum((-1) ** k * math.comb(n, k) * (s - k) ** n for k in range(int(math.floor(s)) + 1)) / math.factorial(n)
+    return max(0.0, min(1.0, 1.0 - cdf))
+
+
+def multi_hit_ko_chance(per_hit_lo: float, per_hit_hi: float, hp_frac: float, distribution: dict, *,
+                        first_hit: tuple[float, float] | list | None = None) -> float:
+    """Chance a multi-hit move KOs: ``per_hit_lo`` / ``per_hit_hi`` are one strike's damage as a percentage of the
+    target's MAX HP and ``hp_frac`` the fraction it has left (or the strike as % of CURRENT HP with ``hp_frac`` 1.0,
+    the way the sheet reports it); ``distribution`` is {hits: probability}. Each strike rolls on its own, so a Loaded
+    Dice Scale Shot that needs all five strikes high is far from a 50% KO. ``first_hit`` is the first strike's own
+    range when it differs (Multiscale / Shadow Shield halve only that one; a resist berry is eaten by it)."""
+    need = 100.0 * hp_frac
+    total = 0.0
+    for hits, p in distribution.items():
+        n = int(hits)
+        if first_hit is not None and n >= 1:
+            lo, hi = first_hit[0] + per_hit_lo * (n - 1), first_hit[1] + per_hit_hi * (n - 1)
+            total += float(p) * rolls_reach(n, lo / n, hi / n, need)
+        else:
+            total += float(p) * rolls_reach(n, per_hit_lo, per_hit_hi, need)
+    return max(0.0, min(1.0, total))
+
+
+# Abilities that stop Intimidate (Mirror Armor bounces it back; the foe itself is untouched).
+INTIMIDATE_BLOCKERS = frozenset({"clearbody", "whitesmoke", "hypercutter", "fullmetalbody", "innerfocus", "owntempo",
+                                 "oblivious", "scrappy", "mirrorarmor"})
+
+
+def intimidate_stages(ability: object, item: object = None) -> dict[str, int]:
+    """What one Intimidate does to a Pokémon with this ability and item: -1 Attack, nothing through a blocking
+    ability or a Clear Amulet, +1 Attack for Defiant / Guard Dog / Contrary, -2 for Simple, and Competitive takes
+    the drop but gains +2 Special Attack (Rattled also gains +1 Speed)."""
+    a, i = to_id(ability), to_id(item)
+    if a in INTIMIDATE_BLOCKERS or i == "clearamulet":
+        return {}
+    if a in ("defiant", "guarddog", "contrary"):
+        return {"atk": 1}
+    if a == "simple":
+        return {"atk": -2}
+    out = {"atk": -1}
+    if a == "competitive":
+        out["spa"] = 2
+    if a == "rattled":
+        out["spe"] = 1
+    return out
 
 
 # -- stats -------------------------------------------------------------------------------

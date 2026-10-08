@@ -68,7 +68,7 @@ def _errors(fixture: Path = FIXTURE) -> list[tuple[float, dict]]:
         est = battle.damage_percent(attacker, move, defender, field=fs, spread=case["spread_in_calc"])
         ref = case["damage"]
         if est is None:
-            assert ref == [0, 0] or (move.get("base_power") or 0) == 0, case
+            assert ref == [0, 0] or not data.is_damaging(move), case  # a weight-based move (0 in the table) has an estimate since Oct 8
             continue
         cur, max_hp = case["defender_cur_hp"], case["defender_max_hp"]
         # Anything past a KO is just a KO: compare both estimates clamped to the HP that is actually there.

@@ -40,7 +40,7 @@ def _errors() -> list[tuple[float, dict]]:
         defender = _mon(case["defender"], side="theirs", position=1, hp=case["defender_hp_fraction"])
         est = battle.damage_percent(attacker, move, defender, spread=case["spread_in_calc"])
         if est is None:
-            assert (move.get("base_power") or 0) == 0, case  # only status moves may be skipped
+            assert not data.is_damaging(move), case  # only status moves may be skipped (weight-based moves have a row since Oct 8)
             continue
         cur, max_hp, ref = case["defender_cur_hp"], case["defender_max_hp"], case["no_ability_damage"]
         ours = (est[0] * cur / 100, est[1] * cur / 100)
@@ -64,8 +64,8 @@ def test_immunities_and_items_match_the_calculator():
     immune = [c for c in cases if c["no_ability_damage"] == [0, 0]]
     for case in immune:
         move = {**(data.move_info(case["move"]) or {}), "id": data.to_id(case["move"])}
-        if (move.get("base_power") or 0) == 0:
-            continue  # fixed-damage moves (Ruination) have no base power; the calculator reports 0, we report "no estimate"
+        if move.get("id") == "ruination" or not data.is_damaging(move):
+            continue  # Ruination is fixed damage (half the HP): the calculator reports 0, we report 50%
         est = battle.damage_percent(_mon(case["attacker"], side="mine", position=0, hp=1.0),
                                     move, _mon(case["defender"], side="theirs", position=1, hp=case["defender_hp_fraction"]),
                                     spread=case["spread_in_calc"])
