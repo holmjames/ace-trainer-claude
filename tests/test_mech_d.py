@@ -840,3 +840,21 @@ def test_supreme_overlord_fallen_count_from_the_field():
     assert row["damage_pct_of_current_hp"][0] <= 143 / 202 * 100 <= row["damage_pct_of_current_hp"][1]
     kingambit = next(m for m in sheet.field.actives if m.species.lower() == "kingambit")
     assert battle.effective_move(kingambit, {**data.move_info("Kowtow Cleave"), "id": "kowtowcleave"}, kingambit, sheet.field)["supreme_overlord"] == 1
+
+
+def test_stat_stages_are_floored_like_the_engine():
+    """Kingambit's 205 Attack at -1 is 136 (not 136.67): Kowtow Cleave into Gyarados is 79-94 HP per the calculator and
+    the fraction overshot by 2 HP. da9c168e: Gyarados's Waterfall at -1 did 108 HP against a sheet minimum of 109.7 built
+    on the fraction; the engine's minimum is 104."""
+    assert battle.staged_stat(205, -1) == 136 and battle.staged_stat(194, -1) == 129 and battle.staged_stat(150, -1) == 100
+    assert battle.staged_stat(183, 1) == 274 and battle.staged_stat(205, -3) == 82 and battle.staged_stat(100, 0) == 100
+    kingambit = catalog_mon("Kingambit", side="mine", position=0)
+    assert replace(kingambit, boosts={"atk": -1}).stat("atk") == 136
+    for name in ("stagefloor_kowtow_minus1_gyarados", "stagefloor_waterfall_minus1_landorus", "stagefloor_waterfall_minus3_arcanine"):
+        c = case(name)
+        attacker, move, defender, fs = _pair(c)
+        est = battle.damage_percent(attacker, move, defender, field=fs)
+        hp = (est[0] * c["defender_cur_hp"] / 100, est[1] * c["defender_cur_hp"] / 100)
+        assert abs(hp[0] - c["damage"][0]) < 0.6 and abs(hp[1] - c["damage"][1]) < 0.6, (name, hp, c["damage"])  # to the HP
+    waterfall = case("stagefloor_waterfall_minus1_landorus")
+    assert waterfall["damage"][0] <= 108 <= waterfall["damage"][1]
