@@ -197,13 +197,13 @@ def test_shortlist_v2_carries_the_veto_notes_and_still_answers_fast():
 # -- C: their bring and leads are modelled by roles and matchups only ----------------------------------------------
 
 
-def test_their_side_carries_no_fitted_card_terms_and_todays_actual_four_is_predicted_first():
+def test_neither_side_carries_fitted_card_terms_and_todays_actual_four_is_predicted_first():
     from itertools import combinations
 
     our_six, their_six, _, their_live = LIVE["W bcbaabe2"]
     model = lineup.PreviewModel([CATALOG[s] for s in our_six], [CATALOG[s] for s in their_six])
-    assert all(model.board.resid[j] == 0.0 for j in model.theirs)
-    assert any(model.board.resid[i] != 0.0 for i in model.ours)  # our own terms stay
+    assert all(r == 0.0 for r in model.board.resid)  # roles and matchups only, both sides
+    assert any(float((model.board.model.get("cards") or {}).get(u.key, {}).get("s", 0.0)) != 0.0 for u in model.board.units)
     names = {6 + j: s for j, s in enumerate(their_six)}
     their_fours = list(combinations(model.theirs, lineup.BRING))
     payoff = [[model.pairing(f, g) for g in their_fours] for f in combinations(model.ours, lineup.BRING)]
@@ -259,3 +259,36 @@ def test_the_preview_follows_the_match_seed_and_varies_only_inside_the_window():
     s = Session("W bcbaabe2")
     leads = {lineup.choose_leads_v2(s.model, s.four, s.their_leads, V2, seed=k)[0] for k in range(6)}
     assert all(not s.lost(p) for p in leads)  # the seed never picks outside the safe set
+
+
+OURS_W2 = ["Gyarados", "Iron Hands", "Iron Treads", "Salamence", "Sylveon", "Baxcalibur"]
+THEIRS_W2 = ["Incineroar", "Rillaboom", "Flutter Mane", "Grimmsnarl", "Amoonguss", "Toxapex"]
+
+
+def fours_ranked(our_six, their_six):
+    """All 15 fours of our six in shortlist_v2's order (the blended value), as species sets."""
+    from itertools import combinations
+
+    model = lineup.PreviewModel([CATALOG[s] for s in our_six], [CATALOG[s] for s in their_six])
+    our_fours = list(combinations(model.ours, lineup.BRING)); their_fours = list(combinations(model.theirs, lineup.BRING))
+    payoff = [[model.pairing(f, g) for g in their_fours] for f in our_fours]
+    _, q, _ = lineup.solve_game(payoff)
+    robust = V2["lineup_v2_robust"]
+    ranked = sorted(((1 - robust) * sum(q[j] * payoff[i][j] for j in range(len(their_fours))) + robust * min(payoff[i]), i)
+                    for i in range(len(our_fours)))[::-1]
+    return [({our_six[k] for k in our_fours[i]}, value) for value, i in ranked]
+
+
+def test_without_the_preview_card_terms_an_iron_hands_four_ranks_first_on_both_oct_8_sixes():
+    # 93a98b6f post-mortem: the preview table's -0.143 for Iron Hands (the draft table says +0.091) benched our pick-2
+    # Iron Hands on near-ties of 0.037 and 0.001 log-odds in bcbaabe2 and 93a98b6f. With the terms off, an Iron Hands
+    # four is first on both sixes, and the four we actually brought in bcbaabe2 is no longer the choice (8th of 15,
+    # 65% against 75%).
+    for our_six, their_six in ((LIVE["W bcbaabe2"][0], LIVE["W bcbaabe2"][1]), (OURS_W2, THEIRS_W2)):
+        ranked = fours_ranked(our_six, their_six)
+        assert "Iron Hands" in ranked[0][0], ranked[:3]
+    ranked = fours_ranked(LIVE["W bcbaabe2"][0], LIVE["W bcbaabe2"][1])
+    brought = {"Archaludon", "Arcanine", "Wo-Chien", "Milotic"}
+    assert ranked[0][0] != brought and next(k for k, (four, _) in enumerate(ranked, 1) if four == brought) == 8, ranked[:3]
+    best = lineup.shortlist(*rosters(LIVE["W bcbaabe2"][0], LIVE["W bcbaabe2"][1]), top=1, params=V2)[0]
+    assert "ironhands" in best.bring

@@ -355,11 +355,12 @@ class PreviewModel:
         self.opening_w = float(model.get("opening_weight", 0.35))
         self.ours = list(range(len(mine)))
         self.theirs = list(range(len(mine), len(mine) + len(theirs)))
-        # Their side is modelled by roles and matchups only: the fitted per-card terms come from games our own
-        # battle brain piloted and say nothing about how THIS opponent plays a card. (Oct 8, bcbaabe2: with the
-        # terms on, Dragonite's -0.355 dropped it from their predicted four and gave their actual lead 0%; with
-        # them off their actual four is predicted first.)
-        self.board.resid = [r if i in set(self.ours) else 0.0 for i, r in enumerate(self.board.resid)]
+        # Both sides are modelled by roles and matchups only: the fitted per-card terms come from games an older
+        # battle brain piloted. Theirs say nothing about how THIS opponent plays a card (Oct 8, bcbaabe2: with the
+        # terms on, Dragonite's -0.355 dropped it from their predicted four and gave their actual lead 0%; off, their
+        # actual four is predicted first). Ours benched our own early picks on near-ties (93a98b6f: the preview
+        # table's -0.143 for Iron Hands against the draft table's +0.091 decided ties of 0.037 and 0.001 log-odds).
+        self.board.resid = [0.0 for _ in self.board.resid]
         self._lead_cache: dict[tuple, float] = {}
 
     def opening(self, ours: tuple[int, int], theirs: tuple[int, int], *, turns: int | None = None):
