@@ -1382,12 +1382,54 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     f"RISK: {threat['species']}'s {hit['move']}{prio_note} hits {where} for {dmg} before it can move: only a "
                     f"{int(round(chance * 100))}% chance of a KO on the roll{escape}. Usually worth playing through, not Protecting.")
 
+    def can_protect(foe: "Mon") -> bool:
+        return any(m["id"] in PROTECT_LIKE for m in foe.moves) and not (memory is not None and memory.opp_protect_streak.get(species_key(foe.species)))
+
+    def joint_value(picks: list[tuple[int, dict | None, dict | None, float]], *, protect_aware: bool = False) -> float:
+        """Both slots' attacks valued TOGETHER: damage into each target is summed across the slots (each slot's share
+        weighted by its chance to act) and capped at what the target has left, with one KO bonus, not two. Summing the
+        slots' values separately counted the same KO twice and sent both slots into one target. With
+        ``protect_aware`` a target that can Protect (and didn't last turn) and is in KO range is discounted by the chance
+        it does (LeCharmander Protected the threatened Pokémon three times in four games)."""
+        per_foe: dict[str, list[float]] = {}
+        extra = 0.0
+        for number, opt, row, value in picks:
+            if not opt or not row:
+                continue
+            if "status_value" in row or not opt.get("targets"):
+                extra += max(value, 0.0)  # a status move: its own value
+                continue
+            prio = opt.get("priority", 0) or 0
+            surv = survival_factor(number, sheet, prio, speed_rank, row, P)
+            chosen = row.get("target", 0)
+            for r in opt.get("targets") or []:
+                if r.get("side") == "mine":
+                    if r.get("target") == 0:
+                        extra -= P["ally_damage_w"] * min(_avg(r["damage_pct_of_current_hp"]), 100) * surv
+                    continue
+                if chosen > 0 and r.get("target") != chosen:
+                    continue
+                acc = per_foe.setdefault(species_key(r["species"]), [0.0, 0.0])
+                acc[0] += surv * r["damage_pct_of_current_hp"][0]
+                acc[1] += surv * r["damage_pct_of_current_hp"][1]
+            extra += P["priority_w"] * prio * surv
+        total = 0.0
+        for key, (lo, hi) in per_foe.items():
+            if hi <= 0:
+                continue
+            v = min((lo + hi) / 2, 100.0) + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0))
+            foe = next((m for m in theirs.values() if species_key(m.species) == key), None)
+            if protect_aware and foe is not None and hi >= 100 and can_protect(foe):
+                v *= 1.0 - P.get("opp_protect_risk", 0.3)
+            total += v
+        return total + extra
+
     # 1. Both slots use their own best attack.
     if best[0][0] and best[1][0]:
         add("best_attacks", slot_answer(best[0][0]["option"], best[0][1]["target"]), slot_answer(best[1][0]["option"], best[1][1]["target"]),
             f"slot 0 {best[0][0]['move']} -> {best[0][1]['species']} ({best[0][1]['damage_pct_of_current_hp']}%), "
             f"slot 1 {best[1][0]['move']} -> {best[1][1]['species']} ({best[1][1]['damage_pct_of_current_hp']}%)",
-            best[0][2] + best[1][2])
+            joint_value([(0, *best[0]), (1, *best[1])]))
     elif any(lone.values()):
         n = 0 if lone[1] else 1  # the slot that still fights
         if best[n][0]:
@@ -1409,8 +1451,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             # only count damage from slots that actually get to move
             combined = sum(r["damage_pct_of_current_hp"][0] * (1 if e > 0 else 0) for _, _, r, e in rows)
             if combined >= 100:
+                guard = can_protect(opp)
                 add("focus_fire", slot_answer(rows[0][1]["option"], target), slot_answer(rows[1][1]["option"], target),
-                    f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO", sum(e for *_, e in rows) + P["focus_fire_bonus"])
+                    f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO" + (" (it can Protect)" if guard else ""),
+                    joint_value([(n, o, r, e) for n, o, r, e in rows], protect_aware=True)
+                    + P["focus_fire_bonus"] * ((1.0 - P.get("opp_protect_risk", 0.3)) if guard else 1.0))
 
     # 2b. Don't overkill: when one slot's best attack already guarantees a KO on a target, point the other slot at the
     # remaining foe. If that foe's Focus Sash gets broken by the first slot's spread hit (and it moves first), the second
