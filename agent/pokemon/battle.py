@@ -504,6 +504,7 @@ class TurnSheet:
     flinch_risk: dict = field(default_factory=dict)  # our slot -> chance a fresh opposing Fake Out flinches it this turn
     focus_threats: list = field(default_factory=list)  # our slots that BOTH foes together can KO this turn (double-targeting)
     alone: bool = False  # our last Pokémon stands alone (the other slot can only pass)
+    switch_ins: dict = field(default_factory=dict)  # bench species_key -> what it takes / deals / outspeeds if it comes in now
     stall_reasons: list = field(default_factory=list)  # what a Protect would actually wait out (their Tailwind, screens, residual...)
     field: "FieldState | None" = None  # keep last: this name shadows dataclasses.field for anything declared after it
 
@@ -516,6 +517,7 @@ class TurnSheet:
             "opponent_threats": self.threats,
             "candidate_turns": self.candidates,
             "notes": self.notes,
+            **({"switch_ins": {k: {kk: vv for kk, vv in v.items() if kk != "score"} for k, v in self.switch_ins.items()}} if self.switch_ins else {}),
         }
 
 
@@ -849,8 +851,76 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
     _flinch_risk(sheet, ours, theirs, fs)
     _double_target_threats(sheet, ours, P)
     _endgame(sheet, slots, ours, theirs, fs)
+    _switch_previews(sheet, slots, theirs, obs, memory, fs)
     sheet.candidates = rank_candidates(slots, ours, theirs, sheet, fresh=set(memory.fresh_active), memory=memory, params=P)
     return sheet
+
+
+def _avg(est: list | tuple) -> float:
+    return (est[0] + est[1]) / 2
+
+
+def _switch_previews(sheet: "TurnSheet", slots: list[dict], theirs: dict[int, "Mon"], obs: dict, memory: MatchMemory,
+                     fs: "FieldState") -> None:
+    """For every Pokémon we could bring in now: the worst hit each opposing active can give it, its best hit back,
+    and who it outspeeds, all from the real damage model with the current field. Replaces 'type chart only' switch
+    judgement (Oct 7: Garchomp came in because it 'resists Make It Rain' (it is neutral) and died before moving)."""
+    names: list[str] = []
+    for slot in slots:
+        for o in slot.get("options") or []:
+            if o.get("type") == "switch" and o.get("species") and species_key(o["species"]) not in {species_key(n) for n in names}:
+                names.append(o["species"])
+    if not names or not theirs:
+        return
+    for name in names:
+        key = species_key(name)
+        summary = _find_summary(obs.get("team"), name)
+        x = build_mon({**summary, "boosts": {}}, memory.my_cards.get(key), side="mine", position=None)  # boosts reset on switch
+        if x is None:
+            continue
+        x.tailwind = "tailwind" in fs.my_side
+        takes, deals = [], []
+        for opp in theirs.values():
+            locked = memory.opp_last_move.get(species_key(opp.species)) if data.to_id(opp.item) in CHOICE_ITEMS else None
+            worst = None
+            for mv in opp.moves:
+                if (mv.get("base_power") or 0) <= 0 or mv["id"] in ("fakeout", "firstimpression") or (locked and mv["id"] != locked):
+                    continue
+                est = damage_percent(opp, mv, x, field=fs)
+                if est is not None and (worst is None or _avg(est) > _avg(worst[1])):
+                    worst = (mv["id"], est, type_multiplier(opp, mv, x, fs))
+            if worst:
+                takes.append({"from": opp.species, "move": worst[0], "damage_pct": list(worst[1]), "effect": effect_label(worst[2])})
+            best = None
+            for mv in x.moves:
+                if (mv.get("base_power") or 0) <= 0 or mv["id"] in ("fakeout", "firstimpression"):
+                    continue
+                est = damage_percent(x, mv, opp, field=fs, spread=mv.get("target") in SPREAD_TARGETS and len(theirs) > 1)
+                if est is not None and (best is None or min(_avg(est), 100) > min(_avg(best[1]), 100)):
+                    best = (mv["id"], est, type_multiplier(x, mv, opp, fs))
+            if best:
+                deals.append({"to": opp.species, "move": best[0], "damage_pct": list(best[1]), "effect": effect_label(best[2])})
+        my_speed = x.stat("spe")
+        outspeeds = [o.species for o in theirs.values() if (my_speed > o.stat("spe")) != fs.trick_room]
+        worst_in = max(takes, key=lambda t: _avg(t["damage_pct"]), default=None)
+        second_in = sorted((_avg(t["damage_pct"]) for t in takes), reverse=True)[1:2]
+        offense = sum(min(_avg(d["damage_pct"]), 100) + (25 if d["damage_pct"][0] >= 100 else 10 if d["damage_pct"][1] >= 100 else 0)
+                      for d in deals) / max(len(theirs), 1)
+        danger = 0.0
+        if worst_in:
+            lo, hi = worst_in["damage_pct"]
+            danger = min(_avg(worst_in["damage_pct"]), 100) + (30 if lo >= 100 else 15 if hi >= 100 else 0)
+            danger += 0.35 * min(second_in[0], 100) if second_in else 0.0  # they may double into the newcomer
+        fake_out = any(m["id"] == "fakeout" for m in x.moves)
+        score = offense - 0.8 * danger + 8 * len(outspeeds) + (10 if fake_out else 0)
+        sheet.switch_ins[key] = {
+            "hp_pct": int(round(100 * x.hp_fraction)),
+            "takes_worst": worst_in,
+            "deals_best": deals,
+            "outspeeds": outspeeds,
+            **({"fake_out_next_turn": True} if fake_out else {}),
+            "score": round(score, 1),
+        }
 
 
 def _flinchable(me: "Mon", ours: dict[int, "Mon"], fs: "FieldState") -> bool:
@@ -1117,13 +1187,16 @@ def switch_value(species: str, theirs: dict[int, "Mon"], memory: "MatchMemory") 
     return 10 * offense + 5 * defense_vs(me, foes) + me.bst / 200.0
 
 
-def best_switch(slot: dict, theirs: dict[int, "Mon"], memory: "MatchMemory", *, exclude: str | None = None) -> tuple[int | None, str | None]:
-    """(option index, species) of the best switch option in this slot, skipping ``exclude``."""
+def best_switch(slot: dict, theirs: dict[int, "Mon"], memory: "MatchMemory", *, exclude: str | None = None,
+                sheet: "TurnSheet | None" = None) -> tuple[int | None, str | None]:
+    """(option index, species) of the best switch option in this slot, skipping ``exclude``. Uses the sheet's
+    switch-in preview (real damage both ways, speed) when there is one, else the type-chart estimate."""
     best: tuple[int | None, str | None, float] = (None, None, float("-inf"))
     for index, option in enumerate(slot.get("options") or []):
         if option.get("type") != "switch" or option.get("species") == exclude:
             continue
-        value = switch_value(option["species"], theirs, memory)
+        preview = (sheet.switch_ins.get(species_key(option["species"])) if sheet is not None else None)
+        value = preview["score"] if preview else switch_value(option["species"], theirs, memory)
         if value > best[2]:
             best = (index, option["species"], value)
     return best[0], best[1]
@@ -1244,7 +1317,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         answers: dict[int, dict] = {}
         used: str | None = None
         for n in forced:
-            idx, species = best_switch(slot_template(n), theirs, memory, exclude=used)
+            idx, species = best_switch(slot_template(n), theirs, memory, exclude=used, sheet=sheet)
             if idx is None:
                 pass_idx = _option_index(slot_template(n), "pass")
                 answers[n] = {"option": pass_idx, "target": 0} if pass_idx is not None else None
@@ -1431,7 +1504,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if slot and best[other][0] and (protect is None or streak >= 1):
                 # No Protect, or Protect is a coin we already flipped: offer the switch so the judge sees the alternative,
                 # unless the switch-in is KO'd on entry by the same attacker (a pivot that just donates a Pokémon).
-                switch, switch_species = best_switch(slot, theirs, memory) if memory is not None else (_option_index(slot, "switch"), None)
+                switch, switch_species = best_switch(slot, theirs, memory, sheet=sheet) if memory is not None else (_option_index(slot, "switch"), None)
                 if switch is not None and switch_species and attacker is not None and memory is not None:
                     incoming = build_mon({"species": switch_species, "current_hp_fraction": sheet.bench_hp.get(species_key(switch_species), 1.0)},
                                          memory.my_cards.get(species_key(switch_species)), side="mine", position=endangered)
@@ -1598,7 +1671,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
     for number in (0, 1):
         slot = slot_template(number)
         if slot and (best[number][0] is None or best[number][2] < P["switch_weak_threshold"]):
-            switch = best_switch(slot, theirs, memory)[0] if memory is not None else _option_index(slot, "switch")
+            switch = best_switch(slot, theirs, memory, sheet=sheet)[0] if memory is not None else _option_index(slot, "switch")
             other = 1 - number
             if switch is not None and best[other][0]:
                 answers = {number: {"option": switch, "target": 0}, other: slot_answer(best[other][0]["option"], best[other][1]["target"])}
