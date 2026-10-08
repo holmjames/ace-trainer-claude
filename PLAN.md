@@ -614,6 +614,46 @@ Urshifu + Prankster Tailwind, because a guaranteed KO elsewhere cut the Fake Out
 rerun `scripts/grade_overrides.py` on those logs; grow the scenario suite toward 30; keep the runtime up for Open matches
 against other contestants; at freeze paste the final commit ID into the dashboard and save a redacted `.env` with the logs.
 
+### 5o. Oct 7 late night: 0-4 against a real opponent (LeCharmander), root-caused
+
+Four Testing matches against another contestant, 20:50-21:16 PT, all lost; three were not close. Transcripts:
+`python scripts/postmortem.py <session>` (d9405f02, 1aef9227, 7ce71025, 0a2b7c2a).
+
+**The headline: every live battle so far was played half blind, and the simulator hid it.** The simulator's payloads were
+written from the docs; the live server's differ, and each difference disabled something:
+
+| What broke | Live payload | Effect in the losses |
+|---|---|---|
+| Opponent sets wiped at Team Preview | roster entries carry `moves: []`, `item: "unknown_item"`; `_enrich` merged them over the drafted cards | Lineup scored "resists 0/6 attackers" in all four matches. In battle only moves already USED were threats: Iron Hands' Wild Charge (OHKO'd Tornadus, M3 T1), Incineroar's fresh Fake Out (M3 T3), Gholdengo's Make It Rain (KO'd Baxcalibur, M4 T2) had no warning. The prompt told the model "the opponent's moves are KNOWN" and handed it empty lists. |
+| Opponent's first pick unknown | when they draft first, their first card is never in our offered list | Incineroar (M2) and Dragonite (M1) played as blank 0-EV sets: Close Combat "KOs" Incineroar (did 87%). |
+| Spread moves had no damage | no-target moves arrive as `targets: [0]`, not `[]` | Dazzling Gleam, Earthquake, Rock Slide, Icy Wind never ranked or shown. M3 endgame: Hatterene used resisted Mystical Fire (~15%) four times instead of Gleam (~3x); likely the game. |
+| Benched Pokémon looked available | live `team` lists all six (one unbrought even `active: true`) | The model planned "Baxcalibur/Lucario can come in" (M1) and "Garchomp/Ursaluna finish it" (M3); neither was brought. Cresselia Protected four turns as our last Pokémon waiting for them. |
+| Item state | revealed / "unknown_item" / null after -enditem | Unknown items overrode the card's (Assault Vest, Loaded Dice ignored); a popped Air Balloon stayed on. |
+
+Also wrong with or without the payload: the damage model lacked Pixilate (Sylveon's Hyper Voice scored 14% into Iron Hands; it
+does ~55%), Adaptability, Unaware, resist berries, Freeze-Dry and Ground vs Levitate/Air Balloon (the new live cards; checked
+against @smogon/calc on the live catalog: median 0.29% of max HP, p95 1.25%). The simulator pool had 17 cards that never appear
+live (Calyrex-Ice, Miraidon, Koraidon...) and 13 wrong sets, so all offline tuning ran on a pool that does not exist. Battle
+logic gaps the losses exposed: no double-target threat (Landorus fell to Extreme Speed + Shadow Ball, and to Scale Shot + Draco
+Meteor), no Fake Out flinch risk on our "moves first" plans, overkill valued above a KO, Protect streak reset by replacement
+decisions, Helping Hand into an empty slot, a lethal recheck that argued for a pointless last-Pokémon Protect.
+
+**The meta-cause:** our evaluation measured the wrong thing. Thousands of simulated games and 22 hand-built scenarios ran
+against our own code, a random player and a weak starter agent, on a fictional pool, through a payload that never exercised
+the live code paths; the live-fixture tests only asserted "no crash". Rule from now on: every live capture is replayed
+through ONE agent (tests/test_live_semantics.py) and checked for what the agent KNEW; the simulator must match live payloads
+field for field (parity test); offline numbers count only against opponents that play like real ones.
+
+**Fixed (commits 9496533..4e0c121):** live catalog (data/cards.json); memory fills gaps only; catalog first picks; item
+semantics; paradox boosts from the log; spread estimates; battle_roster in the prompt and observation; opponent entries filled
+from cards; damage mechanics above; Fake Out flinch risk, double-target threats and Protect candidates, partner-removes-threat
+credit, KO-capped expected damage, endgame logic (Protect only when something runs out), ally-only moves, Protect streak; their
+Protect history and Tailwind/Trick Room turns left from the log; system prompt on how strong opponents play.
+`scripts/live_scenarios.py` (exact live positions, no transcription): code 5/5, Opus 5/5.
+
+**Still in progress (Oct 8):** simulator payload parity (branch `sim-fidelity`); counter-aware draft and lineup, with a
+LeCharmander-style counter-picking sparring drafter (branch `draft-v2`); independent second-opinion review of the four games.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
