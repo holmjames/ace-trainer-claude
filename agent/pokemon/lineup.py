@@ -378,6 +378,19 @@ class PreviewModel:
         fits = fits or pairs
         return {p: 1.0 / len(fits) for p in fits}
 
+    def template_fours(self, their_fours: list[tuple[int, ...]]) -> list[float]:
+        """A distribution over their fours from the same template, applied to their whole six: the four contains their
+        Fake Out / speed-control user and their best spread attacker (the search bot brought Incineroar + its spread
+        attacker in every live game; predicting their four from our model alone left Incineroar out of match 2)."""
+        pairs = self.template_leads(tuple(self.theirs), self.ours)
+        weights = [0.0] * len(their_fours)
+        for pair, w in pairs.items():
+            holders = [j for j, four in enumerate(their_fours) if set(pair) <= set(four)]
+            for j in holders:
+                weights[j] += w / len(holders)
+        total = sum(weights)
+        return [w / total for w in weights] if total > 0 else weights
+
     def their_leads(self, four: tuple[int, ...], other: tuple[int, ...], template: float) -> dict[tuple, float]:
         """Their likely lead pairs against our ``four``: the lead sub-game's equilibrium, blended with the template."""
         _, opp_pairs, _, opp_mix, _ = self.lead_game(four, other)
@@ -403,6 +416,12 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
     their_fours = list(combinations(model.theirs, min(BRING, len(model.theirs))))
     payoff = [[model.pairing(f, g) for g in their_fours] for f in our_fours]
     _, q, game_value = solve_game(payoff)
+    template = float(P.get("lineup_v2_template", 0.5))
+    four_template = float(P.get("lineup_v2_four_template", 0.5))
+    if four_template > 0:  # their four: the game's answer blended with how strong players actually bring (template)
+        tq = model.template_fours(their_fours)
+        if sum(tq) > 0:
+            q = [(1 - four_template) * a + four_template * b for a, b in zip(q, tq)]
     robust = float(P.get("lineup_v2_robust", 0.25))
     ranked = []
     for i, four in enumerate(our_fours):
@@ -413,7 +432,6 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
     likely = sorted(((q[j], j) for j in range(len(their_fours)) if q[j] > 0), reverse=True)
     likely_note = "; ".join(f"{[names[k] for k in their_fours[j]]} {100 * w:.0f}%" for w, j in likely[:2])
     out: list[Candidate] = []
-    template = float(P.get("lineup_v2_template", 0.5))
     for value, expected, i in ranked[:top]:
         four = our_fours[i]
         # Leads: our pair that does best on turns 1-2 against the lead pairs their likely fours open with.
