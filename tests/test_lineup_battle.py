@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.pokemon import battle, data, lineup
+from agent.pokemon import battle, data, lineup, tuning
 from agent.pokemon.memory import MatchMemory, species_key
 
 pytestmark = pytest.mark.skipif(not (data.DATA_DIR / "pokedex.json").exists(), reason="run scripts/build_dex.py first")
@@ -59,7 +59,8 @@ def test_shortlist_returns_legal_lineups_in_server_spelling():
 
 def test_shortlist_brings_the_grass_answer_to_a_water_heavy_opponent():
     m = memory()
-    best = lineup.shortlist(m.my_cards, m.opp_cards, ROSTER, top=1)[0]
+    # The original scorer (lineup_v2 = 0) and its note wording; tests/test_lineup_v2.py checks the same answer for v2.
+    best = lineup.shortlist(m.my_cards, m.opp_cards, ROSTER, top=1, params=tuning.merged({"lineup_v2": 0}))[0]
     assert "rillaboom" in best.bring, best
     assert any("speed control" in n or "fake out" in n for n in best.notes)
 

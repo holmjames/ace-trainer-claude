@@ -254,6 +254,12 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
             mine.append(p)
     theirs = [profile(c) for c in opp_cards.values()]
     P = params or DEFAULTS
+    if P.get("lineup_v2", 0) and len(mine) >= BRING and len([t for t in theirs if t.moves]) >= LEADS \
+            and all(p.moves for p in mine):
+        try:
+            return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P)
+        except Exception:  # noqa: BLE001 — a bug in v2 must not cost Team Preview: fall through to the scorer below
+            pass
 
     # Mirror-model the opponent: which four would THEY bring against our six, and which two lead?
     # Their drafted sets are public, so we can run our own lineup scorer from their side.
@@ -282,3 +288,158 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
         candidates.append(Candidate([p.species for p in four], leads, score, notes + ([f"leads: {lead_note}"] if lead_note else [])))
     candidates.sort(key=lambda c: (-c.score, c.bring))
     return candidates[:top]
+
+
+# -- v2: Team Preview from the matchup model (``lineup_v2`` = 1) ----------------------------------------------------
+#
+# Plain language: the scorer above rates each of our 15 fours against all six of theirs. But they bring four too,
+# chosen against OUR six, and the two leads meet first. v2 rates every (our four, their four) pairing with the team
+# model in agent/pokemon/matchup.py ('preview' section: four against four, plus the opening of the two leads on each
+# side), treats Team Preview as the simultaneous choice it is (a small zero-sum game, solved by fictitious play), and
+# brings the four that does best against the mix of fours they are likely to bring. Leads: our 6 possible pairs are
+# played through turns 1-2 (``matchup.opening``) against the lead pairs we expect from them, half from that same
+# game and half from how strong players (the search bot every time) open: Fake Out or speed control next to their
+# best spread attacker. A lead their likely leads destroy (Iron Hands into Fake Out + Pixilate Hyper Voice) scores
+# badly and is avoided, and the notes say so.
+
+
+def solve_game(payoff: list[list[float]], iterations: int = 200) -> tuple[list[float], list[float], float]:
+    """Mixed strategies (row, column) and value of a zero-sum matrix game where the row player maximises, by
+    fictitious play: each side keeps best-responding to the other's history so far."""
+    rows, cols = len(payoff), len(payoff[0]) if payoff else 0
+    if not rows or not cols:
+        return [], [], 0.0
+    row_counts, col_counts = [0] * rows, [0] * cols
+    row_total, col_total = [0.0] * rows, [0.0] * cols
+    r = max(range(rows), key=lambda i: (min(payoff[i]), -i))  # open with the safest row
+    for _ in range(iterations):
+        row_counts[r] += 1
+        line = payoff[r]
+        for j in range(cols):
+            col_total[j] += line[j]
+        c = min(range(cols), key=lambda j: (col_total[j], j))
+        col_counts[c] += 1
+        for i in range(rows):
+            row_total[i] += payoff[i][c]
+        r = max(range(rows), key=lambda i: (row_total[i], -i))
+    p = [n / iterations for n in row_counts]
+    q = [n / iterations for n in col_counts]
+    value = sum(p[i] * q[j] * payoff[i][j] for i in range(rows) for j in range(cols))
+    return p, q, value
+
+
+class PreviewModel:
+    """Scores four-against-four pairings and lead pairs on one ``matchup.Board`` (our six first, then theirs).
+    A lead pair's score is the fitted weight times the margin of its opening (``matchup.opening``: turns 1-2)."""
+
+    def __init__(self, mine: list[dict], theirs: list[dict], *, tier_adjust: float = 1.0) -> None:
+        from . import matchup
+
+        self.matchup = matchup
+        model = matchup.load_model(section="preview")
+        self.board = matchup.Board([matchup.unit(c) for c in mine + theirs], model, tier_adjust=tier_adjust)
+        self.opening_w = float(model.get("opening_weight", 0.35))
+        self.ours = list(range(len(mine)))
+        self.theirs = list(range(len(mine), len(mine) + len(theirs)))
+        self._lead_cache: dict[tuple, float] = {}
+
+    def opening(self, ours: tuple[int, int], theirs: tuple[int, int]):
+        units = self.board.units
+        return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs])
+
+    def lead_score(self, ours: tuple[int, int], theirs: tuple[int, int]) -> float:
+        key = (ours, theirs)
+        value = self._lead_cache.get(key)
+        if value is None:
+            value = self.opening_w * self.opening(ours, theirs).margin
+            self._lead_cache[key] = value
+        return value
+
+    def lead_game(self, four: tuple[int, ...], other: tuple[int, ...]) -> tuple[list, list, list[float], list[float], float]:
+        our_pairs = list(combinations(four, LEADS))
+        their_pairs = list(combinations(other, LEADS))
+        payoff = [[self.lead_score(a, b) for b in their_pairs] for a in our_pairs]
+        p, q, value = solve_game(payoff, iterations=60)
+        return our_pairs, their_pairs, p, q, value
+
+    def template_leads(self, other: tuple[int, ...], against: list[int]) -> dict[tuple, float]:
+        """How a typical strong opponent leads (the search bot opened every live game this way): a Fake Out or
+        speed-control user next to its best spread attacker. Returns a distribution over their lead pairs."""
+        board = self.board
+        support = [i for i in other if board.roles[i] & {"fakeout", "tailwind", "trickroom", "speed_drop"}]
+        pressure = {i: sum(board.spread[i][j] for j in against) / max(1, len(against)) for i in other}
+        best_spread = max(other, key=lambda i: (pressure[i], -i))
+        pairs = list(combinations(other, LEADS))
+        if pressure[best_spread] > 0:
+            fits = [p for p in pairs if best_spread in p and any(i in support for i in p if i != best_spread)]
+            fits = fits or [p for p in pairs if best_spread in p]
+        else:
+            fits = [p for p in pairs if any(i in support for i in p)]
+        fits = fits or pairs
+        return {p: 1.0 / len(fits) for p in fits}
+
+    def their_leads(self, four: tuple[int, ...], other: tuple[int, ...], template: float) -> dict[tuple, float]:
+        """Their likely lead pairs against our ``four``: the lead sub-game's equilibrium, blended with the template."""
+        _, opp_pairs, _, opp_mix, _ = self.lead_game(four, other)
+        mix = {pair: (1 - template) * w for pair, w in zip(opp_pairs, opp_mix)}
+        if template > 0:
+            for pair, w in self.template_leads(other, list(four)).items():
+                mix[pair] = mix.get(pair, 0.0) + template * w
+        return mix
+
+    def pairing(self, four: tuple[int, ...], other: tuple[int, ...]) -> float:
+        """Log-odds that ``four`` beats ``other``, with both sides leading as well as they can."""
+        _, _, _, _, lead_value = self.lead_game(four, other)
+        return self.board.score(list(four), list(other)) + lead_value
+
+
+def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None) -> list[Candidate]:
+    P = params or DEFAULTS
+    model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)))
+    win = model.matchup.win_probability
+    names = {i: p.species for i, p in enumerate(mine)}
+    names.update({len(mine) + j: p.species for j, p in enumerate(theirs)})
+    our_fours = list(combinations(model.ours, BRING))
+    their_fours = list(combinations(model.theirs, min(BRING, len(model.theirs))))
+    payoff = [[model.pairing(f, g) for g in their_fours] for f in our_fours]
+    _, q, game_value = solve_game(payoff)
+    robust = float(P.get("lineup_v2_robust", 0.25))
+    ranked = []
+    for i, four in enumerate(our_fours):
+        expected = sum(q[j] * payoff[i][j] for j in range(len(their_fours)))
+        worst = min(payoff[i])
+        ranked.append(((1 - robust) * expected + robust * worst, expected, i))
+    ranked.sort(key=lambda t: (-t[0], t[2]))
+    likely = sorted(((q[j], j) for j in range(len(their_fours)) if q[j] > 0), reverse=True)
+    likely_note = "; ".join(f"{[names[k] for k in their_fours[j]]} {100 * w:.0f}%" for w, j in likely[:2])
+    out: list[Candidate] = []
+    template = float(P.get("lineup_v2_template", 0.5))
+    for value, expected, i in ranked[:top]:
+        four = our_fours[i]
+        # Leads: our pair that does best on turns 1-2 against the lead pairs their likely fours open with.
+        their_leads: dict[tuple, float] = {}
+        for weight, j in likely:
+            for pair, w in model.their_leads(four, their_fours[j], template).items():
+                their_leads[pair] = their_leads.get(pair, 0.0) + weight * w
+        lead_values = {pair: sum(w * model.lead_score(pair, opp) for opp, w in their_leads.items())
+                       for pair in combinations(four, LEADS)}
+        best_pair = max(lead_values, key=lambda pr: (lead_values[pr], [-x for x in pr])) if lead_values else four[:LEADS]
+        expected_leads = sorted(their_leads.items(), key=lambda t: -t[1])[:2]
+        notes = [f"v2: {100 * win(expected):.0f}% vs their likely fours ({likely_note})",
+                 f"worst case {100 * win(min(payoff[i])):.0f}%"]
+        if expected_leads:
+            notes.append("their likely leads: " + "; ".join(f"{names[a]} + {names[b]} {100 * w:.0f}%" for (a, b), w in expected_leads))
+            top_leads = expected_leads[0][0]
+            first = model.opening(best_pair, top_leads)
+            notes.append(f"opening vs {names[top_leads[0]]} + {names[top_leads[1]]}: margin {first.margin:+.2f}"
+                         + (f", we lose {first.ko_against}" if first.ko_against else "")
+                         + (f", we KO {first.ko_for}" if first.ko_for else ""))
+            avoided = [pr for pr in lead_values if pr != best_pair and model.opening(pr, top_leads).ko_against]
+            if avoided:
+                worst = min(avoided, key=lambda pr: lead_values[pr])
+                notes.append(f"avoid leading {names[worst[0]]} + {names[worst[1]]}: loses "
+                             f"{model.opening(worst, top_leads).ko_against} on turns 1-2")
+        out.append(Candidate([names[k] for k in four], [names[k] for k in best_pair], round(value, 3), notes))
+    if out:
+        out[0].notes.append(f"game value {100 * win(game_value):.0f}%")
+    return out
