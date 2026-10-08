@@ -85,3 +85,42 @@ def test_eval_helpers():
     assert name == "v2" and overrides["draft_v2"] == 1 and overrides["draft_lookahead"] == 0
     with pytest.raises(SystemExit):
         ev.parse_spec("nonsense")
+
+
+def test_forced_player_drafts_its_roster_and_fills_memory():
+    import sim.draft_eval as ev
+    from sim import translate
+
+    from agent.agent import PokemonAgent
+    from agent.pokemon import tuning
+
+    ours = [CATALOG[s] for s in ("Tornadus", "Garchomp", "Great Tusk", "Hatterene", "Ursaluna", "Indeedee-F")]
+    theirs = [CATALOG[s] for s in ("Incineroar", "Iron Hands", "Whimsicott", "Archaludon", "Sylveon", "Amoonguss")]
+    inner = PokemonAgent(None, params=tuning.merged({}), log=lambda _line: None)
+    inner._log_dir = "/dev/null"
+    player = ev._Forced(inner, ours, ["Tornadus", "Garchomp", "Ursaluna", "Indeedee-F"])
+    ctx = DecisionContext(session_id="t", tournament_id=None, game_type="pokemon_vgc_doubles_draft", agent_id="p1", seat_position=0)
+    state = translate.draft_state("t", me="p1", them="p2", pool=ours + theirs, rosters={"p1": [], "p2": []}, picks=[],
+                                  first_drafter="p1", current_seat="p1", version=0)
+    pick = player.choose_action(state, ctx)
+    assert pick.action_id.split(":", 1)[1] in {c["card_id"] for c in ours}
+    assert len(inner.memory.pool_cards) == 12 and len(inner.memory.my_cards) == 1
+    preview = translate.preview_state("t", my_cards=ours, opp_cards=theirs, version=1)
+    answer = player.choose_action(preview, ctx)
+    assert answer == {"type": "select_lineup", "bring": ["tornadus", "garchomp", "ursaluna", "indeedeef"], "leads": ["tornadus", "garchomp"]}
+    assert len(inner.memory.opp_cards) == 6  # the battle sheet will know their sets
+
+
+def test_live_pools_and_preview_choices_are_well_formed():
+    import sim.draft_eval as ev
+    from sim import harness
+
+    from agent.pokemon import tuning
+
+    species = {c["species"] for c in harness.CARDS}
+    for first, pool in ev.LIVE_POOLS.values():
+        assert first in ("us", "them") and len(set(pool)) == 18 and set(pool) <= species
+    by = {c["species"]: c for c in harness.CARDS}
+    spec = ev.LIVE_PREVIEWS["7ce71025"]
+    choice = ev.preview_choices([by[s] for s in spec["ours"]], [by[s] for s in spec["theirs"]], tuning.merged({"lineup_v2": 1}))
+    assert len(choice) == 4 and set(choice) <= set(spec["ours"])

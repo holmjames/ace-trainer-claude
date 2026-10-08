@@ -332,12 +332,12 @@ class PreviewModel:
     """Scores four-against-four pairings and lead pairs on one ``matchup.Board`` (our six first, then theirs).
     A lead pair's score is the fitted weight times the margin of its opening (``matchup.opening``: turns 1-2)."""
 
-    def __init__(self, mine: list[dict], theirs: list[dict]) -> None:
+    def __init__(self, mine: list[dict], theirs: list[dict], *, tier_adjust: float = 1.0) -> None:
         from . import matchup
 
         self.matchup = matchup
         model = matchup.load_model(section="preview")
-        self.board = matchup.Board([matchup.unit(c) for c in mine + theirs], model)
+        self.board = matchup.Board([matchup.unit(c) for c in mine + theirs], model, tier_adjust=tier_adjust)
         self.opening_w = float(model.get("opening_weight", 0.35))
         self.ours = list(range(len(mine)))
         self.theirs = list(range(len(mine), len(mine) + len(theirs)))
@@ -395,7 +395,7 @@ class PreviewModel:
 
 def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None) -> list[Candidate]:
     P = params or DEFAULTS
-    model = PreviewModel([p.card for p in mine], [p.card for p in theirs])
+    model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)))
     win = model.matchup.win_probability
     names = {i: p.species for i, p in enumerate(mine)}
     names.update({len(mine) + j: p.species for j, p in enumerate(theirs)})

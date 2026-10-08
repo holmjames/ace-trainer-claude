@@ -483,17 +483,17 @@ class DraftSearch:
         return outcomes
 
 
-def _board_for(cards: list[dict], card_weight: float = 1.0):
+def _board_for(cards: list[dict], card_weight: float = 1.0, tier_adjust: float = 1.0):
     """One Board per (match pool): built on the first pick, reused for the rest of the draft."""
     from . import matchup
 
     units = [matchup.unit(c) for c in cards]
-    key = (tuple(sorted(u.key for u in units)), card_weight)
+    key = (tuple(sorted(u.key for u in units)), card_weight, tier_adjust)
     board = _BOARDS.get(key)
     if board is None:
         if len(_BOARDS) > 64:
             _BOARDS.clear()
-        board = matchup.Board(units, card_weight=card_weight)
+        board = matchup.Board(units, card_weight=card_weight, tier_adjust=tier_adjust)
         _BOARDS[key] = board
     return board
 
@@ -519,7 +519,7 @@ def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params
     for _, c in offered:
         pool_cards.setdefault(str(c.get("card_id")), c)
     everyone = mine_cards + their_cards + list(pool_cards.values())
-    board = _board_for(everyone, float(P.get("draft_card_w", 1.0)))
+    board = _board_for(everyone, float(P.get("draft_card_w", 1.0)), float(P.get("draft_tier_adjust", 1.0)))
     index = {u.key: i for i, u in enumerate(board.units)}
     us = [index[matchup.fingerprint(c)] for c in mine_cards]
     them = [index[matchup.fingerprint(c)] for c in their_cards]

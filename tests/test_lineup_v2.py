@@ -85,3 +85,11 @@ def test_a_failing_v2_falls_back_to_the_old_scorer(monkeypatch):
     monkeypatch.setattr(lineup, "shortlist_v2", broken)
     cands = lineup.shortlist(*rosters(), params=V2)
     assert cands and not any(n.startswith("v2:") for n in cands[0].notes)
+
+
+def test_v2_also_brings_the_grass_answer_to_a_water_heavy_opponent():
+    from tests.test_lineup_battle import ROSTER, memory
+
+    m = memory()
+    best = lineup.shortlist(m.my_cards, m.opp_cards, ROSTER, top=1, params=V2)[0]
+    assert "rillaboom" in best.bring, best

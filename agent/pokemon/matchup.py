@@ -953,6 +953,7 @@ def opening(ours: list[Unit], theirs: list[Unit], *, turns: int = OPENING_TURNS)
 # Intimidate, screens, sleep. The result is the log-odds that our six (or four) beat theirs.
 
 MODEL_PATH = data.DATA_DIR / "draft_model.json"
+TIERS_PATH = data.DATA_DIR / "card_tiers.json"
 
 # Role counts are capped: a second Fake Out user helps, a third does not.
 ROLE_CAPS = {"fakeout": 2, "redirect": 1, "intimidate": 2, "tailwind": 1, "trickroom": 1, "speed_drop": 1, "screens": 1,
@@ -993,13 +994,31 @@ def load_model(path: str | Path | None = None, *, section: str = "draft") -> dic
     return model
 
 
+_TIERS_CACHE: dict[str, dict] = {}
+
+
+def load_tiers(path: str | Path | None = None) -> dict[str, dict]:
+    """The card tier list (``data/card_tiers.json``, built by scripts/build_tiers.py), keyed by card fingerprint so a
+    different set under a known card id is never mistaken for the rated one. Empty when the file is missing."""
+    target = str(Path(path) if path else TIERS_PATH)
+    if target not in _TIERS_CACHE:
+        try:
+            blob = json.loads(Path(target).read_text(encoding="utf-8"))
+            _TIERS_CACHE[target] = {e["fingerprint"]: e for e in (blob.get("cards") or {}).values() if e.get("fingerprint")}
+        except (OSError, ValueError, AttributeError, KeyError):
+            _TIERS_CACHE[target] = {}
+    return _TIERS_CACHE[target]
+
+
 class Board:
     """Every pairwise race among a fixed set of cards, laid out by index so a draft search can score thousands of
     team pairs per second. ``score(us, them)`` takes index lists and returns the log-odds that ``us`` wins."""
 
-    def __init__(self, units: list[Unit], model: dict | None = None, *, card_weight: float = 1.0) -> None:
+    def __init__(self, units: list[Unit], model: dict | None = None, *, card_weight: float = 1.0,
+                 tiers: dict[str, dict] | None = None, tier_adjust: float = 1.0) -> None:
         self.units = list(units)
         self.model = model or load_model()
+        tiers = load_tiers() if tiers is None else tiers
         n = len(self.units)
         self.n = n
         self.base = [[0.0] * n for _ in range(n)]
@@ -1021,9 +1040,17 @@ class Board:
         self.has_tw = [("tailwind" in r) for r in self.roles]
         self.has_tr = [("trickroom" in r) for r in self.roles]
         cards = self.model.get("cards") or {}
-        # Per-card residual strength from the fit ("wins more than its matchups explain"), scaled by card_weight
-        # (0 = judge cards on matchups alone, e.g. to check how much of the edge depends on the simulator's habits).
-        self.resid = [card_weight * float((cards.get(u.key) or {}).get("s", 0.0)) for u in self.units]
+        # Each card's base value is its tier rating (data/card_tiers.json): the fit's per-card term ("wins more than
+        # its matchups explain") plus the tier list's written-down adjustment, while the matchup features below add
+        # the reactions to this particular opponent. card_weight scales the per-card part (0 = matchups and roles
+        # only); tier_adjust scales the adjustments (0 = the simulator's ratings as fitted).
+        self.resid = []
+        for u in self.units:
+            term = float((cards.get(u.key) or {}).get("s", 0.0))
+            tier = tiers.get(u.key)
+            if tier:
+                term += tier_adjust * (float(tier.get("rating", 0.0)) - float(tier.get("sim_rating", 0.0))) / 100.0
+            self.resid.append(card_weight * term)
         w = self.model.get("weights") or {}
         self.w = [float(w.get(f, 0.0)) for f in FEATURES]
         self.alpha_tw = float(self.model.get("alpha_tw", 0.5))

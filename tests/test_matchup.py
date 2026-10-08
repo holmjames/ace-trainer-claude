@@ -199,3 +199,37 @@ def test_prankster_tailwind_helps_the_partner_the_same_turn():
     prankster = matchup.opening(lead("Tornadus", "Great Tusk"), lead("Flutter Mane", "Sylveon")).margin
     plain = matchup.opening([slow_setter, u("Great Tusk")], lead("Flutter Mane", "Sylveon")).margin
     assert prankster >= plain
+
+
+# -- the tier list (data/card_tiers.json, scripts/build_tiers.py) --------------------------------------------------
+
+
+TIERS_FILE = data.DATA_DIR / "card_tiers.json"
+
+
+@pytest.mark.skipif(not TIERS_FILE.exists(), reason="run scripts/build_tiers.py")
+def test_tier_list_is_consistent_and_covers_the_catalog():
+    blob = json.loads(TIERS_FILE.read_text())
+    entries = blob["cards"]
+    assert set(entries) == set(CATALOG)
+    floors = [("S", 40), ("A", 12), ("B", -2), ("C", -16)]
+    for card_id, e in entries.items():
+        assert e["fingerprint"] == matchup.fingerprint(CATALOG[card_id])
+        assert e["rating"] == pytest.approx(e["sim_rating"] + e["adjust"], abs=0.11)
+        assert e["sim_rating"] == pytest.approx(e["matchup_part"] + e["card_part"], abs=0.11)
+        assert e["tier"] == next((name for name, floor in floors if e["rating"] >= floor), "D")
+        assert e["why"]
+
+
+@pytest.mark.skipif(not TIERS_FILE.exists(), reason="run scripts/build_tiers.py")
+def test_the_drafter_base_value_is_the_tier_rating():
+    incineroar = next(c for c in CATALOG.values() if c["species"] == "Incineroar")
+    entry = matchup.load_tiers()[matchup.fingerprint(incineroar)]
+    units = [u("Incineroar"), u("Garchomp")]
+    plain = matchup.Board(units, tier_adjust=0.0)
+    adjusted = matchup.Board(units, tier_adjust=1.0)
+    shift = adjusted.resid[0] - plain.resid[0]
+    assert shift == pytest.approx((entry["rating"] - entry["sim_rating"]) / 100, abs=1e-9)
+    # Editing a rating moves the drafter by exactly that much: a unit of rating is 1/100 log-odds per card.
+    edited = {**matchup.load_tiers(), entry["fingerprint"]: {**entry, "rating": entry["rating"] + 10}}
+    assert matchup.Board(units, tiers=edited).resid[0] == pytest.approx(adjusted.resid[0] + 0.10)
