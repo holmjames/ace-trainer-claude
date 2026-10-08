@@ -518,6 +518,29 @@ their own connections: they kept playing and finished the match normally. The la
 once those children closed the shared log pipe (17:20:00) and restarted the runtime at 17:20:05, which connected and went back
 to waiting. No game was lost. (If the game processes had died too, drill 1 shows the restarted runtime resumes them.)
 
+### 5l. Offline training plan, Oct 7 night -> Oct 13 freeze (needs no live matches)
+
+Live matches against other contestants remain the ground truth (James joins Open matches; the runtime plays them). Everything
+below runs on this laptop and is ordered by expected value per dollar. Adoption rule for any tuning change is unchanged: the
+95% interval must clear 50% at 1,000 games on the real pool, with tests, 19+ scenarios and the live-fixture replays green.
+
+1. **Real-pool sweeps (free).** Eleven variants of the switched-off draft/lineup knobs at 1,000 games each (running Oct 7
+   night, `scratchpad/sweep_realpool.txt`), then the full `--preset knobs` one-at-a-time sweep overnight. Winners -> defaults.
+2. **Sparring partner (~$0.30 a game).** `agent/versions/sparring.py` = the starter's example LLM agent on Sonnet 5.5, the
+   closest stand-in for a typical entrant (general model, no damage math). First 10 games code-only vs sparring (our side free),
+   then 10 games Opus vs sparring. Every loss -> `scripts/loss_to_scenario.py` -> calc-checked scenario.
+3. **Override grader (free).** `scripts/grade_overrides.py`: for each Opus turn that deviated from the code's top candidate,
+   flag red patterns (picked a FAILS option; attacked into LETHAL with no recheck; Protect with no warning; zero-damage target
+   when a damaging one existed; left a guaranteed KO on the table). Run over all Opus logs (live + sim). Patterns -> prompt
+   rules or rechecks, then re-measure on the scenario suite.
+4. **Scenario growth.** Real positions from `tests/fixtures/live/` and sparring losses become hard scenarios. Target 30 by freeze.
+5. **Human seat.** James plays the agent (`python sim/harness.py --games 1 --p1 human --p2 code --verbose`, free; `--p2 fable`
+   for Opus). A human finds blunders a mirror never will; each one becomes a scenario.
+6. **Pool growth.** `python scripts/pool_from_live.py` after every captured live match; re-run baselines on the new pool.
+7. **Nightly regression (free).** `pytest`, `scripts/scenarios.py --code-only --set all`, 1,000 games vs random and vs smoke on a
+   fixed seed; numbers appended to this plan. Nothing ships that lowers them.
+8. **Not doing:** more self-play on Opus, higher effort, bigger models (all measured; no gain).
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
