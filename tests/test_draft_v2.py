@@ -133,3 +133,15 @@ def test_frozen_v1_version_keeps_the_old_drafting():
 
     agent = draft_v1.create_agent()
     assert agent.params["draft_v2"] == 0 and agent.params["lineup_v2"] == 0
+
+
+def test_a_failing_search_falls_back_to_the_old_scorer(monkeypatch):
+    memory = memory_for(POOL_0A2B)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(draft, "choose_pick_v2", broken)
+    pick = draft.choose_pick(offered(memory), memory, V2)
+    assert pick.action in offered(memory)
+    assert any("old scorer used" in n for n in pick.notes)

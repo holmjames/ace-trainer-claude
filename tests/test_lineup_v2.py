@@ -76,3 +76,12 @@ def test_v1_is_still_the_default_and_unknown_cards_fall_back():
     assert not any(n.startswith("v2:") for c in old for n in c.notes)
     weird = lineup.shortlist({}, {}, ["a", "b", "c", "d", "e", "f"], top=2, params=V2)
     assert len(weird) == 2 and len(weird[0].bring) == 4
+
+
+def test_a_failing_v2_falls_back_to_the_old_scorer(monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(lineup, "shortlist_v2", broken)
+    cands = lineup.shortlist(*rosters(), params=V2)
+    assert cands and not any(n.startswith("v2:") for n in cands[0].notes)

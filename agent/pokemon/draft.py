@@ -332,7 +332,12 @@ def score_card(card: dict, memory: MatchMemory, *, my_team: list[Profile] | None
 def choose_pick(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> ScoredCard:
     P = params or DEFAULTS
     if P.get("draft_v2", 0):
-        return choose_pick_v2(legal_actions, memory, P)
+        try:
+            return choose_pick_v2(legal_actions, memory, P)
+        except Exception as exc:  # noqa: BLE001 — a bug in the search must not cost a pick: use the old scorer
+            pick = choose_pick(legal_actions, memory, {**P, "draft_v2": 0.0})
+            pick.notes.append(f"v2 search failed ({type(exc).__name__}: {exc}); old scorer used")
+            return pick
     offered = [(a, memory.pool_cards.get(card_id_of(a), {})) for a in legal_actions
                if a.action_id.startswith(PREFIX) or "draft" in a.action_id]
     if not offered:

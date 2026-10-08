@@ -256,7 +256,10 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
     P = params or DEFAULTS
     if P.get("lineup_v2", 0) and len(mine) >= BRING and len([t for t in theirs if t.moves]) >= LEADS \
             and all(p.moves for p in mine):
-        return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P)
+        try:
+            return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P)
+        except Exception:  # noqa: BLE001 — a bug in v2 must not cost Team Preview: fall through to the scorer below
+            pass
 
     # Mirror-model the opponent: which four would THEY bring against our six, and which two lead?
     # Their drafted sets are public, so we can run our own lineup scorer from their side.
