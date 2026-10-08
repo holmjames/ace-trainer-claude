@@ -18,7 +18,7 @@
    "matchup_part": 27.1,
    "card_part": 33.6,
    "why": "wins 27/40 1-on-1s (best: Gyarados, Kingambit); countered by Gholdengo, Flutter Mane; wins more in simulated games than its matchups explain",
-   "live": "the search bot took it 3/4"
+   "live": "the Oct 7 opponent took it 3/4"
   },
   "vgc-gholdengo": {
    "species": "Gholdengo",
@@ -30,7 +30,7 @@
    "matchup_part": 13.5,
    "card_part": 39.4,
    "why": "wins 18/40 1-on-1s (best: Archaludon, Porygon2); countered by Torkoal, Flutter Mane; spread; wins more in simulated games than its matchups explain",
-   "live": "the search bot took it 2/2"
+   "live": "the Oct 7 opponent took it 2/2"
   },
   "vgc-torkoal": {
    "species": "Torkoal",
@@ -64,7 +64,7 @@
    "matchup_part": 11.8,
    "card_part": 9.1,
    "why": "wins 23/40 1-on-1s (best: Archaludon, Gholdengo); countered by Sylveon, Garchomp; Fake Out",
-   "live": "the search bot took it 2/3"
+   "live": "the Oct 7 opponent took it 2/3"
   },
   "vgc-gyarados": {
    "species": "Gyarados",
@@ -121,7 +121,7 @@
    "matchup_part": 20.4,
    "card_part": -6.9,
    "why": "wins 22/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Gyarados, Kingambit; spread",
-   "live": "the search bot took it 2/2"
+   "live": "the Oct 7 opponent took it 2/2"
   },
   "vgc-dragonite": {
    "species": "Dragonite",
@@ -134,7 +134,7 @@
    "card_part": -16.8,
    "why": "wins 21/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Flutter Mane; Tailwind, priority; wins less in simulated games than its matchups suggest",
    "flag": "engine spends Tailwind as a flat-value move; Multiscale + Extreme Speed under Tailwind is the real plan",
-   "live": "the search bot took it 2/2"
+   "live": "the Oct 7 opponent took it 2/2"
   },
   "vgc-incineroar": {
    "species": "Incineroar",
@@ -147,7 +147,7 @@
    "card_part": 5.8,
    "why": "wins 15/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Fake Out, Intimidate",
    "flag": "engine rarely pivots, so Parting Shot / repeat Intimidates go unused",
-   "live": "the search bot took it 3/3 at pick 1-2"
+   "live": "the Oct 7 opponent took it 3/3 at pick 1-2"
   },
   "vgc-tornadus": {
    "species": "Tornadus",

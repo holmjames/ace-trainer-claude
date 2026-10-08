@@ -1,4 +1,4 @@
-"""Tests for the the search bot-style counter-picker (agent/versions/counter_picker.py) and the paired evaluation
+"""Tests for the search-bot-style counter-picker (agent/versions/counter_picker.py) and the paired evaluation
 helpers in sim/draft_eval.py."""
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ def best(pool: list[str], ours: list[str]) -> tuple[float, str]:
     return max(counter_score(CATALOG[s], [CATALOG[o] for o in ours]) for s in pool if s not in ours)
 
 
-def test_reproduces_the search bots_live_reasons():
-    # 7ce71025: we opened with Tornadus; the search bot answered "Incineroar: Fake Out pressure, Intimidate, beats
+def test_reproduces_the_opponents_live_reasons():
+    # 7ce71025: we opened with Tornadus; the Oct 7 opponent answered "Incineroar: Fake Out pressure, Intimidate, beats
     # Tornadus." then "Iron Hands: Fake Out pressure, beats Tornadus."
     pool = ["Amoonguss", "Archaludon", "Dondozo", "Garchomp", "Great Tusk", "Grimmsnarl", "Hatterene", "Incineroar",
             "Indeedee-F", "Iron Hands", "Rillaboom", "Sableye", "Sylveon", "Ting-Lu", "Tornadus", "Ursaluna", "Whimsicott", "Wo-Chien"]
@@ -36,7 +36,7 @@ def test_reproduces_the search bots_live_reasons():
 
 
 def test_first_picks_are_role_picks():
-    # 1aef9227 and d9405f02: the search bot drafted first and opened with Incineroar, then Dragonite.
+    # 1aef9227 and d9405f02: the Oct 7 opponent drafted first and opened with Incineroar, then Dragonite.
     pool_1aef = ["Archaludon", "Chien-Pao", "Cresselia", "Dondozo", "Flutter Mane", "Great Tusk", "Gyarados", "Hatterene", "Indeedee-F",
                  "Iron Bundle", "Iron Hands", "Kingambit", "Klefki", "Rillaboom", "Sylveon", "Whimsicott", "Wo-Chien", "Incineroar"]
     assert best(pool_1aef, [])[1].startswith("Incineroar:")

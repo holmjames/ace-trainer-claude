@@ -16,7 +16,7 @@ CATALOG = {c["species"]: c for c in json.loads((data.DATA_DIR / "cards.json").re
 pytestmark = pytest.mark.skipif(not CATALOG or not (data.DATA_DIR / "pokedex.json").exists(), reason="needs data/ tables")
 V2 = tuning.merged({"draft_v2": 1})
 
-# The first live loss to the search bot (match 0a2b7c2a): we drafted first from this pool.
+# The first live loss (match 0a2b7c2a): we drafted first from this pool.
 POOL_0A2B = ["Amoonguss", "Archaludon", "Baxcalibur", "Dragonite", "Gholdengo", "Great Tusk", "Gyarados", "Hatterene",
              "Incineroar", "Indeedee-F", "Landorus-Therian", "Lucario", "Sableye", "Thundurus", "Ting-Lu", "Tornadus",
              "Tyranitar", "Wo-Chien"]

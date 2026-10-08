@@ -614,7 +614,7 @@ Urshifu + Prankster Tailwind, because a guaranteed KO elsewhere cut the Fake Out
 rerun `scripts/grade_overrides.py` on those logs; grow the scenario suite toward 30; keep the runtime up for Open matches
 against other contestants; at freeze paste the final commit ID into the dashboard and save a redacted `.env` with the logs.
 
-### 5o. Oct 7 late night: 0-4 against a real opponent (the search bot), root-caused
+### 5o. Oct 7 late night: 0-4 against a real opponent, root-caused
 
 Four Testing matches against another contestant, 20:50-21:16 PT, all lost; three were not close. Transcripts:
 `python scripts/postmortem.py <session>` (d9405f02, 1aef9227, 7ce71025, 0a2b7c2a).
@@ -667,7 +667,7 @@ Protect history and Tailwind/Trick Room turns left from the log; system prompt o
   now 7 exact live positions: code 7/7, Opus 7/7 (3-13 s).
 - **Were the four games winnable?** (`scripts/draft_eval.py`, `scripts/lineup_sweep.py`: the real drafted sixes in the
   simulator, our engine piloting both sides.) With the lineups actually played, our side wins 11% / 21% / 0% / 0.4%:
-  our engine plays their teams better than the search bot did (M3: Fake Out on Great Tusk + Pixilate Hyper Voice turn 1,
+  our engine plays their teams better than the Oct 7 opponent did (M3: Fake Out on Great Tusk + Pixilate Hyper Voice turn 1,
   every game). Best of our 90 lineups vs their live four: M1 67%, M2 71%, M3 100%, M4 38% (best-of-90 is optimistic,
   except M3's 24/24); median lineup 4-17%. Verdict: every draft left us behind, Team Preview made three hopeless, and
   M4 was lost at the draft. Draft and Team Preview were the next work.
@@ -687,12 +687,12 @@ Protect history and Tailwind/Trick Room turns left from the log; system prompt o
   |---|---|---|
   | this branch | 7be9183 (battle fixes, old draft + Team Preview) | 1,502 / 2,000 = **75.1%** |
   | this branch | 4f2d0cb (the version that lost 0-4 live) | 742 / 800 = **92.8%** |
-  | this branch | the search bot-style counter-picker | 810 / 1,200 = **67.5%** |
+  | this branch | search-bot-style counter-picker | 810 / 1,200 = **67.5%** |
   | 7be9183 | the same counter-picker | 418 / 1,200 = 34.8% |
 
   The four live pools re-drafted against the counter-picker: v2 88% vs old 84% (the simulated counter-picker drafts
-  much worse than the search bot did, e.g. it never takes Gholdengo in the M1 pool, so this replay flatters both).
-  Team Preview v2 on our live drafted sixes vs the search bot's actual lineups: 38% / 2% / 44% / 24% (we played 8 / 8 /
+  much worse than the Oct 7 opponent did, e.g. it never takes Gholdengo in the M1 pool, so this replay flatters both).
+  Team Preview v2 on our live drafted sixes vs the Oct 7 opponent's actual lineups: 38% / 2% / 44% / 24% (we played 8 / 8 /
   0 / 4%; best of 90 was 67 / 71 / 100 / 38%). **Known weakness:** match 2: v2 still leads Iron Hands into Incineroar +
   Pixilate Sylveon (2%); its opening model rates that lead only mildly bad, and its prediction of their four leaves out
   Incineroar (rated low because our engine under-uses it). Two fixes tried and left off (predicting their four from the

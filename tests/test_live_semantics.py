@@ -23,7 +23,7 @@ from agent.pokemon.memory import species_key
 LIVE = Path(__file__).parent / "fixtures" / "live"
 PHASES = {"draft": 0, "team_preview": 1, "moving": 2}
 
-# The four Oct 7 Testing losses vs the search bot (we are seat 0 in each).
+# The four Oct 7 Testing losses (we are seat 0 in each).
 M1, M2, M3, M4 = "d9405f02", "1aef9227", "7ce71025", "0a2b7c2a"
 
 

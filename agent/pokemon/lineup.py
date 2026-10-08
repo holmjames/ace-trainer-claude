@@ -298,7 +298,7 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
 # side), treats Team Preview as the simultaneous choice it is (a small zero-sum game, solved by fictitious play), and
 # brings the four that does best against the mix of fours they are likely to bring. Leads: our 6 possible pairs are
 # played through turns 1-2 (``matchup.opening``) against the lead pairs we expect from them, half from that same
-# game and half from how strong players (the search bot every time) open: Fake Out or speed control next to their
+# game and half from how strong players (the Oct 7 opponent every time) open: Fake Out or speed control next to their
 # best spread attacker. A lead their likely leads destroy (Iron Hands into Fake Out + Pixilate Hyper Voice) scores
 # badly and is avoided, and the notes say so.
 
@@ -363,7 +363,7 @@ class PreviewModel:
         return our_pairs, their_pairs, p, q, value
 
     def template_leads(self, other: tuple[int, ...], against: list[int]) -> dict[tuple, float]:
-        """How a typical strong opponent leads (the search bot opened every live game this way): a Fake Out or
+        """How a typical strong opponent leads (the Oct 7 opponent opened every live game this way): a Fake Out or
         speed-control user next to its best spread attacker. Returns a distribution over their lead pairs."""
         board = self.board
         support = [i for i in other if board.roles[i] & {"fakeout", "tailwind", "trickroom", "speed_drop"}]
@@ -380,7 +380,7 @@ class PreviewModel:
 
     def template_fours(self, their_fours: list[tuple[int, ...]]) -> list[float]:
         """A distribution over their fours from the same template, applied to their whole six: the four contains their
-        Fake Out / speed-control user and their best spread attacker (the search bot brought Incineroar + its spread
+        Fake Out / speed-control user and their best spread attacker (the Oct 7 opponent brought Incineroar + its spread
         attacker in every live game; predicting their four from our model alone left Incineroar out of match 2)."""
         pairs = self.template_leads(tuple(self.theirs), self.ours)
         weights = [0.0] * len(their_fours)

@@ -4,18 +4,18 @@ Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base
 
 | Tier | Card | Rating | Sim | Why | Flag / live |
 |---|---|---:|---:|---|---|
-| S | Archaludon | +61 | +61 | wins 27/40 1-on-1s (best: Gyarados, Kingambit); countered by Gholdengo, Flutter Mane; wins more in simulated games than its matchups explain | the search bot took it 3/4 |
-| S | Gholdengo | +53 | +53 | wins 18/40 1-on-1s (best: Archaludon, Porygon2); countered by Torkoal, Flutter Mane; spread; wins more in simulated games than its matchups explain | the search bot took it 2/2 |
+| S | Archaludon | +61 | +61 | wins 27/40 1-on-1s (best: Gyarados, Kingambit); countered by Gholdengo, Flutter Mane; wins more in simulated games than its matchups explain | the Oct 7 opponent took it 3/4 |
+| S | Gholdengo | +53 | +53 | wins 18/40 1-on-1s (best: Archaludon, Porygon2); countered by Torkoal, Flutter Mane; spread; wins more in simulated games than its matchups explain | the Oct 7 opponent took it 2/2 |
 | A | Torkoal | +25 | +25 | wins 16/40 1-on-1s (best: Gholdengo, Kingambit); countered by Flutter Mane, Iron Hands; spread, sleep move; wins more in simulated games than its matchups explain |  |
 | A | Flutter Mane | +23 | +23 | wins 20/40 1-on-1s (best: Archaludon, Gholdengo); countered by Iron Hands, Gyarados; spread; wins more in simulated games than its matchups explain |  |
-| A | Iron Hands | +21 | +21 | wins 23/40 1-on-1s (best: Archaludon, Gholdengo); countered by Sylveon, Garchomp; Fake Out | the search bot took it 2/3 |
+| A | Iron Hands | +21 | +21 | wins 23/40 1-on-1s (best: Archaludon, Gholdengo); countered by Sylveon, Garchomp; Fake Out | the Oct 7 opponent took it 2/3 |
 | A | Gyarados | +18 | +18 | wins 26/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Intimidate, spread |  |
 | A | Porygon2 | +16 | +16 | wins 16/40 1-on-1s (best: Torkoal, Tornadus); countered by Gholdengo, Iron Hands; Trick Room | engine sets Trick Room whether or not its own team wants it |
 | A | Kingambit | +16 | +16 | wins 22/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Archaludon, Torkoal; priority |  |
 | A | Milotic | +14 | +14 | wins 13/40 1-on-1s (best: Torkoal, Incineroar); countered by Archaludon, Iron Hands; wins more in simulated games than its matchups explain |  |
-| A | Sylveon | +14 | +14 | wins 22/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Gyarados, Kingambit; spread | the search bot took it 2/2 |
-| A | Dragonite | +13 | -4 | wins 21/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Flutter Mane; Tailwind, priority; wins less in simulated games than its matchups suggest | engine spends Tailwind as a flat-value move; Multiscale + Extreme Speed under Tailwind is the real plan; the search bot took it 2/2 |
-| A | Incineroar | +13 | -12 | wins 15/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Fake Out, Intimidate | engine rarely pivots, so Parting Shot / repeat Intimidates go unused; the search bot took it 3/3 at pick 1-2 |
+| A | Sylveon | +14 | +14 | wins 22/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Gyarados, Kingambit; spread | the Oct 7 opponent took it 2/2 |
+| A | Dragonite | +13 | -4 | wins 21/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Flutter Mane; Tailwind, priority; wins less in simulated games than its matchups suggest | engine spends Tailwind as a flat-value move; Multiscale + Extreme Speed under Tailwind is the real plan; the Oct 7 opponent took it 2/2 |
+| A | Incineroar | +13 | -12 | wins 15/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Fake Out, Intimidate | engine rarely pivots, so Parting Shot / repeat Intimidates go unused; the Oct 7 opponent took it 3/3 at pick 1-2 |
 | B | Tornadus | +10 | +0 | wins 3/40 1-on-1s (best: Great Tusk, Amoonguss); countered by Archaludon, Gholdengo; Tailwind, spread; wins more in simulated games than its matchups explain | Prankster Tailwind / Taunt valued by fixed constants in the engine |
 | B | Arcanine | +9 | +9 | wins 12/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Archaludon, Gyarados; Intimidate, spread, priority |  |
 | B | Garchomp | +8 | +8 | wins 13/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Porygon2; spread |  |

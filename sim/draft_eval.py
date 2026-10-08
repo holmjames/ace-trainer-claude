@@ -1,7 +1,7 @@
 """Draft and Team Preview experiments on the local engine: code-only on both sides, $0, minimal logs.
 
     python sim/draft_eval.py match v2 v1 --pairs 500 --seed 1          # new drafter vs old drafter
-    python sim/draft_eval.py match v2 counter --pairs 500 --seed 2     # new drafter vs a the search bot-style counter-picker
+    python sim/draft_eval.py match v2 counter --pairs 500 --seed 2     # new drafter vs a search-bot-style counter-picker
     python sim/draft_eval.py collect random random --games 10000 --out /tmp/x.jsonl   # training data for the draft model
     python sim/draft_eval.py live v2 counter --games 200       # the four Oct 7 pools, our drafter in our live seat
     python sim/draft_eval.py preview --games 200                # Team Preview choices vs their live lineups (M2, M3)
@@ -169,7 +169,7 @@ def cmd_match(args) -> int:
     return 0
 
 
-# The four Oct 7 losses to the search bot: the exact 18-card pools and who drafted first ("us" = the player under test).
+# The four Oct 7 losses: the exact 18-card pools and who drafted first ("us" = the player under test).
 LIVE_POOLS: dict[str, tuple[str, list[str]]] = {
     "0a2b7c2a": ("us", ["Amoonguss", "Archaludon", "Baxcalibur", "Dragonite", "Gholdengo", "Great Tusk", "Gyarados", "Hatterene",
                         "Incineroar", "Indeedee-F", "Landorus-Therian", "Lucario", "Sableye", "Thundurus", "Ting-Lu", "Tornadus",

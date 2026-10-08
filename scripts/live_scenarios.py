@@ -8,7 +8,7 @@ only — from the model chain in .env, or from the computed fallback with --code
     python scripts/live_scenarios.py                      # one model call per scenario (~$0.15 each on Opus)
     python scripts/live_scenarios.py --only m3_t6 --repeat 3
 
-The positions come from the four Oct 7 losses to the search bot (see scripts/postmortem.py for the transcripts).
+The positions come from the four Oct 7 losses (see scripts/postmortem.py for the transcripts).
 Results append to logs/live_scenarios.jsonl.
 """
 

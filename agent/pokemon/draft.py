@@ -26,7 +26,7 @@ the agent uses; everything else is a helper you can unit-test on its own.
 (``choose_pick_v2``): every offered card is valued by how our FINISHED team would
 fare against theirs once the rest of the snake draft is played out, with their
 best replies tried at their next pick. That is the answer to the Oct 7 losses to
-a counter-picking opponent (the search bot), which the score above never asked about.
+a counter-picking opponent (the Oct 7 opponent), which the score above never asked about.
 """
 
 from __future__ import annotations

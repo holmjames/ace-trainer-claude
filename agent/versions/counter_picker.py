@@ -1,6 +1,6 @@
-"""A the search bot-style counter-picking drafter, for the simulator.
+"""A search-bot-style counter-picking drafter, for the simulator.
 
-Live, the contestant "the search bot" beat us 0-4 with a drafter that counter-picks in the open. Its public pick
+Live, the Oct 7 opponent beat us 0-4 with a drafter that counter-picks in the open. Its public pick
 reasons read like "Incineroar: Fake Out pressure, Intimidate, beats Landorus-Therian", "Gholdengo: spread damage,
 beats Baxcalibur, Landorus-Therian", "Amoonguss: redirection, beats Tornadus, Hatterene", "Kingambit: strong
 attacker." This agent drafts the same way so our drafters can be measured against it for free:
@@ -15,7 +15,7 @@ attacker." This agent drafts the same way so our drafters can be measured agains
   Incineroar twice, Dragonite once).
 
 Team Preview and battle are our own code brain, so a match against it isolates the draft. Its public reason is the
-same shape as the search bot's, which makes simulator logs easy to compare with the live transcripts.
+same shape as the Oct 7 opponent's, which makes simulator logs easy to compare with the live transcripts.
 """
 
 from __future__ import annotations

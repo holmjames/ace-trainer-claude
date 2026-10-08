@@ -564,7 +564,7 @@ def beats(a: Unit, b: Unit, threshold: float = 0.2) -> bool:
 # Team Preview's sharpest question is "what happens on turns 1 and 2 if we lead these two into theirs?" A 1-on-1 race
 # cannot see Fake Out on our best attacker, a Prankster Tailwind that lets their partner move first the same turn,
 # Follow Me soaking the hit meant for its partner, Spore, or one spread move landing on both of our leads. This is a
-# deliberately small doubles turn loop with one plain policy for both sides (what strong players and the search bot do
+# deliberately small doubles turn loop with one plain policy for both sides (what strong players and the Oct 7 opponent do
 # with these leads): Fake Out the most dangerous foe it can flinch, set Tailwind / screens / Trick Room on turn 1,
 # redirect when the partner is in danger, put the biggest threat to sleep, otherwise take the attack (and target)
 # that does the most, preferring knock-outs. Every damage number goes through ``calc_hit``.

@@ -4,7 +4,7 @@
     python sim/draft_eval.py match v2l v1 --pairs 500                            # the paired version of the same question
 
 Everything else (battle turns, tuning) is the current code. Kept so the counter-aware drafter and Team Preview
-v2 can always be measured against what lost 0-4 to the search bot on Oct 7.
+v2 can always be measured against what lost 0-4 on Oct 7.
 """
 
 from __future__ import annotations

@@ -12,7 +12,7 @@ winning (+25 ~ "turns a 50% game into a 56% game"). It is measured, not guessed,
       card part:    what the fit says it wins beyond those matchups.
 
 ``rating`` = sim_rating + ``adjust``: a small, written-down prior where the simulator's code-only pilot is known
-to misplay a card (Intimidate cycling, Prankster support, Tailwind turns) and live play disagrees (the search bot,
+to misplay a card (Intimidate cycling, Prankster support, Tailwind turns) and live play disagrees (the Oct 7 opponent,
 4-0 against us on Oct 7, took Incineroar 3/3 and Dragonite 2/2). ``draft_tier_adjust`` = 0 turns the
 adjustments off. Tiers: S >= 40, A >= 12, B >= -2, C >= -16, D below.
 
@@ -39,9 +39,9 @@ SAMPLES = 30000
 # rating's units (1/100 log-odds) and is kept small: enough to break near-ties toward the live evidence.
 PRIORS: dict[str, dict] = {
     "Incineroar": {"adjust": 25, "flag": "engine rarely pivots, so Parting Shot / repeat Intimidates go unused",
-                   "live": "the search bot took it 3/3 at pick 1-2"},
+                   "live": "the Oct 7 opponent took it 3/3 at pick 1-2"},
     "Dragonite": {"adjust": 17, "flag": "engine spends Tailwind as a flat-value move; Multiscale + Extreme Speed under Tailwind is the real plan",
-                  "live": "the search bot took it 2/2"},
+                  "live": "the Oct 7 opponent took it 2/2"},
     "Tornadus": {"adjust": 10, "flag": "Prankster Tailwind / Taunt valued by fixed constants in the engine"},
     "Whimsicott": {"adjust": 10, "flag": "Prankster Tailwind / Encore valued by fixed constants in the engine"},
     "Amoonguss": {"adjust": 10, "flag": "engine redirects only to save a partner from a KO; Spore + Rage Powder do more in good hands"},
@@ -51,10 +51,10 @@ PRIORS: dict[str, dict] = {
     "Grimmsnarl": {"adjust": 0, "flag": "screens valued by fixed constants in the engine"},
     "Sableye": {"adjust": 0, "flag": "Prankster Will-O-Wisp / Taunt valued by fixed constants in the engine"},
     "Dondozo": {"adjust": 0, "flag": "no Commander (no Tatsugiri in the catalog); this set is Unaware, which the race model does credit"},
-    "Gholdengo": {"live": "the search bot took it 2/2"},
-    "Sylveon": {"live": "the search bot took it 2/2"},
-    "Archaludon": {"live": "the search bot took it 3/4"},
-    "Iron Hands": {"live": "the search bot took it 2/3"},
+    "Gholdengo": {"live": "the Oct 7 opponent took it 2/2"},
+    "Sylveon": {"live": "the Oct 7 opponent took it 2/2"},
+    "Archaludon": {"live": "the Oct 7 opponent took it 3/4"},
+    "Iron Hands": {"live": "the Oct 7 opponent took it 2/3"},
     "Baxcalibur": {"live": "our drafter's specialist pick in two losses"},
     "Lucario": {"live": "our drafter's specialist pick in two losses"},
     "Ursaluna": {"live": "our drafter's specialist pick in a loss"},

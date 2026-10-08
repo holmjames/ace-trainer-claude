@@ -1393,7 +1393,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         weighted by its chance to act) and capped at what the target has left, with one KO bonus, not two. Summing the
         slots' values separately counted the same KO twice and sent both slots into one target. With
         ``protect_aware`` a target that can Protect (and didn't last turn) and is in KO range is discounted by the chance
-        it does (the search bot Protected the threatened Pokémon three times in four games)."""
+        it does (the Oct 7 opponent Protected the threatened Pokémon three times in four games)."""
         per_foe: dict[str, list[float]] = {}
         extra = 0.0
         for number, opt, row, value in picks:
