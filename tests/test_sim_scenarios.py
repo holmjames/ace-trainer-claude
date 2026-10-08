@@ -68,8 +68,12 @@ def test_every_live_position_names_a_captured_decision():
     for sc in live_scenarios.SCENARIOS:
         folders = [p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(sc.session)]
         assert len(folders) == 1, sc.name
-        turns = _turns(folders[0])
-        assert turns.get(sc.turn, 0) > sc.index, f"{sc.name}: no decision #{sc.index} on turn {sc.turn} of {sc.session}"
+        if sc.phase == "moving":
+            turns = _turns(folders[0])
+            assert turns.get(sc.turn, 0) > sc.index, f"{sc.name}: no decision #{sc.index} on turn {sc.turn} of {sc.session}"
+        else:
+            seat = live_scenarios.seat_of(folders[0])
+            assert len(list(folders[0].glob(f"{sc.phase}-*-seat{seat}.json"))) > sc.index, f"{sc.name}: no {sc.phase} decision #{sc.index}"
         assert callable(sc.accept) and sc.accept_text and sc.what
 
 
@@ -92,3 +96,132 @@ def test_a_player_two_session_replays_from_seat_one():
                                      lambda p, t: p.get("type") == "doubles_turn" and {"slot_0", "slot_1"} <= set(p), "a doubles turn")
     result = live_scenarios.run(sc, code_only=True)
     assert result["ok"] and result["seconds"] >= 0
+
+
+# ---- sheet-level checks on the Oct 8 player-2 loss (ace-trainer-data/scenarios/da9c168e.md): the engine's numbers at the
+# decisive positions, converted to HP with the sheet's own Mon stats (no hand arithmetic).
+import tempfile
+
+import pytest
+
+from agent.agent import PokemonAgent
+from agent.pokemon import battle
+from agent.pokemon.memory import species_key
+from altruagent import DecisionContext
+from altruagent.models import GameState
+
+
+@pytest.fixture(scope="module")
+def p2_loss():
+    """Replay da9c168e from seat 1 once: the agent (its memory holds the cards), the decision-log rows per capture
+    file, and the raw captures."""
+    folders = [p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith("da9c168e")]
+    if not folders:
+        pytest.skip("no player-2 capture present")
+    folder = folders[0]
+    seat = live_scenarios.seat_of(folder)
+    rows_by_file: dict[str, dict] = {}
+    raws: dict[str, dict] = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        agent = PokemonAgent(None, version="sheet-check", log_dir=tmp, capture_dir="", log=lambda *_: None)
+        for path in live_scenarios._sequence(folder, seat):
+            raw = json.loads(path.read_text())
+            state = GameState.from_mcp_state(raw)
+            if not state.legal_actions:
+                continue
+            ctx = DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
+                                  agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=seat)
+            agent.choose_action(state, ctx)
+            rows = [json.loads(line) for f in Path(tmp).glob("*.jsonl") for line in f.read_text().splitlines() if line.strip()]
+            rows_by_file[path.name] = rows[-1]
+            raws[path.name] = raw
+    return agent, rows_by_file, raws
+
+
+def _mon(agent, raw: dict, species: str, *, side: str, position: int | None, boosts: dict | None = None):
+    obs = raw["observation"]
+    team = obs["team"] if side == "mine" else obs["opponent_team"]
+    summary = next(v for k, v in team.items() if species_key(v.get("species") or k.split(":")[-1]) == species)
+    cards = agent.memory.my_cards if side == "mine" else agent.memory.opp_cards
+    if boosts:
+        summary = {**summary, "boosts": {**(summary.get("boosts") or {}), **boosts}}
+    mon = battle.build_mon(summary, cards.get(species), side=side, position=position)
+    assert mon is not None, species
+    return mon
+
+
+def _hp_range(pct: list[float], mon) -> tuple[float, float]:
+    current = mon.stats["hp"] * mon.hp_fraction
+    return pct[0] * current / 100, pct[1] * current / 100
+
+
+def _option(row: dict, slot: int, move: str, target: str) -> dict:
+    for entry in row["turn_sheet"]["our_damage_estimates"]:
+        if entry["slot"] == slot:
+            for o in entry["options"]:
+                if o["move"] == move:
+                    return next(t for t in o["targets"] if t["species"] == target)
+    raise AssertionError(f"slot {slot} {move} -> {target} not in the sheet")
+
+
+def _threat(row: dict, attacker: str, move: str, target: str) -> dict:
+    for th in row["turn_sheet"]["opponent_threats"]:
+        if th["species"] == attacker:
+            return next(h for h in th["hits"] if h["move"] == move and h["species"] == target)
+    raise AssertionError(f"{attacker} {move} -> {target} not in the sheet")
+
+
+def test_p2_pick_one_is_not_iron_valiant_and_the_reply_set_names_incineroar(p2_loss):
+    _agent, rows, _raws = p2_loss
+    row = rows["draft-00000-seat1.json"]
+    assert row["pick_number"] == 1 and row["card_id"] != "vgc-iron-valiant"
+    notes = row.get("notes") or []
+    assert any("likely replies" in n and "Incineroar" in n for n in notes), notes
+    assert any(n.startswith("loses to") for n in notes), notes
+
+
+def test_p2_team_preview_predicts_their_four_with_lucario(p2_loss):
+    _agent, rows, _raws = p2_loss
+    row = rows["team_preview-00000-seat1.json"]
+    top = row["candidates"][0]
+    assert any("likely fours" in n and "Lucario" in n for n in top["notes"]), top["notes"]
+
+
+def test_p2_t3_switch_preview_applies_the_entry_intimidate(p2_loss):
+    """moving-00003: the preview for Kingambit -> Landorus-T carries Landorus's Intimidate, and the calc at -1 Atk puts
+    Incineroar's Fake Out into the 57-HP Thundurus at 16-19 HP (the sheet's own pre-switch figure is 23-28 HP)."""
+    agent, rows, raws = p2_loss
+    row, raw = rows["moving-00003-seat1.json"], raws["moving-00003-seat1.json"]
+    preview = row["turn_sheet"]["switch_ins"]["landorustherian"]
+    assert any(e.startswith("incineroar: -1") for e in preview.get("intimidate") or []), preview.get("intimidate")
+    thundurus = _mon(agent, raw, "thundurus", side="mine", position=0)
+    assert round(thundurus.stats["hp"] * thundurus.hp_fraction) == 57
+    before = _hp_range(_threat(row, "incineroar", "fakeout", "thundurus")["damage_pct_of_current_hp"], thundurus)
+    assert 23 <= before[0] <= 24 and 27 <= before[1] <= 28.5, before
+    incineroar = _mon(agent, raw, "incineroar", side="theirs", position=1, boosts={"atk": -1})
+    result = battle.damage_percent(incineroar, data.move_info("fakeout"), thundurus)
+    assert result is not None
+    after = _hp_range(list(result[:2]), thundurus)
+    assert after[0] <= 16.5 and after[1] >= 18.5 and after[1] < before[0], (after, before)
+
+
+@pytest.mark.xfail(strict=False, reason="ops lane (memory): the logged move must override the HP-inferred 'probably Protected' note")
+def test_p2_t3_replacement_has_no_inferred_protect_note(p2_loss):
+    _agent, rows, _raws = p2_loss
+    notes = rows["moving-00004-seat1.json"]["turn_sheet"].get("notes") or []
+    assert not any("probably Protected" in n for n in notes), notes
+
+
+def test_p2_t4_ranges_include_the_exact_engine_rolls(p2_loss):
+    """moving-00005: Kowtow Cleave into Gyarados reaches 145 HP (Supreme Overlord, one fallen, x1.1; the old sheet topped
+    out at 142.2) and Gyarados's Waterfall into Landorus-T reaches down to 108 HP (stats rounded down after the drop;
+    the old sheet's minimum was 109.7)."""
+    agent, rows, raws = p2_loss
+    row, raw = rows["moving-00005-seat1.json"], raws["moving-00005-seat1.json"]
+    gyarados = _mon(agent, raw, "gyarados", side="theirs", position=2)
+    cleave = _hp_range(_option(row, 0, "kowtowcleave", "gyarados")["damage_pct_of_current_hp"], gyarados)
+    assert cleave[0] <= 145 <= cleave[1] + 0.5, cleave
+    landorus = _mon(agent, raw, "landorustherian", side="mine", position=1)
+    assert landorus.stats["hp"] == 164
+    waterfall = _hp_range(_threat(row, "gyarados", "waterfall", "landorustherian")["damage_pct_of_current_hp"], landorus)
+    assert waterfall[0] - 0.5 <= 108 <= waterfall[1], waterfall

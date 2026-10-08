@@ -8,8 +8,10 @@ only — from the model chain in .env, or from the computed fallback with --code
     python scripts/live_scenarios.py                      # one model call per scenario (~$0.15 each on Opus)
     python scripts/live_scenarios.py --only m3_t6 --repeat 3
 
-The positions come from the four Oct 7 losses (L1-L4 below = sessions d9405f02, 1aef9227, 7ce71025, 0a2b7c2a) and the
-Oct 8 Testing win bcbaabe2 (see scripts/postmortem.py for the transcripts); a session is replayed from whichever seat we
+The positions come from the four Oct 7 losses (L1-L4 below = sessions d9405f02, 1aef9227, 7ce71025, 0a2b7c2a), the
+Oct 8 Testing win bcbaabe2 and the Oct 8 loss as player 2 da9c168e (see scripts/postmortem.py for the transcripts; the
+latter's spec in ace-trainer-data/scenarios/); a draft pick or the Team Preview can be a target too (``phase``);
+a session is replayed from whichever seat we
 sat in (player-2 matches are captured as ``*-seat1.json``); the damage numbers in the lessons are the
 sheet's own (agent/pokemon/battle.py:damage_percent) at that position. A ``provisional`` scenario's best play was derived
 from the transcript and the calc rather than documented in the review: it is run and shown but not counted.
@@ -54,6 +56,7 @@ class LiveScenario:
     accept_text: str
     index: int = 0        # 0 = the turn's main decision; 1+ = a replacement after a faint
     provisional: bool = False  # best play derived, not yet confirmed: reported, not counted
+    phase: str = "moving"  # "draft" (index = pick number - 1, turn unused) or "team_preview" (index 0) target those decisions
 
 
 def move_of(payload: dict, slot: int) -> str | None:
@@ -218,6 +221,44 @@ SCENARIOS = [
                  "A turn later, Arcanine 39% vs the lone Dragonite: Scale Shot 119-140% again and Extreme Speed is still no escape; "
                  "Protect (or Wo-Chien) while Body Press works on Dragonite (43-51%).",
                  lambda p, t: covers(p, 1), "slot 1 Protects or switches"),
+    # ---- the Oct 8 loss to the search bot as player 2 (da9c168e; spec: ace-trainer-data/scenarios/da9c168e.md, verified)
+    LiveScenario("m3d_t3_protect_exposed_thundurus", "da9c168e", 3,
+                 "Thundurus (57/154, slot 0) + Kingambit (-3 Atk) vs a FRESH-Fake-Out Incineroar (92%) + Gyarados (100%). "
+                 "Fake Out (16-19 HP) then Waterfall KOs Thundurus before it moves. Even at -1 from Landorus's entry Intimidate, "
+                 "Waterfall does 66-78 HP and Flare Blitz 69-81 HP; Knock Off does 55-66 HP, so 14 of 16 rolls KO. "
+                 "Live: Thunderbolt into Gyarados; Thundurus died without moving and we were 3v4 with 8% dealt.",
+                 lambda p, t: move_of(p, 0) == "protect" or (p.get("slot_0") or {}).get("type") == "switch",
+                 "slot 0 (Thundurus) Protects or switches out; it does not attack"),
+    LiveScenario("m3d_t6_double_priority_into_lucario", "da9c168e", 6,
+                 "Kingambit (slot 0, Supreme Overlord fallen1) faces Lucario's LETHAL Close Combat (201.8-237.4%); Gyarados Protected on T5. "
+                 "Arcanine's Extreme Speed (+2) then Kingambit's Sucker Punch (+1) both land before Lucario moves and KO it "
+                 "(live 83 -> 51 -> 0). Code #1 was a second Protect in a row (1 in 3) + a slower Flare Blitz.",
+                 lambda p, t: move_of(p, 0) == "suckerpunch" and target_species(p, 0, t) == "lucario"
+                 and move_of(p, 1) == "extremespeed" and target_species(p, 1, t) == "lucario",
+                 "slot 0 Sucker Punch -> Lucario and slot 1 Extreme Speed -> Lucario"),
+    LiveScenario("m3d_t7_no_double_into_fresh_protect", "da9c168e", 7,
+                 "Gyarados (53%, -3 Atk) has a fresh Protect (it Taunted on T6). Incineroar re-entered, so its Fake Out is fresh, "
+                 "and it has no Protect; its Flare Blitz OHKOs Kingambit (133-156 HP). Live: Kowtow Cleave + Extreme Speed both "
+                 "went into Gyarados, which Protected, and Flare Blitz took Kingambit 207 -> 61.",
+                 lambda p, t: not (target_species(p, 0, t) == "gyarados" and target_species(p, 1, t) == "gyarados"),
+                 "not both slots into Gyarados"),
+    LiveScenario("m3d_t9_no_es_into_fresh_protect", "da9c168e", 9,
+                 "Arcanine's Extreme Speed does 52.9-62.2% of Gyarados's current HP (no KO). Gyarados's Protect is fresh (it Protected "
+                 "T5 and T7 and attacked on T8). Incineroar has no Protect, and Extreme Speed into it does 33-39 HP. "
+                 "Live: Extreme Speed into Gyarados, which Protected.",
+                 lambda p, t: not (move_of(p, 1) == "extremespeed" and target_species(p, 1, t) == "gyarados"),
+                 "slot 1 does not Extreme Speed into Gyarados"),
+    LiveScenario("m3d_preview_no_scarf_landorus_kingambit_lead", "da9c168e", 0,
+                 "Team Preview as player 2 vs Flutter Mane / Incineroar / Gyarados / Lucario: the Scarf Landorus-T + Kingambit lead's "
+                 "+0.64 came from two KOs the bot's turn-1 Protect plus switch erased; the lead veto's Thundurus + Kingambit is "
+                 "+0.25 vs Flutter Mane + Incineroar and +0.11 vs Incineroar + Gyarados, losing nothing to either.",
+                 lambda p, t: set(p.get("leads") or []) != {"landorustherian", "kingambit"},
+                 "the leads are not Landorus-T + Kingambit", phase="team_preview"),
+    LiveScenario("m3d_pick1_not_iron_valiant", "da9c168e", 0,
+                 "Pick 1 as player 2 with Iron Valiant uncatalogued: its fitted strength defaulted to 0 and it won by 0.7 points; at the "
+                 "25th-percentile fallback or the median the pick flips (they answered 'Flutter Mane: spread damage, beats Iron "
+                 "Valiant'). Re-evaluate once the catalog gives Iron Valiant a real strength.",
+                 lambda p, t: p.get("card_id") != "vgc-iron-valiant", "the first pick is not Iron Valiant", phase="draft"),
 ]
 
 
@@ -261,7 +302,7 @@ def run(sc: LiveScenario, *, code_only: bool, provider=None) -> dict:
             ctx = DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
                                   agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=seat)
             obs = raw.get("observation") or {}
-            target = state.phase == "moving" and obs.get("turn") == sc.turn
+            target = state.phase == sc.phase and (sc.phase != "moving" or obs.get("turn") == sc.turn)
             if target and seen_at_turn == sc.index:
                 if not code_only:
                     agent._provider = provider
@@ -269,9 +310,11 @@ def run(sc: LiveScenario, *, code_only: bool, provider=None) -> dict:
                 decision = agent.choose_action(state, ctx)
                 elapsed = time.monotonic() - started
                 payload = getattr(decision, "action", decision)
+                if hasattr(payload, "input"):  # a draft pick comes back as the LegalAction itself
+                    payload = (payload.input or {}).get("action") or {}
                 template = state.legal_actions[0].input.get("action") or {}
                 rows = [json.loads(line) for f in Path(tmp).glob("*.jsonl") for line in f.read_text().splitlines() if line.strip()]
-                row = [r for r in rows if r.get("kind") == "turn"][-1]
+                row = rows[-1] if rows else {}
                 ok = bool(sc.accept(payload, template))
                 return {"name": sc.name, "ok": ok, "payload": payload, "model": row.get("model"), "fallback": row.get("fallback"),
                         "reasoning": (row.get("answer") or {}).get("reasoning_summary"), "win_condition": row.get("win_condition"),
@@ -279,7 +322,7 @@ def run(sc: LiveScenario, *, code_only: bool, provider=None) -> dict:
             if target:
                 seen_at_turn += 1
             agent.choose_action(state, ctx)
-    raise RuntimeError(f"{sc.name}: decision for turn {sc.turn} #{sc.index} not found in {folder.name}")
+    raise RuntimeError(f"{sc.name}: {sc.phase} decision for turn {sc.turn} #{sc.index} not found in {folder.name}")
 
 
 def main(argv: list[str] | None = None) -> int:
