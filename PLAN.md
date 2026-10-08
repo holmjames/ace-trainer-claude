@@ -651,8 +651,37 @@ credit, KO-capped expected damage, endgame logic (Protect only when something ru
 Protect history and Tailwind/Trick Room turns left from the log; system prompt on how strong opponents play.
 `scripts/live_scenarios.py` (exact live positions, no transcription): code 5/5, Opus 5/5.
 
-**Still in progress (Oct 8):** simulator payload parity (branch `sim-fidelity`); counter-aware draft and lineup, with a
-the search bot-style counter-picking sparring drafter (branch `draft-v2`); independent second-opinion review of the four games.
+### 5p. Oct 8 early: the simulator speaks the live dialect; measuring instead of guessing
+
+- **Simulator parity (merged 04ffad4).** `sim/translate.py` now rebuilds every state from each seat's Showdown protocol
+  log and requests, field for field like the live server (spread targets `[0]`, preview placeholders, `team` lists all
+  six, opponent reveal rules, conditions keyed by the turn they started). `tests/test_sim_live_parity.py` (397 checks)
+  pins it to the captures; nine deliberate drifts each fail it. Old agent code in the new simulator reproduces the
+  live blindness (spread moves estimated 0/126, opponent sets blank 120/120); the fixed code: 123/123 and 0/120.
+- **Head to head across commits** (`sim/subprocess_player.py`, `--p2 checkout:<path>`), code-only both sides:
+  this branch beat 4f2d0cb (the version that lost live) **301-99 (75%)**. Then, each vs the previous commit over
+  2,000 games: review fixes + switch-in preview 52%; joint attack scoring (one KO is one KO; focus fire knows the
+  target can Protect) **56.4%**; damage valued in % of max HP, not current HP, **53.7%**.
+- **Independent review** (second-opinion agent): Pixilate and Air Balloon gaps, Fake Out into Ghosts, Unburden and
+  Prankster in the speed order, type labels for the model, switch-in judgement: all fixed. `scripts/live_scenarios.py`
+  now 7 exact live positions: code 7/7, Opus 7/7 (3-13 s).
+- **Were the four games winnable?** (`scripts/draft_eval.py`, `scripts/lineup_sweep.py`: the real drafted sixes in the
+  simulator, our engine piloting both sides.) With the lineups actually played, our side wins 11% / 21% / 0% / 0.4%:
+  our engine plays their teams better than the search bot did (M3: Fake Out on Great Tusk + Pixilate Hyper Voice turn 1,
+  every game). Best of our 90 lineups vs their live four: M1 67%, M2 71%, M3 100%, M4 38% (best-of-90 is optimistic,
+  except M3's 24/24); median lineup 4-17%. Verdict: every draft left us behind, Team Preview made three hopeless, and
+  M4 was lost at the draft. Draft and Team Preview were the next work.
+- **Draft v2 + Team Preview v2 + tier list (merged 57ced3f, from branch draft-v2).** `agent/pokemon/matchup.py`
+  (1-on-1 races between complete sets, plain/Tailwind/Trick Room, on the real damage model) and a team model fitted on
+  16,000 simulator games (`data/draft_model.json`); the drafter plays the rest of the snake out for every offered card
+  against the opponent's best replies; Team Preview solves a 15x15 game of fours plus a lead sub-game that plays the
+  leads' first two turns. `data/card_tiers.json` + `docs/card_tiers.md`: each live card's rating (its average worth on
+  a team, in 1/100 log-odds), tier, why, and flags where our engine misplays a card (Trick Room setters, Prankster
+  support, Incineroar's pivoting); the rating is the drafter's base value, so editing it moves the drafter by exactly
+  that much. Written-down adjustments (Incineroar +25, Dragonite +17...) exist behind `draft_tier_adjust` (off).
+  Branch results: v2 draft vs old 74.1% [71.3, 76.7] (1,000 games); v2 Team Preview vs old ~60% (800 games each).
+  Draft pick median 28 ms, max 0.5 s (clock 15 s).
+- A parallel session committed a README (9bd526d) and pushed `pokemon-agent` to origin at 00:15 Oct 8.
 
 ## 6. Milestones (Oct 6 → Oct 13)
 
