@@ -543,7 +543,7 @@ def effect_label(mult: float) -> str:
 
 def _row(target: int, defender: "Mon", est: tuple[float, float], mult: float | None = None) -> dict:
     row = {"target": target, "species": defender.species, "side": defender.side, "damage_pct_of_current_hp": list(est),
-           "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no")}
+           "ko": "guaranteed" if est[0] >= 100 else ("possible" if est[1] >= 100 else "no"), "hp_frac": round(defender.hp_fraction, 3)}
     if mult is not None:
         row["effect"] = effect_label(mult)
     return row
@@ -1042,7 +1042,10 @@ def _expected(row: dict, priority: int, P: dict | None = None) -> float:
     lo, hi = row["damage_pct_of_current_hp"]
     if hi <= 0:
         return 0.0  # an immune or blocked hit is worth nothing, priority or not (Fake Out into a Ghost, Oct 7)
-    return min((lo + hi) / 2, 100.0) + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0)) + P["priority_w"] * priority
+    damage = min((lo + hi) / 2, 100.0)
+    if P.get("hp_units", 0) and "hp_frac" in row:
+        damage *= row["hp_frac"]  # in % of MAX HP: finishing a 9% Pokémon is 9 points of damage plus the KO, not 100
+    return damage + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0)) + P["priority_w"] * priority
 
 
 def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None = None) -> tuple[dict | None, dict | None, float]:
@@ -1417,8 +1420,9 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         for key, (lo, hi) in per_foe.items():
             if hi <= 0:
                 continue
-            v = min((lo + hi) / 2, 100.0) + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0))
             foe = next((m for m in theirs.values() if species_key(m.species) == key), None)
+            damage = min((lo + hi) / 2, 100.0) * (foe.hp_fraction if (P.get("hp_units", 0) and foe is not None) else 1.0)
+            v = damage + (P["ko_bonus_guaranteed"] if lo >= 100 else (P["ko_bonus_possible"] if hi >= 100 else 0))
             if protect_aware and foe is not None and hi >= 100 and can_protect(foe):
                 v *= 1.0 - P.get("opp_protect_risk", 0.3)
             total += v

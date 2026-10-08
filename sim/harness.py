@@ -159,9 +159,12 @@ def seat_ids(game_id: str) -> dict[str, str]:
     return {side: str(uuid.uuid5(uuid.NAMESPACE_URL, f"ace-trainer-sim/{game_id}/{side}")) for side in ("p1", "p2")}
 
 
-def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: dict[str, str], rng: random.Random, *, verbose: bool) -> dict:
+def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: dict[str, str], rng: random.Random, *, verbose: bool,
+              fixed_rosters: dict[str, list[dict]] | None = None) -> dict:
     """One match the way the live server runs it: draft (seat 0 is Showdown's p1), Team Preview over all six drafted
-    Pokémon, then the doubles battle. Every state the agents see is built by sim/translate.py in the live format."""
+    Pokémon, then the doubles battle. Every state the agents see is built by sim/translate.py in the live format.
+    ``fixed_rosters`` ({"p1": six cards, "p2": six cards}) skips the draft: replay a real match's teams to ask how
+    winnable the draft left it (scripts/draft_eval.py)."""
     seats = seat_ids(game_id)
     ctx = {side: DecisionContext(session_id=game_id, tournament_id=None, game_type="pokemon_vgc_doubles_draft", agent_id=seats[side],
                                  seat_position=0 if side == "p1" else 1) for side in ("p1", "p2")}
@@ -172,6 +175,9 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
     rosters: dict[str, list[dict]] = {seats["p1"]: [], seats["p2"]: []}  # seat 0 first, as live
     picks: list[dict] = []
     version = 0
+    if fixed_rosters:
+        rosters = {seats["p1"]: list(fixed_rosters["p1"]), seats["p2"]: list(fixed_rosters["p2"])}
+        order = []
     for side in order:
         state = translate.draft_state(game_id, me=seats[side], pool=pool, rosters=rosters, picks=picks,
                                       first_drafter=seats[first], current_seat=seats[side], version=version)
