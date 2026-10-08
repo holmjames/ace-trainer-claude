@@ -553,6 +553,28 @@ below runs on this laptop and is ordered by expected value per dollar. Adoption 
   losses), not from re-weighting. Gotcha: two simulator runs at once (sweep + sparring) both deadlocked on their engine bridges
   after ~15 min; run one simulator at a time.
 
+### 5m. Oct 7 late: the project was living in iCloud, and that was the cause of every stall
+
+`~/Desktop` is synced by iCloud Drive. Everything under `Claude Code Projects/altruagent-starter` went through Apple's file
+provider. The day's sweeps wrote one decision log per simulated game until `logs/` held **87,273 files**; the sync daemon
+(`fileproviderd`) ran at 90% CPU, and plain reads inside `.venv` blocked for minutes: `import anthropic, mcp, httpx` took
+**more than 5 minutes** (killed), the 3,000-game sweep and the sparring run froze together, even `find logs` did not return.
+Every earlier "slow import" and "stalled simulator" note in this plan has this one cause.
+
+**Why it matters on Oct 16:** each game spawns a fresh process that imports the SDK and the agent. If iCloud is churning at
+that moment the import can outlast the 4-minute connect window or the 55 s clock. Today's live matches worked only because the
+folder happened to be quiet.
+
+**Fixes.**
+- The working copy is now **`~/projects/ace-trainer-claude`** (a fresh clone of the fork, outside any synced folder) with its own
+  `.venv` and `sim/node_modules`. Same imports there: **1.6 s**. 898 tests pass; 50 simulated games in 2.8 s.
+- On the Desktop copy, `logs/` was renamed `logs.nosync` (iCloud ignores that suffix) with a symlink at `logs`, so the runtime still
+  running there keeps writing and iCloud stops syncing it. The Desktop copy is retired once the runtime moves.
+- James: copy `.env` into the new folder (Claude is not permitted to touch that file), then restart the launcher from there
+  between matches: `cd ~/projects/ace-trainer-claude && ./scripts/run_tournament.sh --match`.
+- Rule: **never run the tournament runtime, the simulator or a sweep from an iCloud-synced folder.** Disk is 94% full (13 GB
+  free); clear space before Oct 16.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
