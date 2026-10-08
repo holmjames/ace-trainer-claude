@@ -707,8 +707,10 @@ def draft_state(session_id: str, *, me: str, pool: list[dict], rosters: dict[str
 # -- team preview ----------------------------------------------------------------------------------------
 
 
-def preview_state(session_id: str, snap: dict, side: str, *, version: int = 0, agent_id: str | None = None) -> GameState | None:
-    """Team Preview for ``side`` from a bridge snapshot taken before either lineup is chosen."""
+def preview_state(session_id: str, snap: dict, side: str, *, version: int = 0, agent_id: str | None = None,
+                  clock: dict | None = None) -> GameState | None:
+    """Team Preview for ``side`` from a bridge snapshot taken before either lineup is chosen. ``clock`` replaces the
+    constant live clock (sim/clock.py hands the running one)."""
     request = snap["sides"][side].get("request") or {}
     if not request.get("teamPreview"):
         return None
@@ -720,7 +722,7 @@ def preview_state(session_id: str, snap: dict, side: str, *, version: int = 0, a
         "waiting_for_action": True,
         "your_roster": [m.to_obs() for m in view.team.values()],
         "opponent_roster": [m.to_obs() for m in view.teampreview_opponent],
-        "clock": dict(PREVIEW_CLOCK),
+        "clock": dict(clock or PREVIEW_CLOCK),
     }
     action = {"type": "select_lineup", "roster": [m.species for m in view.team.values()], "bring_count": 4, "lead_count": 2,
               "instructions": LINEUP_INSTRUCTIONS}
@@ -731,7 +733,8 @@ def preview_state(session_id: str, snap: dict, side: str, *, version: int = 0, a
 # -- battle ----------------------------------------------------------------------------------------------
 
 
-def battle_state(session_id: str, snap: dict, side: str, version: int, *, agent_id: str | None = None) -> GameState | None:
+def battle_state(session_id: str, snap: dict, side: str, version: int, *, agent_id: str | None = None,
+                 clock: dict | None = None) -> GameState | None:
     """Our doubles-turn state from a bridge snapshot, or None when this side has no decision to make."""
     request = snap["sides"][side].get("request")
     if not request or request.get("wait") or request.get("teamPreview"):
@@ -763,7 +766,7 @@ def battle_state(session_id: str, snap: dict, side: str, version: int, *, agent_
         "target_legend": dict(TARGET_LEGEND),
         "protocol_log": list((snap.get("logs") or {}).get(side) or []),
         "waiting_for_action": True,
-        "clock": dict(BATTLE_CLOCK),
+        "clock": dict(clock or BATTLE_CLOCK),
     }
     force = view.force_switch
     reserves = {m.species for slot in view.available_switches for m in slot}

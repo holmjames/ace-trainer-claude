@@ -9,7 +9,8 @@ only — from the model chain in .env, or from the computed fallback with --code
     python scripts/live_scenarios.py --only m3_t6 --repeat 3
 
 The positions come from the four Oct 7 losses (L1-L4 below = sessions d9405f02, 1aef9227, 7ce71025, 0a2b7c2a) and the
-Oct 8 Testing win bcbaabe2 (see scripts/postmortem.py for the transcripts); the damage numbers in the lessons are the
+Oct 8 Testing win bcbaabe2 (see scripts/postmortem.py for the transcripts); a session is replayed from whichever seat we
+sat in (player-2 matches are captured as ``*-seat1.json``); the damage numbers in the lessons are the
 sheet's own (agent/pokemon/battle.py:damage_percent) at that position. A ``provisional`` scenario's best play was derived
 from the transcript and the calc rather than documented in the review: it is run and shown but not counted.
 Results append to logs/live_scenarios.jsonl.
@@ -228,18 +229,37 @@ def _sequence(folder: Path, seat: int = 0) -> list[Path]:
     return sorted(folder.glob(f"*-seat{seat}.json"), key=order)
 
 
+def our_side(obs: dict) -> str | None:
+    """Our protocol side from a battle observation: our ``team`` keys carry it ("p2: Archaludon" when we are player 2)."""
+    team = obs.get("team") or {}
+    keys = team.keys() if isinstance(team, dict) else [m.get("name", "") for m in team if isinstance(m, dict)]
+    return next((k.split(":")[0] for k in keys if re.match(r"p[12]:", k or "")), None)
+
+
+def seat_of(folder: Path) -> int:
+    """The seat we sat in for a captured session: from the observations (the way scripts/postmortem.py reads it), else
+    from the capture file names."""
+    for path in _sequence(folder, 0) + _sequence(folder, 1):
+        if path.name.startswith("moving-"):
+            side = our_side((json.loads(path.read_text()).get("observation") or {}))
+            if side:
+                return 0 if side == "p1" else 1
+    return 1 if _sequence(folder, 1) and not _sequence(folder, 0) else 0
+
+
 def run(sc: LiveScenario, *, code_only: bool, provider=None) -> dict:
     folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(sc.session))
+    seat = seat_of(folder)
     with tempfile.TemporaryDirectory() as tmp:
         agent = PokemonAgent(None, version="live-scenario", log_dir=tmp, capture_dir="", log=lambda *_: None)
         seen_at_turn = 0
-        for path in _sequence(folder):
+        for path in _sequence(folder, seat):
             raw = json.loads(path.read_text())
             state = GameState.from_mcp_state(raw)
             if not state.legal_actions:
                 continue
             ctx = DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
-                                  agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=0)
+                                  agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=seat)
             obs = raw.get("observation") or {}
             target = state.phase == "moving" and obs.get("turn") == sc.turn
             if target and seen_at_turn == sc.index:

@@ -14,7 +14,9 @@ with the new Team Preview, ``counter`` the counter-picker (agent/versions/counte
 For those the battle itself is always the code brain (agent/pokemon/battle.py), so only drafting and Team Preview
 differ. A sim/harness.py spec — ``checkout:<path>[:<module>[:<python>]]`` (an agent from another checkout, e.g. the
 Oct 7 opponent's through sim/shims/checkout_shim.py, in a child process) or a ``module[:factory]`` path — plays with
-ITS own battle brain. Every ``--out`` line carries the game's wall-clock ``seconds`` and each seat's deciding time.
+ITS own battle brain; ``fable`` is agent/agent.py with the model chain from this checkout's .env (the orchestrator's
+Opus-piloted games; ``--log-dir`` keeps their decision logs). Every ``--out`` line carries the game's wall-clock
+``seconds``, each seat's deciding time per decision, and the clock events when ``--clock`` is on.
 
 ``match`` plays games in PAIRS: the same 18-card pool and the same battle seed twice, with the two players swapping
 seats, so each drafts first exactly once per pool. That cancels most of the pool and first-pick luck. Output: win
@@ -43,8 +45,10 @@ os.chdir(ROOT)
 from agent.agent import PokemonAgent  # noqa: E402
 from agent.pokemon import tuning  # noqa: E402
 from sim import harness  # noqa: E402
+from sim.clock import Clock  # noqa: E402
 
 NO_LOG = "/dev/null"  # DecisionLog cannot create a directory there, so it stays silent (by design it never raises)
+LOG_DIR = NO_LOG  # where in-process agents write decision logs (``--log-dir``; off by default)
 
 # name -> tuning overrides on top of the defaults (and, for some, a different agent class)
 PLAYERS: dict[str, dict] = {
@@ -59,8 +63,9 @@ PLAYERS: dict[str, dict] = {
 
 
 def external(spec: str) -> bool:
-    """A sim/harness.py player rather than one of ``PLAYERS``: ``checkout:<path>[:<module>[:<python>]]`` or a module path."""
-    return spec.startswith("checkout:") or "." in spec.partition("{")[0]
+    """A sim/harness.py player rather than one of ``PLAYERS``: ``checkout:<path>[:<module>[:<python>]]``, a module path, or
+    ``fable`` (agent/agent.py with the model chain from the .env of the checkout this script runs from)."""
+    return spec.startswith("checkout:") or "." in spec.partition("{")[0] or spec in ("fable", "code")
 
 
 def parse_spec(spec: str) -> tuple[str, dict | None]:
@@ -91,11 +96,11 @@ class _SeededRandomDraft(PokemonAgent):
 
 def make_player(spec: str, seed: int):
     name, overrides = parse_spec(spec)
-    if overrides is None:  # sim/harness.py's spelling: another checkout's agent in a child, or a module path in-process
-        os.environ["AGENT_LOG_DIR"] = NO_LOG  # a child of our own code reads it; set before the child is spawned
+    if overrides is None:  # sim/harness.py's spelling: another checkout's agent in a child, a module path or fable in-process
+        os.environ["AGENT_LOG_DIR"] = LOG_DIR  # a child of our own code reads it; set before the child is spawned
         agent, _ = harness.make_player(spec, random.Random(seed))
         if hasattr(agent, "_log_dir"):
-            agent._log_dir = NO_LOG
+            agent._log_dir = LOG_DIR
         return agent
     params = tuning.merged(overrides)
     if name == "random":
@@ -107,7 +112,7 @@ def make_player(spec: str, seed: int):
         agent._print = lambda _line: None
     else:
         agent = PokemonAgent(None, version=spec, params=params, log=lambda _line: None)
-    agent._log_dir = NO_LOG
+    agent._log_dir = LOG_DIR
     return agent
 
 
@@ -123,10 +128,11 @@ def wilson(wins: float, n: int, z: float = 1.96) -> tuple[float, float, float]:
 
 
 class _Timed:
-    """Counts the wall-clock seconds a seat spends deciding (its agent's ``choose_action`` calls)."""
+    """Counts the wall-clock seconds a seat spends deciding (its agent's ``choose_action`` calls), per decision too."""
 
     def __init__(self, inner, spec: str) -> None:
         self.inner, self.spec, self.seconds = inner, spec, 0.0
+        self.decisions: list[float] = []
 
     @property
     def _version(self):
@@ -137,16 +143,19 @@ class _Timed:
         try:
             return self.inner.choose_action(state, context)
         finally:
-            self.seconds += time.monotonic() - t0
+            elapsed = time.monotonic() - t0
+            self.seconds += elapsed
+            self.decisions.append(round(elapsed, 3))
 
 
-def play(bridge, game_id: str, seed: int, specs: dict[str, str], names: dict[str, str]) -> dict:
+def play(bridge, game_id: str, seed: int, specs: dict[str, str], names: dict[str, str], *, clock: bool = False) -> dict:
     rng = random.Random(seed)
     players = {side: _Timed(make_player(spec, seed * 2 + (side == "p2")), spec) for side, spec in specs.items()}
     t0 = time.monotonic()
-    result = harness.play_game(bridge, game_id, players, names, rng, verbose=False)
+    result = harness.play_game(bridge, game_id, players, names, rng, verbose=False, clock=Clock() if clock else None)
     result["seconds"] = round(time.monotonic() - t0, 3)
     result["seat_seconds"] = {side: round(p.seconds, 3) for side, p in players.items()}
+    result["decision_seconds"] = {side: list(p.decisions) for side, p in players.items()}
     return result
 
 
@@ -155,6 +164,7 @@ def record(out, result: dict, seed: int, specs: dict[str, str]) -> None:
         return
     out.write(json.dumps({"seed": seed, "specs": specs, "first": result["first_drafter"], "winner": result["winner_side"],
                           "turns": result["turns"], "seconds": result.get("seconds"), "seat_seconds": result.get("seat_seconds"),
+                          "decision_seconds": result.get("decision_seconds"), "forfeit": result.get("forfeit"), "clock": result.get("clock"),
                           "rosters": result["rosters"], "teams": result["teams"], "picks": result.get("picks")}) + "\n")
     out.flush()
 
@@ -165,12 +175,14 @@ def rate(played: int, started: float) -> str:
 
 
 def cmd_match(args) -> int:
+    global LOG_DIR
+    LOG_DIR = getattr(args, "log_dir", None) or NO_LOG
     a, b = args.a, args.b
     out = open(args.out, "a", encoding="utf-8") if args.out else None
     bridge = harness.Bridge()
     wins = games = played = 0
     by_first = {"a_first": [0, 0], "b_first": [0, 0]}
-    errors = 0
+    errors = timeouts = forfeits = 0
     started = time.monotonic()
     try:
         for k in range(args.pairs):
@@ -179,12 +191,15 @@ def cmd_match(args) -> int:
                 specs = {"p1": b, "p2": a} if swap else {"p1": a, "p2": b}
                 names = {"p1": "B" if swap else "A", "p2": "A" if swap else "B"}
                 try:
-                    result = play(bridge, f"eval-{seed}-{int(swap)}", seed, specs, names)
+                    result = play(bridge, f"eval-{seed}-{int(swap)}", seed, specs, names, clock=bool(getattr(args, "clock", False)))
                 except Exception as exc:  # noqa: BLE001 — one broken game must not end a long run
                     errors += 1
                     print(f"   pair {k} swap {swap}: ERROR {type(exc).__name__}: {exc}", flush=True)
                     continue
                 played += 1
+                if result.get("clock"):
+                    timeouts += sum(c["timeouts"] for c in result["clock"].values())
+                    forfeits += bool(result.get("forfeit"))
                 record(out, result, seed, specs)
                 if result["winner"] is None:
                     continue  # unfinished (turn cap): counts for neither
@@ -205,7 +220,8 @@ def cmd_match(args) -> int:
             out.close()
     p, lo, hi = wilson(wins, games)
     print(f"{a} vs {b}: {wins}/{games} = {100 * p:.1f}%  95% CI [{100 * lo:.1f}, {100 * hi:.1f}]  "
-          f"({errors} errors, {int(time.monotonic() - started)} s, {rate(played, started)})")
+          f"({errors} errors, {int(time.monotonic() - started)} s, {rate(played, started)})"
+          + (f"; clock: {timeouts} timeouts, {forfeits} forfeits" if getattr(args, "clock", False) else ""))
     for key, (w, n) in by_first.items():
         q, l, h = wilson(w, n)
         print(f"   {key:8s} {w}/{n} = {100 * q:.1f}% [{100 * l:.1f}, {100 * h:.1f}]")
@@ -415,6 +431,8 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--seed", type=int, default=1)
     m.add_argument("--out", default=None, help="append one JSON line per game here (optional)")
     m.add_argument("--progress", type=int, default=50)
+    m.add_argument("--clock", action="store_true", help="the live clock (sim/clock.py): late decisions become random moves, an empty bank forfeits")
+    m.add_argument("--log-dir", default=None, help="write the in-process agents' decision logs here (default: off)")
     c = sub.add_parser("collect", help="training data: rosters and results, one JSON line per game")
     c.add_argument("a")
     c.add_argument("b")

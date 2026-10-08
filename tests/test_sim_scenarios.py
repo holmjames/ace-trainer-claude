@@ -56,7 +56,7 @@ def test_every_scenario_uses_catalogued_cards_and_legal_moves():
 
 def _turns(folder: Path) -> dict[int, int]:
     counts: dict[int, int] = {}
-    for path in folder.glob("moving-*-seat0.json"):
+    for path in folder.glob(f"moving-*-seat{live_scenarios.seat_of(folder)}.json"):
         turn = json.loads(path.read_text())["observation"].get("turn")
         counts[turn] = counts.get(turn, 0) + 1
     return counts
@@ -71,3 +71,24 @@ def test_every_live_position_names_a_captured_decision():
         turns = _turns(folders[0])
         assert turns.get(sc.turn, 0) > sc.index, f"{sc.name}: no decision #{sc.index} on turn {sc.turn} of {sc.session}"
         assert callable(sc.accept) and sc.accept_text and sc.what
+
+
+def test_the_seat_we_sat_in_comes_from_the_observation():
+    by_prefix = {p.name[:8]: p for p in LIVE.iterdir() if p.is_dir()}
+    assert live_scenarios.seat_of(by_prefix["bcbaabe2"]) == 0  # player 1
+    for prefix in ("46fd3d95", "da9c168e", "d74bfb88"):  # the Oct 8 matches played as player 2
+        if prefix in by_prefix:
+            assert live_scenarios.seat_of(by_prefix[prefix]) == 1 and not live_scenarios._sequence(by_prefix[prefix], 0)
+    assert live_scenarios.our_side({"team": {"p2: Iron Valiant": {}}}) == "p2" and live_scenarios.our_side({}) is None
+
+
+def test_a_player_two_session_replays_from_seat_one():
+    folders = [p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith("da9c168e")]
+    if not folders:
+        import pytest
+
+        pytest.skip("no player-2 capture present")
+    sc = live_scenarios.LiveScenario("p2_smoke", "da9c168e", 1, "the first battle decision of a player-2 match",
+                                     lambda p, t: p.get("type") == "doubles_turn" and {"slot_0", "slot_1"} <= set(p), "a doubles turn")
+    result = live_scenarios.run(sc, code_only=True)
+    assert result["ok"] and result["seconds"] >= 0
