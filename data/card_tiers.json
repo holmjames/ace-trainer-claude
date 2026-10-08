@@ -1,5 +1,5 @@
 {
- "note": "Built by scripts/build_tiers.py. rating = sim_rating + adjust; the drafter's base value per card. sim_rating = matchup_part + card_part from the fitted team model (data/draft_model.json); adjust is a written-down prior where the code-only simulator misplays the card (see flag / live).",
+ "note": "Built by scripts/build_tiers.py. rating = sim_rating + adjust; the drafter's base value per card. sim_rating = matchup_part + card_part from the fitted team model (data/draft_model.json); adjust is a written-down prior where the code-only simulator misplays the card (see flag / live). Iron Valiant, Iron Treads, Talonflame and Toxapex (first seen live Oct 8) carry their matchup part only: the fitted model has no card part for them and a full rebuild would move every other rating.",
  "units": "1/100 log-odds of winning",
  "tiers": {
   "S": ">= 40",
@@ -362,6 +362,39 @@
    "card_part": 2.5,
    "why": "wins 2/40 1-on-1s (best: Salamence, Sableye); countered by Archaludon, Gholdengo; spread"
   },
+  "vgc-talonflame": {
+   "species": "Talonflame",
+   "fingerprint": "cce383288c77fc1b",
+   "tier": "C",
+   "rating": -8.6,
+   "sim_rating": -8.6,
+   "adjust": 0,
+   "matchup_part": -8.6,
+   "card_part": 0.0,
+   "why": "wins 8/44 1-on-1s (best: Sylveon, Tornadus); countered by Archaludon, Gholdengo; Tailwind; not in the fitted model (first seen live Oct 8): matchup part only"
+  },
+  "vgc-iron-treads": {
+   "species": "Iron Treads",
+   "fingerprint": "6a3fb030f022a721",
+   "tier": "C",
+   "rating": -8.7,
+   "sim_rating": -8.7,
+   "adjust": 0,
+   "matchup_part": -8.7,
+   "card_part": 0.0,
+   "why": "wins 19/44 1-on-1s (best: Gholdengo, Flutter Mane); countered by Archaludon, Torkoal; spread; not in the fitted model (first seen live Oct 8): matchup part only"
+  },
+  "vgc-iron-valiant": {
+   "species": "Iron Valiant",
+   "fingerprint": "ffc29d47017bb4cd",
+   "tier": "C",
+   "rating": -9.8,
+   "sim_rating": -9.8,
+   "adjust": 0,
+   "matchup_part": -9.8,
+   "card_part": 0.0,
+   "why": "wins 17/44 1-on-1s (best: Iron Hands, Gyarados); countered by Archaludon, Gholdengo; not in the fitted model (first seen live Oct 8): matchup part only"
+  },
   "vgc-hatterene": {
    "species": "Hatterene",
    "fingerprint": "3cfa0a38c58d20bf",
@@ -454,6 +487,17 @@
    "matchup_part": -0.4,
    "card_part": -22.1,
    "why": "wins 16/40 1-on-1s (best: Gyarados, Milotic); countered by Archaludon, Torkoal; wins less in simulated games than its matchups suggest"
+  },
+  "vgc-toxapex": {
+   "species": "Toxapex",
+   "fingerprint": "055d6d6bc1bc3dd0",
+   "tier": "D",
+   "rating": -23.4,
+   "sim_rating": -23.4,
+   "adjust": 0,
+   "matchup_part": -23.4,
+   "card_part": 0.0,
+   "why": "wins 9/44 1-on-1s (best: Tornadus, Arcanine); countered by Archaludon, Gholdengo; not in the fitted model (first seen live Oct 8): matchup part only"
   },
   "vgc-klefki": {
    "species": "Klefki",
