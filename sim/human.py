@@ -109,7 +109,9 @@ class HumanPlayer:
         self.write(f"\n=== TURN {obs.get('turn')} ===  weather={obs.get('weather')} fields={obs.get('fields')} "
                    f"our side={obs.get('side_conditions')} their side={obs.get('opponent_side_conditions')}")
 
-        def mon_line(m: dict) -> str:
+        def mon_line(m: dict | None) -> str:
+            if not m:
+                return "(empty)"
             hp = int(round(100 * (m.get("current_hp_fraction") or 0)))
             boosts = {k: v for k, v in (m.get("boosts") or {}).items() if v}
             return f"{m.get('name') or m.get('species')} {hp}%{' ' + str(m.get('status')) if m.get('status') else ''}{' ' + str(boosts) if boosts else ''}"
@@ -120,10 +122,12 @@ class HumanPlayer:
             self.write("        bench: " + ", ".join(mon_line(m) for m in bench_them))
         self.write("  YOU:  " + " | ".join(mon_line(m) for m in obs.get("active_pokemon") or []))
         for slot in template.get("slots") or []:
-            self.write(f"  slot {slot.get('slot')} ({slot.get('active')}){' FORCED SWITCH' if slot.get('force_switch') else ''}:")
+            active = slot.get("active")
+            who = (active.get("name") or active.get("species")) if isinstance(active, dict) else active
+            self.write(f"  slot {slot.get('slot')} ({who}){' FORCED SWITCH' if slot.get('force_switch') else ''}:")
             for i, opt in enumerate(slot.get("options") or []):
                 if opt.get("type") == "move":
-                    tgts = ", ".join(f"{t['target']}={t['species']}" for t in opt.get("target_options") or []) or "no target"
+                    tgts = ", ".join(f"{t['target']}={t['species'] or t.get('side')}" for t in opt.get("target_options") or []) or "no target"
                     self.write(f"     {i}. {opt['move_id']} ({opt.get('move_type', '').lower()} {opt.get('category', '').lower()} {opt.get('base_power') or '-'} bp) -> {tgts}")
                 elif opt.get("type") == "switch":
                     self.write(f"     {i}. switch -> {opt.get('species')}")
@@ -141,7 +145,8 @@ class HumanPlayer:
                 opts = slot.get("options") or []
                 option = nums[0] if nums and 0 <= nums[0] < len(opts) else 0
                 targets = opts[option].get("targets") or [] if opts else []
-                target = nums[1] if len(nums) > 1 else (targets[0] if targets else 0)
+                # no target typed: the first opponent if the move can hit one (live lists the ally first), else its only target
+                target = nums[1] if len(nums) > 1 else next((t for t in targets if t > 0), targets[0] if targets else 0)
                 answer[f"slot_{slot.get('slot')}"] = {"option": option, "target": target}
             try:
                 return base.build(answer)
