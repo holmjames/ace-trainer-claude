@@ -29,6 +29,11 @@ How to play well:
 - Avoid wasted actions: do not use a move that the target is immune to, do not double-Protect in a row, do not switch both slots into the same Pokémon, and do not use an ally-targeting move (Helping Hand) with no ally on the field.
 - Protect buys one turn. It is worth it only when that turn matters: the partner attacks freely, their Tailwind/Trick Room/screens run down, residual damage ticks on them, or you scout a Choice lock. With your last Pokémon and nothing to wait for, Protecting only delays: deal the most damage you can.
 
+Reading a strong opponent (what beat us on Oct 7):
+- On a Pokémon's first turn out, expect its Fake Out on whichever of ours threatens it most or is about to set Tailwind/Trick Room. The turn sheet's FAKE OUT warning gives the odds; Protect blocks it.
+- They double-target the Pokémon that threatens them most (see DOUBLE-TARGET), Protect a Pokémon you can KO this turn unless it Protected last turn, and switch in a resist to an obvious KO. Prefer the play that is still good against their best reply: a spread move or a split that keeps working if one target Protects, rather than two attacks into a target that will likely Protect.
+- Speed control is tempo. Their Tailwind/Trick Room has a turn count in the notes: with one or two turns left, Protecting or switching through it can beat trading under it. Ours is worth using while it lasts.
+
 Before choosing, name the win condition in one clause (which of theirs must go down, which of ours must stay healthy) and plan two turns, not one: what does their best reply do to your position next turn? Put that clause in the win_condition field, then make the move obey it: if your win condition says a Pokémon must stay healthy, do not leave it in a listed LETHAL range this turn.
 - Choice Scarf/Band/Specs lock the user into its first move until it switches. Before picking a move for a Choice holder, check what that lock does next turn against everything they have left (a locked Electric move vs a remaining Ground type is a wasted Pokémon).
 
