@@ -1,6 +1,6 @@
 # Card tiers (live catalog)
 
-Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base value per card. Rating = average worth on a team in 1/100 log-odds of winning (sim rating + a small prior where the code-only simulator is known to misplay the card). The drafter applies `draft_tier_adjust` (1.25) x the prior; with `draft_card_w` = 0 (Oct 8) the fitted card part of the sim rating is not used. Rebuild after refitting `data/draft_model.json`.
+Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base value per card. Rating = average worth on a team in 1/100 log-odds of winning (sim rating + a small prior where the code-only simulator is known to misplay the card). Rebuild after refitting `data/draft_model.json`.
 
 | Tier | Card | Rating | Sim | Why | Flag / live |
 |---|---|---:|---:|---|---|
@@ -16,6 +16,7 @@ Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base
 | A | Sylveon | +14 | +14 | wins 22/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Gyarados, Kingambit; spread | the Oct 7 opponent took it 2/2 |
 | A | Dragonite | +13 | -4 | wins 21/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Flutter Mane; Tailwind, priority; wins less in simulated games than its matchups suggest | engine spends Tailwind as a flat-value move; Multiscale + Extreme Speed under Tailwind is the real plan; the Oct 7 opponent took it 2/2 |
 | A | Incineroar | +13 | -12 | wins 15/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Fake Out, Intimidate | engine rarely pivots, so Parting Shot / repeat Intimidates go unused; the Oct 7 opponent took it 3/3 at pick 1-2 |
+| B | Tornadus | +10 | +0 | wins 3/40 1-on-1s (best: Great Tusk, Amoonguss); countered by Archaludon, Gholdengo; Tailwind, spread; wins more in simulated games than its matchups explain | Prankster Tailwind / Taunt valued by fixed constants in the engine |
 | B | Arcanine | +9 | +9 | wins 12/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Archaludon, Gyarados; Intimidate, spread, priority |  |
 | B | Garchomp | +8 | +8 | wins 13/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Porygon2; spread |  |
 | B | Great Tusk | +7 | +7 | wins 19/40 1-on-1s (best: Torkoal, Iron Hands); countered by Gholdengo, Flutter Mane; spread |  |
@@ -24,7 +25,6 @@ Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base
 | B | Basculegion | +5 | +5 | wins 18/40 1-on-1s (best: Porygon2, Milotic); countered by Archaludon, Gyarados; priority |  |
 | B | Chien-Pao | +3 | +3 | wins 15/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Torkoal, Gyarados; priority |  |
 | B | Wo-Chien | +1 | +1 | wins 18/40 1-on-1s (best: Gholdengo, Gyarados); countered by Archaludon, Torkoal |  |
-| B | Tornadus | +0 | +0 | wins 3/40 1-on-1s (best: Great Tusk, Amoonguss); countered by Archaludon, Gholdengo; Tailwind, spread; wins more in simulated games than its matchups explain | Prankster Tailwind / Taunt valued by fixed constants in the engine |
 | B | Landorus-Therian | -0 | -0 | wins 19/40 1-on-1s (best: Gholdengo, Torkoal); countered by Gyarados, Porygon2; Intimidate, spread |  |
 | B | Tyranitar | -0 | -0 | wins 18/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; spread |  |
 | B | Pelipper | -1 | -1 | wins 18/40 1-on-1s (best: Torkoal, Incineroar); countered by Archaludon, Flutter Mane; Tailwind |  |
@@ -38,10 +38,10 @@ Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base
 | C | Hatterene | -10 | -10 | wins 10/40 1-on-1s (best: Torkoal, Tornadus); countered by Archaludon, Gholdengo; Trick Room, spread; wins less in simulated games than its matchups suggest | engine sets Trick Room whether or not its own team wants it |
 | C | Amoonguss | -14 | -24 | wins 9/40 1-on-1s (best: Wo-Chien, Rillaboom); countered by Archaludon, Gholdengo; redirection, sleep move | engine redirects only to save a partner from a KO; Spore + Rage Powder do more in good hands |
 | C | Ting-Lu | -14 | -14 | wins 17/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; spread; wins less in simulated games than its matchups suggest |  |
+| D | Whimsicott | -17 | -27 | wins 6/40 1-on-1s (best: Iron Hands, Great Tusk); countered by Gholdengo, Torkoal; Tailwind, screens | Prankster Tailwind / Encore valued by fixed constants in the engine |
 | D | Grimmsnarl | -19 | -19 | wins 8/40 1-on-1s (best: Porygon2, Milotic); countered by Archaludon, Gholdengo; screens | screens valued by fixed constants in the engine |
 | D | Lucario | -20 | -20 | wins 10/40 1-on-1s (best: Flutter Mane, Kingambit); countered by Gholdengo, Torkoal; priority; wins less in simulated games than its matchups suggest | our drafter's specialist pick in two losses |
 | D | Cresselia | -22 | -22 | wins 15/40 1-on-1s (best: Archaludon, Iron Hands); countered by Gholdengo, Torkoal; spread |  |
 | D | Iron Bundle | -23 | -23 | wins 16/40 1-on-1s (best: Gyarados, Milotic); countered by Archaludon, Torkoal; wins less in simulated games than its matchups suggest |  |
-| D | Whimsicott | -27 | -27 | wins 6/40 1-on-1s (best: Iron Hands, Great Tusk); countered by Gholdengo, Torkoal; Tailwind, screens | Prankster Tailwind / Encore valued by fixed constants in the engine |
 | D | Klefki | -37 | -37 | wins 7/40 1-on-1s (best: Dragonite, Tornadus); countered by Archaludon, Gholdengo; spread, screens; wins less in simulated games than its matchups suggest | screens valued by fixed constants in the engine |
 | D | Sableye | -45 | -45 | wins 0/40 1-on-1s; countered by Archaludon, Gholdengo; Fake Out; wins less in simulated games than its matchups suggest | Prankster Will-O-Wisp / Taunt valued by fixed constants in the engine |

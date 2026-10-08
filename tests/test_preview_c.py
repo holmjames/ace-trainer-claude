@@ -141,18 +141,22 @@ def test_the_iron_hands_whimsicott_lead_of_the_second_loss_is_rejected_for_its_e
     assert chosen == ("Iron Hands", "Gyarados")  # loses nothing against Sylveon + Rillaboom, one lead against Incineroar + Sylveon
 
 
-def test_todays_winning_lead_still_passes():
+def test_todays_winning_lead_passes_against_the_lead_they_played_and_the_veto_keeps_a_safe_pair():
     s = Session("W bcbaabe2")
     live = s.pair("Archaludon", "Arcanine")
-    # Against the leads they actually opened with it loses nothing and leads no exposed setter: nothing to veto.
+    # Against the leads they actually opened with (Dragonite + Salamence, both Protecting on turn 1) it loses nothing
+    # and leads no exposed setter: the veto has no case against it, and it is chosen when that lead is expected.
     assert s.model.opening(live, s.live_opp).ko_against == []
     assert s.model.fake_out_exposed(live, s.live_opp) == []
-    # Against the model's predicted leads no pair of that four is safe (a Basculegion lead would take Arcanine or
-    # Milotic), so the hard veto does not apply and the live pair stays in the same one-lead-at-risk class as the pick.
+    chosen_live, notes_live = s.choose({s.live_opp: 1.0})
+    assert not any("not Archaludon + Arcanine" in n for n in notes_live) and "Archaludon" in chosen_live, notes_live
+    # Against the model's two likeliest leads (Ting-Lu next to Dragonite or Rillaboom) the opening says Arcanine
+    # falls, and Archaludon + Wo-Chien loses nothing, so the veto takes that pair; it also loses nothing against the
+    # lead they played (+1.27 by the opening model).
     chosen, notes = s.choose()
-    assert s.lost(live) == 1 and s.lost(s.pair(*chosen)) == 1
-    assert not any(n.startswith("lead veto") for n in notes), notes
-    assert "Archaludon" in chosen
+    assert s.lost(live) == 1 and s.lost(s.pair(*chosen)) == 0, (chosen, notes)
+    assert any(n.startswith("lead veto: not Archaludon + Arcanine") for n in notes), notes
+    assert s.model.opening(s.pair(*chosen), s.live_opp).ko_against == []
 
 
 def test_the_hard_veto_keeps_a_pair_that_loses_a_lead_out_while_a_safe_pair_exists():
@@ -188,3 +192,42 @@ def test_shortlist_v2_carries_the_veto_notes_and_still_answers_fast():
     assert cands and all(len(c.leads) == 2 and set(c.leads) <= set(c.bring) for c in cands)
     assert any(("lead veto" in n) or n.startswith("no lead pair of this four is safe") or ("lose nothing" in n)
                for n in cands[0].notes), cands[0].notes
+
+
+# -- C: their bring and leads are modelled by roles and matchups only ----------------------------------------------
+
+
+def test_their_side_carries_no_fitted_card_terms_and_todays_actual_four_is_predicted_first():
+    from itertools import combinations
+
+    our_six, their_six, _, their_live = LIVE["W bcbaabe2"]
+    model = lineup.PreviewModel([CATALOG[s] for s in our_six], [CATALOG[s] for s in their_six])
+    assert all(model.board.resid[j] == 0.0 for j in model.theirs)
+    assert any(model.board.resid[i] != 0.0 for i in model.ours)  # our own terms stay
+    names = {6 + j: s for j, s in enumerate(their_six)}
+    their_fours = list(combinations(model.theirs, lineup.BRING))
+    payoff = [[model.pairing(f, g) for g in their_fours] for f in combinations(model.ours, lineup.BRING)]
+    _, q, _ = lineup.solve_game(payoff)
+    predicted = max(range(len(their_fours)), key=lambda j: q[j])
+    assert {names[k] for k in their_fours[predicted]} == {"Dragonite", "Salamence", "Ting-Lu", "Rillaboom"}, \
+        [(sorted(names[k] for k in their_fours[j]), round(q[j], 2)) for j in range(len(their_fours)) if q[j] > 0]
+    assert q[predicted] > 0.99
+    s = Session("W bcbaabe2")
+    assert s.their_leads.get(s.live_opp, 0.0) > 0.0  # Dragonite + Salamence, the lead they opened with (two support users)
+    # With the fitted terms on their side (the Oct 7 behaviour) Dragonite's -0.355 dropped it from their four.
+    with_terms = lineup.PreviewModel([CATALOG[s] for s in our_six], [CATALOG[s] for s in their_six])
+    with_terms.board.resid = [float((with_terms.board.model.get("cards") or {}).get(u.key, {}).get("s", 0.0)) for u in with_terms.board.units]
+    with_terms._lead_cache.clear()
+    payoff = [[with_terms.pairing(f, g) for g in their_fours] for f in combinations(with_terms.ours, lineup.BRING)]
+    _, q2, _ = lineup.solve_game(payoff)
+    assert "Dragonite" not in {names[k] for k in their_fours[max(range(len(their_fours)), key=lambda j: q2[j])]}
+
+
+def test_the_lead_template_gives_two_support_users_a_share():
+    s = Session("W bcbaabe2")
+    four = tuple(sorted(s.idx[x] for x in ("Dragonite", "Salamence", "Ting-Lu", "Rillaboom")))
+    prior = s.model.template_leads(four, list(s.four))
+    double = {p for p in prior if all(s.model.board.roles[i] & {"fakeout", "tailwind", "trickroom", "speed_drop"} for i in p)
+              and s.idx["Ting-Lu"] not in p}
+    assert double and all(prior[p] > 0 for p in double) and abs(sum(prior[p] for p in double) - 0.25) < 1e-9
+    assert abs(sum(prior.values()) - 1.0) < 1e-9

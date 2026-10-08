@@ -350,11 +350,16 @@ class PreviewModel:
         from . import matchup
 
         self.matchup = matchup
-        model = matchup.load_model(section="preview")
+        model = matchup.load_model(section="preview", clamp=False)  # as fitted: see matchup.load_model
         self.board = matchup.Board([matchup.unit(c) for c in mine + theirs], model, tier_adjust=tier_adjust)
         self.opening_w = float(model.get("opening_weight", 0.35))
         self.ours = list(range(len(mine)))
         self.theirs = list(range(len(mine), len(mine) + len(theirs)))
+        # Their side is modelled by roles and matchups only: the fitted per-card terms come from games our own
+        # battle brain piloted and say nothing about how THIS opponent plays a card. (Oct 8, bcbaabe2: with the
+        # terms on, Dragonite's -0.355 dropped it from their predicted four and gave their actual lead 0%; with
+        # them off their actual four is predicted first.)
+        self.board.resid = [r if i in set(self.ours) else 0.0 for i, r in enumerate(self.board.resid)]
         self._lead_cache: dict[tuple, float] = {}
 
     def opening(self, ours: tuple[int, int], theirs: tuple[int, int], *, turns: int | None = None):
@@ -384,8 +389,10 @@ class PreviewModel:
         return our_pairs, their_pairs, p, q, value
 
     def template_leads(self, other: tuple[int, ...], against: list[int]) -> dict[tuple, float]:
-        """How a typical strong opponent leads (the Oct 7 opponent opened every live game this way): a Fake Out or
-        speed-control user next to its best spread attacker. Returns a distribution over their lead pairs."""
+        """How a strong opponent opens, from the eight live games of Oct 7-8: six times a Fake Out or speed-control
+        user next to its best spread attacker, twice two support users together (Dragonite + Salamence, Iron Hands +
+        Dragonite). Three quarters of the weight go to the first shape, a quarter to the second; no card is named.
+        Returns a distribution over their lead pairs."""
         board = self.board
         support = [i for i in other if board.roles[i] & {"fakeout", "tailwind", "trickroom", "speed_drop"}]
         pressure = {i: sum(board.spread[i][j] for j in against) / max(1, len(against)) for i in other}
@@ -397,12 +404,16 @@ class PreviewModel:
         else:
             fits = [p for p in pairs if any(i in support for i in p)]
         fits = fits or pairs
-        return {p: 1.0 / len(fits) for p in fits}
+        double = [p for p in pairs if all(i in support for i in p) and p not in fits]
+        out = {p: 0.75 / len(fits) for p in fits} if double else {p: 1.0 / len(fits) for p in fits}
+        for p in double:
+            out[p] = 0.25 / len(double)
+        return out
 
     def template_fours(self, their_fours: list[tuple[int, ...]]) -> list[float]:
-        """A distribution over their fours from the same template, applied to their whole six: the four contains their
-        Fake Out / speed-control user and their best spread attacker (the Oct 7 opponent brought Incineroar + its spread
-        attacker in every live game; predicting their four from our model alone left Incineroar out of match 2)."""
+        """A distribution over their fours from the same template, applied to their whole six: the four contains a
+        Fake Out / speed-control user and their best spread attacker. No card is anchored by name: on Oct 8 the
+        opponent benched its own first-pick Incineroar."""
         pairs = self.template_leads(tuple(self.theirs), self.ours)
         weights = [0.0] * len(their_fours)
         for pair, w in pairs.items():

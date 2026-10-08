@@ -149,6 +149,18 @@
    "flag": "engine rarely pivots, so Parting Shot / repeat Intimidates go unused",
    "live": "the Oct 7 opponent took it 3/3 at pick 1-2"
   },
+  "vgc-tornadus": {
+   "species": "Tornadus",
+   "fingerprint": "60de9722f4a4ca15",
+   "tier": "B",
+   "rating": 10.2,
+   "sim_rating": 0.2,
+   "adjust": 10,
+   "matchup_part": -12.1,
+   "card_part": 12.3,
+   "why": "wins 3/40 1-on-1s (best: Great Tusk, Amoonguss); countered by Archaludon, Gholdengo; Tailwind, spread; wins more in simulated games than its matchups explain",
+   "flag": "Prankster Tailwind / Taunt valued by fixed constants in the engine"
+  },
   "vgc-arcanine": {
    "species": "Arcanine",
    "fingerprint": "91c8d605d7f6719b",
@@ -237,18 +249,6 @@
    "matchup_part": 1.6,
    "card_part": -0.4,
    "why": "wins 18/40 1-on-1s (best: Gholdengo, Gyarados); countered by Archaludon, Torkoal"
-  },
-  "vgc-tornadus": {
-   "species": "Tornadus",
-   "fingerprint": "60de9722f4a4ca15",
-   "tier": "B",
-   "rating": 0.2,
-   "sim_rating": 0.2,
-   "adjust": 0,
-   "matchup_part": -12.1,
-   "card_part": 12.3,
-   "why": "wins 3/40 1-on-1s (best: Great Tusk, Amoonguss); countered by Archaludon, Gholdengo; Tailwind, spread; wins more in simulated games than its matchups explain",
-   "flag": "Prankster Tailwind / Taunt valued by fixed constants in the engine"
   },
   "vgc-landorus-therian": {
    "species": "Landorus-Therian",
@@ -397,6 +397,18 @@
    "card_part": -19.3,
    "why": "wins 17/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; spread; wins less in simulated games than its matchups suggest"
   },
+  "vgc-whimsicott": {
+   "species": "Whimsicott",
+   "fingerprint": "aed48d7a47e86e64",
+   "tier": "D",
+   "rating": -17.3,
+   "sim_rating": -27.3,
+   "adjust": 10,
+   "matchup_part": -23.9,
+   "card_part": -3.4,
+   "why": "wins 6/40 1-on-1s (best: Iron Hands, Great Tusk); countered by Gholdengo, Torkoal; Tailwind, screens",
+   "flag": "Prankster Tailwind / Encore valued by fixed constants in the engine"
+  },
   "vgc-grimmsnarl": {
    "species": "Grimmsnarl",
    "fingerprint": "954b2eb13493448a",
@@ -442,18 +454,6 @@
    "matchup_part": -0.4,
    "card_part": -22.1,
    "why": "wins 16/40 1-on-1s (best: Gyarados, Milotic); countered by Archaludon, Torkoal; wins less in simulated games than its matchups suggest"
-  },
-  "vgc-whimsicott": {
-   "species": "Whimsicott",
-   "fingerprint": "aed48d7a47e86e64",
-   "tier": "D",
-   "rating": -27.3,
-   "sim_rating": -27.3,
-   "adjust": 0,
-   "matchup_part": -23.9,
-   "card_part": -3.4,
-   "why": "wins 6/40 1-on-1s (best: Iron Hands, Great Tusk); countered by Gholdengo, Torkoal; Tailwind, screens",
-   "flag": "Prankster Tailwind / Encore valued by fixed constants in the engine"
   },
   "vgc-klefki": {
    "species": "Klefki",

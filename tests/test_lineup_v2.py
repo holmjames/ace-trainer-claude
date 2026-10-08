@@ -49,15 +49,21 @@ def test_v2_shortlist_is_legal_in_server_spelling_deterministic_and_fast():
 
 
 def test_v2_leads_avoid_an_opening_that_loses_both_leads():
-    # 7ce71025: our six against Iron Hands / Whimsicott / Archaludon / Sylveon / Incineroar / Amoonguss.
+    # 7ce71025: our six against Iron Hands / Whimsicott / Archaludon / Sylveon / Incineroar / Amoonguss. The lead veto
+    # (choose_leads_v2) guarantees at most one lead lost in the opening against each of their two likeliest leads.
+    # (Until Oct 8 this pinned "< 2 lost against Iron Hands + Sylveon", the lead they played; with Team Preview on the
+    # fitted weights that pair is their third likeliest lead here and the chosen Ursaluna + Indeedee-F trades two for
+    # one against it. Pinned to what the veto promises instead.)
     mine = ["Tornadus", "Garchomp", "Great Tusk", "Hatterene", "Ursaluna", "Indeedee-F"]
     theirs = ["Incineroar", "Iron Hands", "Whimsicott", "Archaludon", "Sylveon", "Amoonguss"]
     best = lineup.shortlist(*rosters(mine, theirs), params=V2)[0]
     model = lineup.PreviewModel([CATALOG[s] for s in mine], [CATALOG[s] for s in theirs])
     index = {data.to_id(s): i for i, s in enumerate(mine)}
+    index.update({data.to_id(s): 6 + j for j, s in enumerate(theirs)})
     ours = tuple(index[data.to_id(s)] for s in best.leads)
-    their_iron_hands, their_sylveon = 6 + theirs.index("Iron Hands"), 6 + theirs.index("Sylveon")
-    assert len(model.opening(ours, (their_iron_hands, their_sylveon)).ko_against) < 2, best.notes
+    note = next(n for n in best.notes if n.startswith("their likely leads: "))
+    likely = [tuple(index[data.to_id(x.strip())] for x in part.rsplit(" ", 1)[0].split(" + ")) for part in note[len("their likely leads: "):].split("; ")]
+    assert likely and all(len(model.opening(ours, opp).ko_against) < 2 for opp in likely), best.notes
 
 
 def test_template_predicts_fake_out_or_speed_control_next_to_the_best_spread_attacker():

@@ -32,10 +32,13 @@ DEFAULTS: dict[str, float] = {
     "draft_v2": 1.0,               # 1 = counter-aware drafter (matchup model + lookahead over their next picks); 0 = the greedy scorer above
     "draft_lookahead": 3.0,        # v2: how many of the opponent's best replies to try at their next pick (0 = greedy rollout only)
     "draft_minimax": 0.5,          # v2: weight on their most damaging reply vs the average of those tried (1 = pure worst case)
-    "draft_card_w": 0.0,           # v2: weight on the fitted per-card strengths (0 = matchups, roles and tier adjustments only; the fit came from an older battle brain, Oct 8)
-    "draft_tier_adjust": 1.25,     # v2 + Team Preview v2: weight on data/card_tiers.json's written-down adjustments (0 = off); 1.25 = the smallest value that ranks Incineroar top-5 at first pick on the three Oct 7 pools that offered it, with the pick-2 cases intact (draft-only replay, Oct 8)
+    "draft_card_w": 1.0,           # v2: weight on the fitted per-card strengths (0 = matchups, roles and tier adjustments only). Oct 8: 0 + tier_adjust 1.25 lifted Incineroar to top-5 at pick 1 on the Oct 7 pools but showed no gain over the eight live drafts; kept at 1
+    "draft_tier_adjust": 0.0,      # v2 + Team Preview v2: weight on data/card_tiers.json's written-down adjustments (0 = off; see draft_card_w)
     "draft_reply_depth": 1.0,      # v2: their consecutive picks to branch on (2 = both picks of a snake double; else greedy)
     "draft_counter_replies": 3.0,  # v2: their best replies by the counter-picker's scorer (agent/pokemon/counterpick.py) tried next to the team model's draft_lookahead best; 0 = team model only
+    "draft_counter_prior": 0.02,   # v2: our tier rating (data/card_tiers.json, 1/100 log-odds) x this, added to the counter-picker's score as its strength prior when it picks their replies (0.02: adds the L1 reply Gholdengo to its top three; 0.03+ pushed Incineroar below 5th at L4 pick 1, Oct 8)
+    "draft_four_eval": 1.0,        # v2: value a finished draft by the four we would bring (Team Preview's criterion, preview weights) instead of all six (Oct 8: early picks stayed home in four live games); 0 = six against six
+    "draft_their_fours": 3.0,      # v2: how many of their likeliest fours that value is taken against (the mean / worst blend uses lineup_v2_robust)
     # lineup
     "lineup_offense_w": 6.0,
     "lineup_resist_w": 1.5,

@@ -986,14 +986,13 @@ MATCHUP_FEATURES = ("answers", "backup", "mean", "top4", "spread", "ohko", "tw_g
 FEATURES = MATCHUP_FEATURES + tuple(f"role_{r}" for r in ROLE_CAPS)
 
 # Used when data/draft_model.json is missing, and as the VGC prior for every doubles-role weight the fit got wrong
-# (see ``load_model``): hand-set from how the roles are valued in real doubles play. tw_gain / tr_gain (the average
-# race-margin shift our speed control buys) count half of a full-game margin: Tailwind lasts four turns, Trick Room
-# five. (Measured on the four Oct 7 pools: at 1.0 a Prankster Tailwind user was the first pick of pool L3.)
+# (see ``load_model``): hand-set from how the roles are valued in real doubles play. (Oct 8: halving tw_gain / tr_gain
+# and crediting Trick Room 0.1 moved the bcbaabe2 pick-3 state off Archaludon, the card that won that game; kept.)
 DEFAULT_MODEL: dict = {
     "alpha_tw": 0.5, "alpha_tr": 0.5, "answer_cap": 0.5,
-    "weights": {"answers": 0.35, "backup": 0.1, "mean": 2.0, "top4": 1.0, "spread": 0.5, "ohko": 0.1, "tw_gain": 0.5, "tr_gain": 0.5,
+    "weights": {"answers": 0.35, "backup": 0.1, "mean": 2.0, "top4": 1.0, "spread": 0.5, "ohko": 0.1, "tw_gain": 1.0, "tr_gain": 1.0,
                 "role_fakeout": 0.15, "role_redirect": 0.1, "role_intimidate": 0.15, "role_tailwind": 0.1,
-                "role_trickroom": 0.1, "role_speed_drop": 0.05, "role_screens": 0.0, "role_sleep": 0.05,
+                "role_trickroom": 0.0, "role_speed_drop": 0.05, "role_screens": 0.0, "role_sleep": 0.05,
                 "role_burn_para": 0.0, "role_disrupt": 0.0, "role_helpinghand": 0.0, "role_priority": 0.1,
                 "role_prankster": 0.0, "role_pivot": 0.0, "role_wideguard": 0.0},
     "cards": {},
@@ -1008,11 +1007,15 @@ PRIOR_CLAMPED = ("tw_gain", "tr_gain") + tuple(f"role_{r}" for r in ROLE_CAPS)
 _MODEL_CACHE: dict[str, dict] = {}
 
 
-def load_model(path: str | Path | None = None, *, section: str = "draft") -> dict:
+def load_model(path: str | Path | None = None, *, section: str = "draft", clamp: bool = True) -> dict:
     """The fitted team model (``data/draft_model.json``, written by scripts/fit_draft_model.py), or the built-in
-    defaults. ``section`` is ``"draft"`` (six against six) or ``"preview"`` (four against four, with leads)."""
+    defaults. ``section`` is ``"draft"`` (six against six) or ``"preview"`` (four against four, with leads).
+    ``clamp`` replaces negative role / speed-control weights with the VGC priors (``clamp_roles``); Team Preview
+    passes ``clamp=False`` when it predicts the opponent's bring (Oct 8, eight live sessions with their fitted
+    per-card terms zeroed: the weights as fitted predicted their exact four 3 times, bcbaabe2 at 100%; the clamped
+    weights never did, crediting a Fake Out user this opponent benched)."""
     target = Path(path) if path else MODEL_PATH
-    cache_key = f"{target}:{section}"
+    cache_key = f"{target}:{section}:{'clamped' if clamp else 'fitted'}"
     if cache_key in _MODEL_CACHE:
         return _MODEL_CACHE[cache_key]
     model = DEFAULT_MODEL
@@ -1022,7 +1025,8 @@ def load_model(path: str | Path | None = None, *, section: str = "draft") -> dic
             model = {**DEFAULT_MODEL, **blob[section]}
     except (OSError, ValueError, AttributeError):
         pass
-    model = clamp_roles(model)
+    if clamp:
+        model = clamp_roles(model)
     _MODEL_CACHE[cache_key] = model
     return model
 
@@ -1065,9 +1069,10 @@ class Board:
     team pairs per second. ``score(us, them)`` takes index lists and returns the log-odds that ``us`` wins."""
 
     def __init__(self, units: list[Unit], model: dict | None = None, *, card_weight: float = 1.0,
-                 tiers: dict[str, dict] | None = None, tier_adjust: float = 1.0) -> None:
+                 tiers: dict[str, dict] | None = None, tier_adjust: float = 1.0, four_model: dict | None = None) -> None:
         self.units = list(units)
         self.model = model or load_model()
+        self.four_model = four_model  # weights for four-against-four (``score4``); the preview section when None
         tiers = load_tiers() if tiers is None else tiers
         n = len(self.units)
         self.n = n
@@ -1194,6 +1199,21 @@ class Board:
         feats = self.features(us, them)
         value = sum(w * f for w, f in zip(self.w, feats))
         value += sum(self.resid[i] for i in us) - sum(self.resid[j] for j in them)
+        return value
+
+    def score4(self, us: list[int], them: list[int], *, resid_them: bool = True) -> float:
+        """``score`` with the Team Preview weights (the ``preview`` section: four against four), so the drafter can
+        value a finished draft by the four it would bring the way Team Preview values it. ``resid_them=False``
+        models their side by roles and matchups only (no fitted per-card term), as Team Preview does."""
+        w4 = getattr(self, "_w4", None)
+        if w4 is None:
+            weights = (self.four_model or load_model(section="preview")).get("weights") or {}
+            w4 = self._w4 = [float(weights.get(f, 0.0)) for f in FEATURES]
+        feats = self.features(us, them)
+        value = sum(w * f for w, f in zip(w4, feats))
+        value += sum(self.resid[i] for i in us)
+        if resid_them:
+            value -= sum(self.resid[j] for j in them)
         return value
 
 
