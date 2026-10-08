@@ -523,13 +523,13 @@ supervised experiments only.
 **Night before**
 - [ ] Laptop updates done, auto-update off, sleep off, screensaver off, charger packed.
 - [ ] `python -m agent --check-tournament` shows ✓ on every line.
-- [ ] Anthropic console: credits ≥ $50, no rate-limit warnings. Note status page URL.
-- [ ] `.env` has the Official Agent Key and `ANTHROPIC_API_KEY`; `git status` clean; `.env` untracked.
+- [ ] Anthropic console: credits ≥ $50 (a match costs ~$1.50 on Opus; 11 games ≈ $20), no rate-limit warnings. Note status page URL.
+- [ ] `.env` has the Official Agent Key, `ANTHROPIC_API_KEY`, `ANTHROPIC_WORKSPACE_ID` and `AGENT_MODEL=claude-opus-5-5` (`grep ^AGENT_MODEL .env`; saves from an open TextEdit window reverted this line twice on Oct 7); `git status` clean; `.env` untracked.
 - [ ] Phone hotspot tested as backup network.
 
 **09:00–09:45**
 - [ ] Plug in. Open two terminals in `altruagent-starter`, venv active in both.
-- [ ] Terminal 1: `./scripts/run_tournament.sh` (runs `caffeinate -dims python -m agent --tournament`, restarts if it exits). Wait for `Connected as official tournament agent.`
+- [ ] Terminal 1: `./scripts/run_tournament.sh` (verified Oct 7: pre-flight, `caffeinate -dims python -m agent --tournament`, auto-restart after a kill; it also captures raw states to `tests/fixtures/live/`). Wait for `Connected with your Official Agent Key.` then `Waiting for your next game...`. Do NOT add `--match` on tournament day and run only one copy.
 - [ ] Terminal 2: `tail -f logs/*.jsonl` for the live decision log.
 - [ ] Dashboard open: confirm registration shows the agent as Self Hosted and ready. Then **close any spectator/replay view**: Rules §6 says the person who can restart the agent must not watch its match through a spectator view.
 

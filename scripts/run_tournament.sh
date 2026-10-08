@@ -10,6 +10,9 @@ set -u
 cd "$(dirname "$0")/.."
 
 mkdir -p logs
+# Save every raw server state the agent sees (tests/fixtures/live/<session>/<phase>-<version>-seat<n>.json):
+# tests/test_live_fixtures.py replays them and scripts/pool_from_live.py learns the real card pool from the drafts.
+export AGENT_CAPTURE_DIR="${AGENT_CAPTURE_DIR:-tests/fixtures/live}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 LOG="logs/runtime-tournament-${STAMP}.log"
 PY=".venv/bin/python"
@@ -19,6 +22,8 @@ KEEPAWAKE=""
 command -v caffeinate >/dev/null 2>&1 && KEEPAWAKE="caffeinate -dims"
 
 echo "Logging to $LOG"
+MODEL_LINE="$(grep -E '^AGENT_MODEL=' .env 2>/dev/null || true)"
+echo "Judging model from .env: ${MODEL_LINE:-<unset, code default applies>}"
 echo "Pre-flight check:"
 "$PY" -m agent --check-tournament 2>&1 | tee -a "$LOG" || { echo "Pre-flight failed; fix .env before the tournament."; exit 1; }
 
