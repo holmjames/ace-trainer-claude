@@ -502,6 +502,22 @@ only; it survives restarts and plays every match he creates or joins), creates/j
 logs land in `logs/`. Claude reads the logs afterwards. Claude's background runs stop when the session ends, so they are for
 supervised experiments only.
 
+### 5k. Oct 7 night: restart drills on the real runtime (both passed), one lesson
+
+**Drill 1, accidental and complete.** James's launcher picked up a self-play match at 17:16 and started two game processes.
+He stopped it with Ctrl+C at about 17:17 and ran the launcher again at 17:17:01. The new runtime re-authenticated and
+**resumed both seats** with fresh agent processes at 17:17:10 (four `config` rows in one session log). The fresh agents had
+no draft or Team Preview memory and still played 44 decisions on Opus with **0 fallbacks, 0 zero-candidate turns**. Match
+completed. Lesson: the gap between stop and resume was about 67 s, longer than the 55 s decision clock, so **turn 1 was
+auto-played by Showdown** (no turn-1 rows in the log, the bank shrank). The launcher's automatic restart (5 s + about 5 s
+to reconnect) stays inside the clock; a manual Ctrl+C and retype does not. On tournament day: never stop the launcher by hand
+during a game; if the runtime dies, the launcher brings it back.
+
+**Drill 2, forced.** At 17:17:52 a `kill -9` hit the supervisor process mid-battle. The two game processes are children with
+their own connections: they kept playing and finished the match normally. The launcher only noticed the supervisor's death
+once those children closed the shared log pipe (17:20:00) and restarted the runtime at 17:20:05, which connected and went back
+to waiting. No game was lost. (If the game processes had died too, drill 1 shows the restarted runtime resumes them.)
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
