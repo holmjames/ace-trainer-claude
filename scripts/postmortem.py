@@ -38,6 +38,14 @@ def seq(name: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+def our_side(obs: dict) -> tuple[str, str]:
+    """(ours, theirs) as protocol sides. Our `team` keys carry our side ("p2: Archaludon" when we are player 2)."""
+    team = obs.get("team") or {}
+    keys = team.keys() if isinstance(team, dict) else [m.get("name", "") for m in team if isinstance(m, dict)]
+    mine = next((k.split(":")[0] for k in keys if re.match(r"p[12]:", k or "")), "p1")
+    return mine, "p2" if mine == "p1" else "p1"
+
+
 def card_line(c: dict) -> str:
     evs = " / ".join(f"{v} {k}" for k, v in (c.get("evs") or {}).items())
     return (f"{c['species']} @ {c.get('item')} | {c.get('ability')} | {c.get('nature')} | {evs} | "
@@ -120,12 +128,15 @@ def main(argv: list[str] | None = None) -> int:
     # ---- battle
     if not moving:
         return 0
-    log = load(moving[-1])["observation"].get("protocol_log") or []
+    last_obs = load(moving[-1])["observation"]
+    log = last_obs.get("protocol_log") or []
+    mine, theirs = our_side(last_obs)
     opp_seen: list[str] = []
     for line in log:
-        m = re.match(r"\|(switch|drag)\|p2[ab]: ([^|]+)\|", line)
+        m = re.match(rf"\|(switch|drag)\|{theirs}[ab]: ([^|]+)\|", line)
         if m and m.group(2) not in opp_seen:
             opp_seen.append(m.group(2))
+    print(f"We are {mine} in the protocol log; the opponent is {theirs}.")
     print(f"Opponent brought (seen in battle): {opp_seen}\n")
     turns = [r for r in rows if r.get("kind") == "turn"]
     by_turn: dict[int, list[dict]] = {}
