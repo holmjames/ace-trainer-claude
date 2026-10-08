@@ -52,6 +52,7 @@ DEFAULTS: dict[str, float] = {
     "lineup_v2": 1.0,              # 1 = Team Preview from the matchup model (their likely four and leads); 0 = the scorer above
     "lineup_v2_robust": 0.25,      # v2: weight on our four's worst case against any four they could bring (rest: their likely mix)
     "lineup_v2_template": 0.5,     # v2: share of their predicted leads taken from the "Fake Out / speed control + best spread attacker" template
+    "lineup_v2_lead_robust": 0.0,  # v2: weight on our lead pair's worst opening against any plausible lead of theirs (vs the expected one)
     "lineup_v2_four_template": 0.0,  # v2: share of their predicted FOUR from the same template (off: on the search bot's live lineups M1 38->34%, M4 24->0%, M2 unchanged)
     # battle
     "ko_bonus_guaranteed": 25.0,

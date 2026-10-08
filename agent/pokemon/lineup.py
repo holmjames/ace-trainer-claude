@@ -439,8 +439,20 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
         for weight, j in likely:
             for pair, w in model.their_leads(four, their_fours[j], template).items():
                 their_leads[pair] = their_leads.get(pair, 0.0) + weight * w
-        lead_values = {pair: sum(w * model.lead_score(pair, opp) for opp, w in their_leads.items())
-                       for pair in combinations(four, LEADS)}
+        lead_robust = float(P.get("lineup_v2_lead_robust", 0.0))
+        plausible = [opp for opp, w in their_leads.items() if w >= 0.05] or list(their_leads)
+        if lead_robust:  # strong-player openings from their whole six count as plausible even outside their predicted four
+            plausible += [pr for pr in model.template_leads(tuple(model.theirs), list(four)) if pr not in plausible]
+
+        def lead_value(pair: tuple) -> float:
+            expected = sum(w * model.lead_score(pair, opp) for opp, w in their_leads.items())
+            if not lead_robust or not plausible:
+                return expected
+            # A lead that collapses against one plausible opening of theirs (Iron Hands into Fake Out + a Pixilate
+            # spread attacker, Oct 7) is a risk worth paying for even if their single likeliest lead is different.
+            return (1 - lead_robust) * expected + lead_robust * min(model.lead_score(pair, opp) for opp in plausible)
+
+        lead_values = {pair: lead_value(pair) for pair in combinations(four, LEADS)}
         best_pair = max(lead_values, key=lambda pr: (lead_values[pr], [-x for x in pr])) if lead_values else four[:LEADS]
         expected_leads = sorted(their_leads.items(), key=lambda t: -t[1])[:2]
         notes = [f"v2: {100 * win(expected):.0f}% vs their likely fours ({likely_note})",
