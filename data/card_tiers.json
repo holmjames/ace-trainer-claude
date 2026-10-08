@@ -17,7 +17,7 @@
    "adjust": 0,
    "matchup_part": 27.1,
    "card_part": 33.6,
-   "why": "wins 27/40 1-on-1s (e.g. Rillaboom, Grimmsnarl), loses 4; wins more in simulated games than its matchups explain",
+   "why": "wins 27/40 1-on-1s (best: Gyarados, Kingambit); countered by Gholdengo, Flutter Mane; wins more in simulated games than its matchups explain",
    "live": "the search bot took it 3/4"
   },
   "vgc-gholdengo": {
@@ -29,7 +29,7 @@
    "adjust": 0,
    "matchup_part": 13.5,
    "card_part": 39.4,
-   "why": "wins 18/40 1-on-1s (e.g. Hatterene, Sneasler), loses 15; spread; wins more in simulated games than its matchups explain",
+   "why": "wins 18/40 1-on-1s (best: Archaludon, Porygon2); countered by Torkoal, Flutter Mane; spread; wins more in simulated games than its matchups explain",
    "live": "the search bot took it 2/2"
   },
   "vgc-torkoal": {
@@ -41,7 +41,7 @@
    "adjust": 0,
    "matchup_part": -0.3,
    "card_part": 25.4,
-   "why": "wins 16/40 1-on-1s (e.g. Scream Tail, Klefki), loses 20; spread, sleep move; wins more in simulated games than its matchups explain"
+   "why": "wins 16/40 1-on-1s (best: Gholdengo, Kingambit); countered by Flutter Mane, Iron Hands; spread, sleep move; wins more in simulated games than its matchups explain"
   },
   "vgc-flutter-mane": {
    "species": "Flutter Mane",
@@ -52,7 +52,7 @@
    "adjust": 0,
    "matchup_part": 0.7,
    "card_part": 22.4,
-   "why": "wins 20/40 1-on-1s (e.g. Dragonite, Gholdengo), loses 11; spread; wins more in simulated games than its matchups explain"
+   "why": "wins 20/40 1-on-1s (best: Archaludon, Gholdengo); countered by Iron Hands, Gyarados; spread; wins more in simulated games than its matchups explain"
   },
   "vgc-iron-hands": {
    "species": "Iron Hands",
@@ -63,7 +63,7 @@
    "adjust": 0,
    "matchup_part": 11.8,
    "card_part": 9.1,
-   "why": "wins 23/40 1-on-1s (e.g. Ursaluna, Kingambit), loses 7; Fake Out",
+   "why": "wins 23/40 1-on-1s (best: Archaludon, Gholdengo); countered by Sylveon, Garchomp; Fake Out",
    "live": "the search bot took it 2/3"
   },
   "vgc-gyarados": {
@@ -75,7 +75,7 @@
    "adjust": 0,
    "matchup_part": 27.6,
    "card_part": -9.8,
-   "why": "wins 26/40 1-on-1s (e.g. Grimmsnarl, Scream Tail), loses 8; Intimidate, spread"
+   "why": "wins 26/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Intimidate, spread"
   },
   "vgc-porygon2": {
    "species": "Porygon2",
@@ -86,7 +86,7 @@
    "adjust": 0,
    "matchup_part": 11.8,
    "card_part": 4.4,
-   "why": "wins 16/40 1-on-1s (e.g. Amoonguss, Iron Bundle), loses 10; Trick Room",
+   "why": "wins 16/40 1-on-1s (best: Torkoal, Tornadus); countered by Gholdengo, Iron Hands; Trick Room",
    "flag": "engine sets Trick Room whether or not its own team wants it"
   },
   "vgc-kingambit": {
@@ -98,7 +98,7 @@
    "adjust": 0,
    "matchup_part": 16.4,
    "card_part": -0.4,
-   "why": "wins 22/40 1-on-1s (e.g. Basculegion, Flutter Mane), loses 10; priority"
+   "why": "wins 22/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Archaludon, Torkoal; priority"
   },
   "vgc-milotic": {
    "species": "Milotic",
@@ -109,7 +109,7 @@
    "adjust": 0,
    "matchup_part": -0.4,
    "card_part": 14.0,
-   "why": "wins 13/40 1-on-1s (e.g. Torkoal, Salamence), loses 16; wins more in simulated games than its matchups explain"
+   "why": "wins 13/40 1-on-1s (best: Torkoal, Incineroar); countered by Archaludon, Iron Hands; wins more in simulated games than its matchups explain"
   },
   "vgc-sylveon": {
    "species": "Sylveon",
@@ -120,7 +120,7 @@
    "adjust": 0,
    "matchup_part": 20.4,
    "card_part": -6.9,
-   "why": "wins 22/40 1-on-1s (e.g. Sableye, Salamence), loses 8; spread",
+   "why": "wins 22/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Gyarados, Kingambit; spread",
    "live": "the search bot took it 2/2"
   },
   "vgc-dragonite": {
@@ -132,7 +132,7 @@
    "adjust": 17,
    "matchup_part": 12.6,
    "card_part": -16.8,
-   "why": "wins 21/40 1-on-1s (e.g. Tornadus, Torkoal), loses 7; Tailwind, priority; wins less in simulated games than its matchups suggest",
+   "why": "wins 21/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Flutter Mane; Tailwind, priority; wins less in simulated games than its matchups suggest",
    "flag": "engine spends Tailwind as a flat-value move; Multiscale + Extreme Speed under Tailwind is the real plan",
    "live": "the search bot took it 2/2"
   },
@@ -145,7 +145,7 @@
    "adjust": 25,
    "matchup_part": -18.2,
    "card_part": 5.8,
-   "why": "wins 15/40 1-on-1s (e.g. Indeedee-F, Klefki), loses 16; Fake Out, Intimidate",
+   "why": "wins 15/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Fake Out, Intimidate",
    "flag": "engine rarely pivots, so Parting Shot / repeat Intimidates go unused",
    "live": "the search bot took it 3/3 at pick 1-2"
   },
@@ -158,7 +158,7 @@
    "adjust": 10,
    "matchup_part": -12.1,
    "card_part": 12.3,
-   "why": "wins 3/40 1-on-1s (e.g. Great Tusk, Amoonguss), loses 30; Tailwind, spread; wins more in simulated games than its matchups explain",
+   "why": "wins 3/40 1-on-1s (best: Great Tusk, Amoonguss); countered by Archaludon, Gholdengo; Tailwind, spread; wins more in simulated games than its matchups explain",
    "flag": "Prankster Tailwind / Taunt valued by fixed constants in the engine"
   },
   "vgc-arcanine": {
@@ -170,7 +170,7 @@
    "adjust": 0,
    "matchup_part": 5.8,
    "card_part": 3.6,
-   "why": "wins 12/40 1-on-1s (e.g. Klefki, Whimsicott), loses 16; Intimidate, spread, priority"
+   "why": "wins 12/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Archaludon, Gyarados; Intimidate, spread, priority"
   },
   "vgc-garchomp": {
    "species": "Garchomp",
@@ -181,7 +181,7 @@
    "adjust": 0,
    "matchup_part": 6.2,
    "card_part": 1.6,
-   "why": "wins 13/40 1-on-1s (e.g. Lucario, Torkoal), loses 13; spread"
+   "why": "wins 13/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Porygon2; spread"
   },
   "vgc-great-tusk": {
    "species": "Great Tusk",
@@ -192,7 +192,7 @@
    "adjust": 0,
    "matchup_part": 11.5,
    "card_part": -4.9,
-   "why": "wins 19/40 1-on-1s (e.g. Grimmsnarl, Iron Hands), loses 13; spread"
+   "why": "wins 19/40 1-on-1s (best: Torkoal, Iron Hands); countered by Gholdengo, Flutter Mane; spread"
   },
   "vgc-sneasler": {
    "species": "Sneasler",
@@ -203,7 +203,7 @@
    "adjust": 0,
    "matchup_part": -15.0,
    "card_part": 21.7,
-   "why": "wins 17/40 1-on-1s (e.g. Grimmsnarl, Sylveon), loses 15; Fake Out; wins more in simulated games than its matchups explain"
+   "why": "wins 17/40 1-on-1s (best: Porygon2, Kingambit); countered by Archaludon, Gholdengo; Fake Out; wins more in simulated games than its matchups explain"
   },
   "vgc-ursaluna": {
    "species": "Ursaluna",
@@ -214,7 +214,7 @@
    "adjust": 0,
    "matchup_part": 10.7,
    "card_part": -5.1,
-   "why": "wins 19/40 1-on-1s (e.g. Torkoal, Klefki), loses 14; spread",
+   "why": "wins 19/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Archaludon, Gholdengo; spread",
    "live": "our drafter's specialist pick in a loss"
   },
   "vgc-basculegion": {
@@ -226,7 +226,7 @@
    "adjust": 0,
    "matchup_part": 3.7,
    "card_part": 1.7,
-   "why": "wins 18/40 1-on-1s (e.g. Sableye, Hatterene), loses 12; priority"
+   "why": "wins 18/40 1-on-1s (best: Porygon2, Milotic); countered by Archaludon, Gyarados; priority"
   },
   "vgc-chien-pao": {
    "species": "Chien-Pao",
@@ -237,7 +237,7 @@
    "adjust": 0,
    "matchup_part": 11.5,
    "card_part": -8.4,
-   "why": "wins 15/40 1-on-1s (e.g. Basculegion, Flutter Mane), loses 6; priority"
+   "why": "wins 15/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Torkoal, Gyarados; priority"
   },
   "vgc-wo-chien": {
    "species": "Wo-Chien",
@@ -248,7 +248,7 @@
    "adjust": 0,
    "matchup_part": 1.6,
    "card_part": -0.4,
-   "why": "wins 18/40 1-on-1s (e.g. Dondozo, Milotic), loses 15"
+   "why": "wins 18/40 1-on-1s (best: Gholdengo, Gyarados); countered by Archaludon, Torkoal"
   },
   "vgc-landorus-therian": {
    "species": "Landorus-Therian",
@@ -259,7 +259,7 @@
    "adjust": 0,
    "matchup_part": 5.5,
    "card_part": -5.9,
-   "why": "wins 19/40 1-on-1s (e.g. Klefki, Sneasler), loses 12; Intimidate, spread"
+   "why": "wins 19/40 1-on-1s (best: Gholdengo, Torkoal); countered by Gyarados, Porygon2; Intimidate, spread"
   },
   "vgc-tyranitar": {
    "species": "Tyranitar",
@@ -270,7 +270,7 @@
    "adjust": 0,
    "matchup_part": 6.9,
    "card_part": -7.4,
-   "why": "wins 18/40 1-on-1s (e.g. Tornadus, Sableye), loses 14; spread"
+   "why": "wins 18/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; spread"
   },
   "vgc-pelipper": {
    "species": "Pelipper",
@@ -281,7 +281,7 @@
    "adjust": 0,
    "matchup_part": 6.0,
    "card_part": -7.0,
-   "why": "wins 18/40 1-on-1s (e.g. Ursaluna, Sableye), loses 13; Tailwind"
+   "why": "wins 18/40 1-on-1s (best: Torkoal, Incineroar); countered by Archaludon, Flutter Mane; Tailwind"
   },
   "vgc-rillaboom": {
    "species": "Rillaboom",
@@ -292,7 +292,7 @@
    "adjust": 0,
    "matchup_part": -17.8,
    "card_part": 13.0,
-   "why": "wins 20/40 1-on-1s (e.g. Sableye, Milotic), loses 10; Fake Out; wins more in simulated games than its matchups explain"
+   "why": "wins 20/40 1-on-1s (best: Flutter Mane, Gyarados); countered by Archaludon, Torkoal; Fake Out; wins more in simulated games than its matchups explain"
   },
   "vgc-dondozo": {
    "species": "Dondozo",
@@ -303,7 +303,7 @@
    "adjust": 0,
    "matchup_part": -2.1,
    "card_part": -3.4,
-   "why": "wins 15/40 1-on-1s (e.g. Klefki, Arcanine), loses 14; spread",
+   "why": "wins 15/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Archaludon, Iron Hands; spread",
    "flag": "no Commander (no Tatsugiri in the catalog); this set is Unaware, which the race model does credit"
   },
   "vgc-indeedee-f": {
@@ -315,7 +315,7 @@
    "adjust": 0,
    "matchup_part": -8.7,
    "card_part": 1.0,
-   "why": "wins 12/40 1-on-1s (e.g. Amoonguss, Torkoal), loses 15; redirection, spread"
+   "why": "wins 12/40 1-on-1s (best: Torkoal, Iron Hands); countered by Gholdengo, Flutter Mane; redirection, spread"
   },
   "vgc-thundurus": {
    "species": "Thundurus",
@@ -326,7 +326,7 @@
    "adjust": 0,
    "matchup_part": -1.0,
    "card_part": -6.7,
-   "why": "wins 13/40 1-on-1s (e.g. Dondozo, Gyarados), loses 17"
+   "why": "wins 13/40 1-on-1s (best: Gholdengo, Gyarados); countered by Archaludon, Flutter Mane"
   },
   "vgc-salamence": {
    "species": "Salamence",
@@ -337,7 +337,7 @@
    "adjust": 0,
    "matchup_part": -1.8,
    "card_part": -6.1,
-   "why": "wins 12/40 1-on-1s (e.g. Dondozo, Rillaboom), loses 19; Intimidate, Tailwind"
+   "why": "wins 12/40 1-on-1s (best: Torkoal, Arcanine); countered by Archaludon, Gholdengo; Intimidate, Tailwind"
   },
   "vgc-baxcalibur": {
    "species": "Baxcalibur",
@@ -348,7 +348,7 @@
    "adjust": 0,
    "matchup_part": 10.8,
    "card_part": -19.3,
-   "why": "wins 26/40 1-on-1s (e.g. Amoonguss, Ursaluna), loses 7; priority; wins less in simulated games than its matchups suggest",
+   "why": "wins 26/40 1-on-1s (best: Torkoal, Gyarados); countered by Archaludon, Gholdengo; priority; wins less in simulated games than its matchups suggest",
    "live": "our drafter's specialist pick in two losses"
   },
   "vgc-scream-tail": {
@@ -360,7 +360,7 @@
    "adjust": 0,
    "matchup_part": -11.0,
    "card_part": 2.5,
-   "why": "wins 2/40 1-on-1s (e.g. Sableye, Salamence), loses 27; spread"
+   "why": "wins 2/40 1-on-1s (best: Salamence, Sableye); countered by Archaludon, Gholdengo; spread"
   },
   "vgc-hatterene": {
    "species": "Hatterene",
@@ -371,7 +371,7 @@
    "adjust": 0,
    "matchup_part": 0.2,
    "card_part": -10.4,
-   "why": "wins 10/40 1-on-1s (e.g. Klefki, Iron Bundle), loses 18; Trick Room, spread; wins less in simulated games than its matchups suggest",
+   "why": "wins 10/40 1-on-1s (best: Torkoal, Tornadus); countered by Archaludon, Gholdengo; Trick Room, spread; wins less in simulated games than its matchups suggest",
    "flag": "engine sets Trick Room whether or not its own team wants it"
   },
   "vgc-amoonguss": {
@@ -383,7 +383,7 @@
    "adjust": 10,
    "matchup_part": -22.2,
    "card_part": -1.3,
-   "why": "wins 9/40 1-on-1s (e.g. Scream Tail, Whimsicott), loses 23; redirection, sleep move",
+   "why": "wins 9/40 1-on-1s (best: Wo-Chien, Rillaboom); countered by Archaludon, Gholdengo; redirection, sleep move",
    "flag": "engine redirects only to save a partner from a KO; Spore + Rage Powder do more in good hands"
   },
   "vgc-ting-lu": {
@@ -395,7 +395,7 @@
    "adjust": 0,
    "matchup_part": 4.9,
    "card_part": -19.3,
-   "why": "wins 17/40 1-on-1s (e.g. Thundurus, Sableye), loses 13; spread; wins less in simulated games than its matchups suggest"
+   "why": "wins 17/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; spread; wins less in simulated games than its matchups suggest"
   },
   "vgc-whimsicott": {
    "species": "Whimsicott",
@@ -406,7 +406,7 @@
    "adjust": 10,
    "matchup_part": -23.9,
    "card_part": -3.4,
-   "why": "wins 6/40 1-on-1s (e.g. Sableye, Iron Hands), loses 22; Tailwind, screens",
+   "why": "wins 6/40 1-on-1s (best: Iron Hands, Great Tusk); countered by Gholdengo, Torkoal; Tailwind, screens",
    "flag": "Prankster Tailwind / Encore valued by fixed constants in the engine"
   },
   "vgc-grimmsnarl": {
@@ -418,7 +418,7 @@
    "adjust": 0,
    "matchup_part": -21.3,
    "card_part": 2.2,
-   "why": "wins 8/40 1-on-1s (e.g. Sableye, Wo-Chien), loses 21; screens",
+   "why": "wins 8/40 1-on-1s (best: Porygon2, Milotic); countered by Archaludon, Gholdengo; screens",
    "flag": "screens valued by fixed constants in the engine"
   },
   "vgc-lucario": {
@@ -430,7 +430,7 @@
    "adjust": 0,
    "matchup_part": -7.5,
    "card_part": -12.1,
-   "why": "wins 10/40 1-on-1s (e.g. Flutter Mane, Incineroar), loses 19; priority; wins less in simulated games than its matchups suggest",
+   "why": "wins 10/40 1-on-1s (best: Flutter Mane, Kingambit); countered by Gholdengo, Torkoal; priority; wins less in simulated games than its matchups suggest",
    "live": "our drafter's specialist pick in two losses"
   },
   "vgc-cresselia": {
@@ -442,7 +442,7 @@
    "adjust": 0,
    "matchup_part": -14.0,
    "card_part": -7.9,
-   "why": "wins 15/40 1-on-1s (e.g. Sableye, Lucario), loses 17; spread"
+   "why": "wins 15/40 1-on-1s (best: Archaludon, Iron Hands); countered by Gholdengo, Torkoal; spread"
   },
   "vgc-iron-bundle": {
    "species": "Iron Bundle",
@@ -453,7 +453,7 @@
    "adjust": 0,
    "matchup_part": -0.4,
    "card_part": -22.1,
-   "why": "wins 16/40 1-on-1s (e.g. Great Tusk, Gyarados), loses 17; wins less in simulated games than its matchups suggest"
+   "why": "wins 16/40 1-on-1s (best: Gyarados, Milotic); countered by Archaludon, Torkoal; wins less in simulated games than its matchups suggest"
   },
   "vgc-klefki": {
    "species": "Klefki",
@@ -464,7 +464,7 @@
    "adjust": 0,
    "matchup_part": -26.5,
    "card_part": -10.3,
-   "why": "wins 7/40 1-on-1s (e.g. Sableye, Tornadus), loses 28; spread, screens; wins less in simulated games than its matchups suggest",
+   "why": "wins 7/40 1-on-1s (best: Dragonite, Tornadus); countered by Archaludon, Gholdengo; spread, screens; wins less in simulated games than its matchups suggest",
    "flag": "screens valued by fixed constants in the engine"
   },
   "vgc-sableye": {
@@ -476,7 +476,7 @@
    "adjust": 0,
    "matchup_part": -26.5,
    "card_part": -18.2,
-   "why": "wins 0/40 1-on-1s (e.g. -), loses 34; Fake Out; wins less in simulated games than its matchups suggest",
+   "why": "wins 0/40 1-on-1s; countered by Archaludon, Gholdengo; Fake Out; wins less in simulated games than its matchups suggest",
    "flag": "Prankster Will-O-Wisp / Taunt valued by fixed constants in the engine"
   }
  }

@@ -92,22 +92,28 @@ def matchup_parts(board: matchup.Board, rng: random.Random) -> list[float]:
     return [s / c if c else 0.0 for s, c in zip(sums, counts)]
 
 
-def why(board: matchup.Board, k: int, part_matchup: float, part_card: float) -> str:
-    """One line from the numbers: the 1-on-1 record, roles, and what the simulator adds."""
+def why(board: matchup.Board, k: int, card_part: float, ratings: list[float]) -> str:
+    """One line from the numbers: the 1-on-1 record with its most valuable wins and counters, roles, and what the
+    simulated games add on top of the matchups."""
     unit = board.units[k]
     others = [j for j in range(len(board.units)) if j != k]
-    beats = sorted((j for j in others if board.base[k][j] >= 0.2), key=lambda j: -board.base[k][j])
-    loses = [j for j in others if board.base[k][j] <= -0.2]
+    by_rating = sorted(others, key=lambda j: -ratings[j])
+    beats = [j for j in by_rating if board.base[k][j] >= 0.2]
+    loses = [j for j in by_rating if board.base[k][j] <= -0.2]
     roles = [r for r in ("fakeout", "intimidate", "tailwind", "trickroom", "redirect", "spread", "priority", "screens", "sleep")
              if r in unit.roles]
     names = {"fakeout": "Fake Out", "intimidate": "Intimidate", "tailwind": "Tailwind", "trickroom": "Trick Room",
              "redirect": "redirection", "spread": "spread", "priority": "priority", "screens": "screens", "sleep": "sleep move"}
-    text = f"wins {len(beats)}/{len(others)} 1-on-1s (e.g. {', '.join(board.units[j].species for j in beats[:2]) or '-'}), loses {len(loses)}"
+    text = f"wins {len(beats)}/{len(others)} 1-on-1s"
+    if beats:
+        text += f" (best: {', '.join(board.units[j].species for j in beats[:2])})"
+    if loses:
+        text += f"; countered by {', '.join(board.units[j].species for j in loses[:2])}"
     if roles:
         text += "; " + ", ".join(names[r] for r in roles)
-    if part_card >= 0.10:
+    if card_part >= 0.10:
         text += "; wins more in simulated games than its matchups explain"
-    elif part_card <= -0.10:
+    elif card_part <= -0.10:
         text += "; wins less in simulated games than its matchups suggest"
     return text
 
@@ -118,16 +124,16 @@ def main() -> int:
     units = [matchup.unit(c) for c in cards]
     board = matchup.Board(units, model, tiers={})
     parts = matchup_parts(board, random.Random(1))
+    card_parts = [float((model.get("cards", {}).get(u.key) or {}).get("s", 0.0)) for u in units]
+    ratings = [100 * (parts[k] + card_parts[k]) + PRIORS.get(u.species, {}).get("adjust", 0) for k, u in enumerate(units)]
     out: dict[str, dict] = {}
     for k, (card, unit) in enumerate(zip(cards, units)):
-        card_part = float((model.get("cards", {}).get(unit.key) or {}).get("s", 0.0))
-        sim = 100 * (parts[k] + card_part)
+        sim = 100 * (parts[k] + card_parts[k])
         prior = PRIORS.get(unit.species, {})
-        rating = sim + prior.get("adjust", 0)
         out[card["card_id"]] = {
-            "species": unit.species, "fingerprint": unit.key, "tier": tier_of(rating), "rating": round(rating, 1),
+            "species": unit.species, "fingerprint": unit.key, "tier": tier_of(ratings[k]), "rating": round(ratings[k], 1),
             "sim_rating": round(sim, 1), "adjust": prior.get("adjust", 0), "matchup_part": round(100 * parts[k], 1),
-            "card_part": round(100 * card_part, 1), "why": why(board, k, parts[k], card_part),
+            "card_part": round(100 * card_parts[k], 1), "why": why(board, k, card_parts[k], ratings),
             **({"flag": prior["flag"]} if prior.get("flag") else {}), **({"live": prior["live"]} if prior.get("live") else {}),
         }
     ordered = dict(sorted(out.items(), key=lambda kv: -kv[1]["rating"]))
