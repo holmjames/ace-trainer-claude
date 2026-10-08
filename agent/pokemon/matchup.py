@@ -47,9 +47,9 @@ ABSORB_ABILITIES = {"flashfire": "fire", "wellbakedbody": "fire", "waterabsorb":
                     "dryskin": "water", "voltabsorb": "electric", "lightningrod": "electric", "motordrive": "electric",
                     "sapsipper": "grass", "eartheater": "ground", "levitate": "ground"}
 MOLD_BREAKERS = {"moldbreaker", "teravolt", "turboblaze", "myceliummight"}
-RAIN_SURE_HIT = {"hurricane", "thunder", "bleakwindstorm", "wildboltstorm", "sandsearstorm"}
-WEIGHT_MOVES = {"lowkick", "grassknot"}  # power from the target's weight; the shared calculator reads their 0 as "no damage"
-DAMAGING_WITHOUT_POWER = WEIGHT_MOVES | {"ruination", "beatup", "heavyslam", "heatcrash"}
+RAIN_SURE_HIT = data.RAIN_SURE_HIT
+WEIGHT_MOVES = set(data.WEIGHT_MOVES)  # power from the target's weight; the shared calculator reads their 0 as "no damage"
+DAMAGING_WITHOUT_POWER = set(data.DAMAGING_WITHOUT_POWER) | {"ruination", "beatup"}
 
 # -- what moves and abilities do in a race -----------------------------------------------------------------------
 RECOIL = {"flareblitz": 1 / 3, "wavecrash": 1 / 3, "woodhammer": 1 / 3, "bravebird": 1 / 3, "doubleedge": 1 / 3,
@@ -170,8 +170,9 @@ def calc_hit(attacker: Mon, move: dict, defender: Mon, fs: FieldState | None, *,
     from the target's weight (the move table says 0, which reads as "no damage") and immunities from absorbing
     abilities (Flash Fire, Water Absorb, Volt Absorb...). Checked against @smogon/calc in tests/test_matchup.py.
     (min%, max%) of the defender's CURRENT HP, or None for a move that does no damage."""
-    if move.get("id") in WEIGHT_MOVES:
-        move = {**move, "base_power": weight_power(defender)}
+    power = data.weight_power(move, defender, attacker)  # Low Kick / Grass Knot, Heavy Slam / Heat Crash
+    if power is not None:
+        move = {**move, "base_power": power}
     if data.to_id(attacker.ability) not in MOLD_BREAKERS and move.get("category") in ("Physical", "Special"):
         absorbed = ABSORB_ABILITIES.get(data.to_id(defender.ability))
         if absorbed and data.to_id(effective_move(attacker, move, defender, fs).get("type")) == absorbed:
@@ -179,26 +180,14 @@ def calc_hit(attacker: Mon, move: dict, defender: Mon, fs: FieldState | None, *,
     return damage_percent(attacker, move, defender, field=fs, spread=spread)
 
 
-def weight_power(defender: Mon) -> int:
-    """Low Kick / Grass Knot power from the target's weight (kg)."""
-    info = data.species_info(defender.species) or {}
-    try:
-        kg = float(info.get("weightkg") or 0)
-    except (TypeError, ValueError):
-        kg = 0.0
-    for limit, power in ((200, 120), (100, 100), (50, 80), (25, 60), (10, 40)):
-        if kg >= limit:
-            return power
-    return 20
+def weight_power(defender: Mon, move: dict | None = None, attacker: Mon | None = None) -> int:
+    """Low Kick / Grass Knot power from the target's weight (``data.weight_power``, the mech lane's table)."""
+    return int(data.weight_power(move or {"id": "lowkick"}, defender, attacker) or 20)
 
 
 def accuracy(move: dict, weather: str | None) -> float:
-    acc = move.get("accuracy")
-    if acc is True or acc is None:
-        return 1.0
-    if weather == "rain" and move.get("id") in RAIN_SURE_HIT:
-        return 1.0
-    return max(0.0, min(1.0, float(acc) / 100.0))
+    """The move's chance to land (``data.hit_chance``: never-miss moves, rain / snow sure hits, sun halving)."""
+    return data.hit_chance(move, weather)
 
 
 def pair_field(a: Unit, b: Unit) -> tuple[str | None, str | None]:

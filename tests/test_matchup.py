@@ -233,3 +233,28 @@ def test_the_drafter_base_value_is_the_tier_rating():
     # Editing a rating moves the drafter by exactly that much: a unit of rating is 1/100 log-odds per card.
     edited = {**matchup.load_tiers(), entry["fingerprint"]: {**entry, "rating": entry["rating"] + 10}}
     assert matchup.Board(units, tiers=edited).resid[0] == pytest.approx(adjusted.resid[0] + 0.10)
+
+
+# -- the shared helpers (Oct 8: data.weight_power / data.hit_chance replace matchup's private copies) ----------------
+
+
+def test_openings_and_duels_are_unchanged_for_moves_without_weight_or_weather():
+    # Pinned from the Oct 8 board before the switch; none of these sets carries Low Kick / Grass Knot / Heavy Slam /
+    # Heat Crash (only Tyranitar does in the catalog) or sets weather.
+    def lead(a, b):
+        return [u(a), u(b)]
+
+    assert matchup.opening(lead("Archaludon", "Arcanine"), lead("Dragonite", "Salamence")).margin == pytest.approx(0.7647, abs=1e-4)
+    assert matchup.opening(lead("Iron Hands", "Whimsicott"), lead("Incineroar", "Sylveon")).margin == pytest.approx(-0.6242, abs=1e-4)
+    assert matchup.opening(lead("Great Tusk", "Tornadus"), lead("Iron Hands", "Sylveon")).margin == pytest.approx(-1.3344, abs=1e-4)
+    assert matchup.opening(lead("Hatterene", "Indeedee-F"), lead("Incineroar", "Sylveon")).margin == pytest.approx(-1.0961, abs=1e-4)
+    for a, b, margin, tw_a, tr in (("Incineroar", "Gholdengo", 0.5673, 0.7313, 0.7313), ("Sylveon", "Iron Hands", 0.3110, 0.3110, -0.2887),
+                                   ("Dragonite", "Archaludon", -0.7576, -0.7576, -0.8293), ("Flutter Mane", "Iron Valiant", 1.0, 1.0, 0.4920),
+                                   ("Talonflame", "Rillaboom", 0.2729, 0.2729, 0.1655)):
+        d = matchup.duel(u(a), u(b))
+        assert (d.margin, d.margin_tw_a, d.margin_tr) == pytest.approx((margin, tw_a, tr), abs=1e-4), (a, b)
+    # The helpers are the mech lane's: a Low Kick into Ting-Lu reads its weight band, Hurricane lands 70% outside rain.
+    tyranitar = u("Tyranitar")
+    assert matchup.weight_power(u("Ting-Lu").mon, move_of(tyranitar, "Low Kick"), tyranitar.mon) == data.weight_power("lowkick", "Ting-Lu")
+    assert matchup.accuracy({"id": "hurricane", "accuracy": 70}, None) == pytest.approx(0.7)
+    assert matchup.accuracy({"id": "hurricane", "accuracy": 70}, "rain") == 1.0
