@@ -582,6 +582,26 @@ folder happened to be quiet.
 - Rule: **never run the tournament runtime, the simulator or a sweep from an iCloud-synced folder.** Disk is 94% full (13 GB
   free); clear space before Oct 16.
 
+### 5n. Oct 7 night: sparring results and two fixes mined from them
+
+**Sparring, code-only vs the starter's LLM agent on Sonnet 5.5 (10 games, seed 101, clean copy): 9-1.** Games lasted 4 to 11
+turns, 38 to 66 s each. The one loss (game 7) was mined:
+- Draft gave them Miraidon + Lunala + Scarf Urshifu; our leads Garchomp + Salamence lost Salamence turn 1.
+- Turn 2: Urshifu (Unseen Fist pierces Protect) threatened Garchomp, so the code offered `switch_threatened` into the only bench
+  Pokémon, Iron Bundle, which Close Combat KOs on entry. A pivot that donates a Pokémon.
+- **Fix 1:** `switch_threatened` now builds the incoming Pokémon (bench HP from the observation) and drops the switch when the
+  same attacker's known moves KO it on entry, adding a warning that says so.
+- **Fix 2:** the live server includes Showdown's protocol log in every observation; `MatchMemory.observe_protocol` records each
+  opposing Pokémon's last move since it entered, and a Choice holder's threats list only that locked move (the simulator now
+  passes its `log_tail` as `protocol_log` too). New scenario `no_suicide_pivot`.
+- Earlier the same night, from the override grader: **repeated Protect** (streak counter, 0.33^streak, switch offered after a
+  Protect; scenario `repeat_protect_pinned`).
+State after both: 970 tests, 21/21 scenarios, simulator baselines unchanged (93-94% vs random, 84% vs smoke).
+
+**Next (in order):** Opus vs sparring (8 games) to measure the judge's lift against a realistic opponent and mine its errors;
+rerun `scripts/grade_overrides.py` on those logs; grow the scenario suite toward 30; keep the runtime up for Open matches
+against other contestants; at freeze paste the final commit ID into the dashboard and save a redacted `.env` with the logs.
+
 ## 6. Milestones (Oct 6 → Oct 13)
 
 | Day | Milestone | Done when |
