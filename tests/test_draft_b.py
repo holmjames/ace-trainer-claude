@@ -128,15 +128,15 @@ def test_card_weight_and_tier_adjust_are_independent_knobs():
 
 
 # Live, the Oct 7 opponent took Incineroar first whenever it could; before the clamp our drafter had it 18th (L2),
-# 11th (L3) and 8th (L4) at pick 1. The clamp alone lifts it to 8th / 7th / 6th (on the mech lane's Oct 8 calculator;
-# 12th / 10th / 3rd-4th before it). The variant that lifts it to the top five everywhere (draft_card_w 0 +
-# draft_tier_adjust 1.25, Oct 8 draft-only replay: 4th / 2nd / 1st) showed no gain over the eight live drafts and is
-# not shipped (see test_card_weight_and_tier_adjust_are_independent_knobs), so the three pools are pinned as the
-# known tension: these xfails are strict and will flag the day a change lifts it.
+# 11th (L3) and 8th (L4) at pick 1. The clamp alone lifts it to 8th / 7th / 6th (on the mech lane's Oct 8 calculator);
+# the first-pick policy (B1: role scarcity, mostly) earns 5th / 4th on L2 / L3. The variant that lifts it to the top
+# five everywhere (draft_card_w 0 + draft_tier_adjust 1.25, Oct 8 draft-only replay: 4th / 2nd / 1st) showed no gain
+# over the eight live drafts and is not shipped (see test_card_weight_and_tier_adjust_are_independent_knobs), so L4
+# stays pinned as the known tension: the xfail is strict and will flag the day a change lifts it.
 @pytest.mark.parametrize("name", [
-    pytest.param("L2", marks=pytest.mark.xfail(strict=True, reason="clamp-only ranks Incineroar 8th-12th on the L2 pool")),
-    pytest.param("L3", marks=pytest.mark.xfail(strict=True, reason="clamp-only ranks Incineroar 7th-11th on the L3 pool")),
-    pytest.param("L4", marks=pytest.mark.xfail(strict=True, reason="clamp-only ranks Incineroar 6th on the L4 pool with the Oct 8 calculator")),
+    "L2",
+    "L3",
+    pytest.param("L4", marks=pytest.mark.xfail(strict=True, reason="Incineroar is 6th at pick 1 on the L4 pool (Gholdengo first)")),
 ])
 def test_incineroar_is_a_top_five_first_pick_on_the_live_pools_that_offered_it(name):
     assert "Incineroar" not in POOLS["L1"][2]  # pool L1 never offered it (they opened with Dragonite)
@@ -403,3 +403,40 @@ def test_a_fixed_seed_reproduces_the_pick_and_seeds_differ_only_when_the_gap_is_
     else:
         assert picks == {ranked[0].species}
     assert ranked[0].species in {s.species for s in ranked[:3]}
+
+
+# -- B1: the first-pick policy ----------------------------------------------------------------------------------------
+
+
+def test_first_round_picks_follow_the_review_targets():
+    # The review's first-pick targets from the live drafts, plus today's loss. The lookahead alone put Sylveon first
+    # on the L3 pool; the policy (duel margin over the pool, role scarcity, counter-exposure, the guard list) makes
+    # the first pick one the Oct 7 opponent would take, and stays out of the way where the search was already right.
+    strong = {"Incineroar", "Gholdengo", "Archaludon", "Iron Hands"}
+    assert ranking(POOLS["L3"][2])[0] in strong
+    assert ranking(POOLS["L4"][2])[0] in strong
+    assert ranking(POOLS["L1"][2], theirs=["Dragonite"])[0] == "Gholdengo"
+    assert ranking(POOLS["L2"][2], theirs=["Incineroar"])[0] != "Iron Bundle"
+    assert ranking(POOL_W1, mine=["Iron Hands"], theirs=["Incineroar"])[0] == "Archaludon"
+    cards, seq, ours6, theirs6 = live_draft("da9c168e")
+    pool = sorted({sp for _, sp in seq} | set(ours6) | set(theirs6))
+    assert ranking_with(cards, pool, [], [])[0] != "Iron Valiant"  # benched at Team Preview, and the game was lost
+    off = tuning.merged({"draft_first_pick_w": 0.0})
+    assert ranking(POOLS["L3"][2], params=off)[0] not in strong  # the search alone does not get L3 right
+
+
+def test_the_policy_reads_the_pool_and_fades_after_our_second_pick():
+    board, search, us, them, rest = search_for(POOLS["L3"][2], [], [])
+    inc = board.index(matchup.unit(CATALOG["Incineroar"]).key)
+    terms = draft.first_pick_terms(board, inc, rest)
+    assert terms["scarcity"] == pytest.approx(1.0 + 0.25)  # the only Intimidate in that pool; one of four Fake Out users
+    assert terms["guard"] == 1.0 and terms["exposure"] >= 1 and -1.0 <= terms["strength"] <= 1.0
+    tornadus = board.index(matchup.unit(CATALOG["Tornadus"]).key)
+    assert draft.first_pick_terms(board, tornadus, rest)["guard"] == -1.0
+    bonus, _ = draft.first_pick_bonus(board, inc, rest, tuning.DEFAULTS)
+    assert bonus == pytest.approx(tuning.DEFAULTS["draft_first_strength_w"] * terms["strength"] + tuning.DEFAULTS["draft_first_scarcity_w"] * terms["scarcity"]
+                                  - tuning.DEFAULTS["draft_first_exposure_w"] * terms["exposure"] / 6 + tuning.DEFAULTS["draft_first_guard_w"])
+    memory = memory_for(POOLS["L3"][2], mine=["Incineroar", "Archaludon"], theirs=["Iron Hands", "Sylveon"])
+    assert not any(n.startswith("first-pick policy") for s in draft.rank_picks_v2(offered(memory), memory, tuning.DEFAULTS) for n in s.notes)
+    first = draft.rank_picks_v2(offered(memory_for(POOLS["L3"][2])), memory_for(POOLS["L3"][2]), tuning.DEFAULTS)
+    assert all(any(n.startswith("first-pick policy") for n in s.notes) for s in first)

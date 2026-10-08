@@ -464,6 +464,56 @@ class _Plan:
 
 GREEDY, COUNTER = "greedy", "counter"  # the two readings of the opponent a reply can come from
 
+# -- the first-pick policy (B1) -----------------------------------------------------------------------------------------
+#
+# The lookahead values a first pick by the six it imagines around it, which is where the Oct 7 first picks went wrong
+# (Tornadus, Landorus-Therian: both "beaten" by most of the pool, both counter-picked at once). On our first two picks
+# the search value also carries what a strong drafter reads off the pool itself: the card's duel margin over the pool
+# it will face, how scarce its doubles role is in that pool (Fake Out, Intimidate, speed control, redirection, a Ghost
+# for Fake Out immunity), how many pool cards beat it that the opponent can still take, and a hand guard list for the
+# live catalog (what the Oct 7 opponent took first against what we took first).
+
+FIRST_PICK_GUARD: dict[str, int] = {"Gholdengo": 1, "Incineroar": 1, "Archaludon": 1, "Iron Hands": 1, "Sylveon": 1, "Flutter Mane": 1,
+                                    "Rillaboom": 1, "Amoonguss": 1, "Tornadus": -1, "Whimsicott": -1, "Baxcalibur": -1, "Iron Bundle": -1}
+SPEED_CONTROL_ROLES = frozenset({"tailwind", "trickroom", "speed_drop"})
+BEATS_MARGIN = 0.2
+
+
+def first_pick_terms(board, c: int, pool: list[int]) -> dict[str, float]:
+    """The policy's four readings of candidate ``c`` against the remaining ``pool`` (which still holds ``c``)."""
+    units = board.units
+    rest = [j for j in pool if j != c]
+    me = units[c]
+
+    def has(j: int, role: str) -> bool:
+        u = units[j]
+        if role == "ghost":
+            return "ghost" in u.types
+        if role == "speed":
+            return bool(u.roles & SPEED_CONTROL_ROLES)
+        return role in u.roles
+
+    scarcity = 0.0
+    for role in ("fakeout", "intimidate", "speed", "redirect", "ghost"):
+        if has(c, role):
+            scarcity += 1.0 / sum(1 for j in pool if has(j, role))
+    return {
+        "strength": sum(board.base[c][j] for j in rest) / len(rest) if rest else 0.0,  # duel margin over the pool
+        "scarcity": scarcity,
+        "exposure": sum(1 for j in rest if board.base[j][c] >= BEATS_MARGIN),  # pool cards that beat it, theirs to take
+        "guard": float(FIRST_PICK_GUARD.get(me.species, 0)),
+    }
+
+
+def first_pick_bonus(board, c: int, pool: list[int], params: dict) -> tuple[float, dict[str, float]]:
+    """(log-odds to add to the search value, the terms) for a first-round pick."""
+    t = first_pick_terms(board, c, pool)
+    bonus = (float(params.get("draft_first_strength_w", 0.0)) * t["strength"]
+             + float(params.get("draft_first_scarcity_w", 0.0)) * t["scarcity"]
+             - float(params.get("draft_first_exposure_w", 0.0)) * t["exposure"] / 6.0
+             + float(params.get("draft_first_guard_w", 0.0)) * t["guard"])
+    return bonus, t
+
 
 class DraftSearch:
     """Snake-draft lookahead on a ``matchup.Board`` (indices into one list of cards)."""
@@ -686,16 +736,24 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
                          counter_prior=float(P.get("draft_counter_prior", 0.0)),
                          four_eval=bool(P.get("draft_four_eval", 1)), their_fours=int(P.get("draft_their_fours", 3)),
                          robust=float(P.get("lineup_v2_robust", 0.25)))
-    scored: list[tuple[_Plan, LegalAction, int]] = []
+    # Our first two picks also read the pool itself (first_pick_bonus): full weight on the first, half on the second.
+    policy_w = float(P.get("draft_first_pick_w", 0.0)) * max(0.0, 1.0 - len(us) / 2.0)
+    scored: list[tuple[_Plan, LegalAction, int, float, dict]] = []
     for action, i in offered_idx:
         if i in us:
             continue
-        scored.append((search.plan(i, us, them, pool, order), action, i))
+        plan = search.plan(i, us, them, pool, order)
+        bonus, terms = first_pick_bonus(board, i, pool, P) if policy_w else (0.0, {})
+        plan.value += policy_w * bonus
+        scored.append((plan, action, i, policy_w * bonus, terms))
     scored.sort(key=lambda t: (-t[0].value, legal_actions.index(t[1])))
     ranked: list[ScoredCard] = []
-    for rank, (plan, action, i) in enumerate(scored):
+    for rank, (plan, action, i, bonus, terms) in enumerate(scored):
         me = board.units[i]
         notes = [f"v2: finished-draft win chance {100 * matchup.win_probability(plan.value):.0f}%"]
+        if terms:
+            notes.append(f"first-pick policy {bonus:+.2f} (duel margin over the pool {terms['strength']:+.2f}, role scarcity "
+                         f"{terms['scarcity']:.2f}, beaten by {int(terms['exposure'])} pool cards, guard {terms['guard']:+.0f})")
         if plan.responses:
             notes.append("their likely replies: " + ", ".join(f"{s} ({100 * matchup.win_probability(v):.0f}%)" for s, v in plan.responses))
         answered = [board.units[j].species for j in them if board.base[i][j] >= 0.2]
