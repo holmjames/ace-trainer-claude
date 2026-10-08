@@ -203,3 +203,125 @@ def test_catalog_covers_live_sessions():
             break
     known_gaps = {"Iron Valiant"}  # the drill session (4e6fa669) drew it; it was never offered to us in a captured draft
     assert set(missing) <= known_gaps, f"new catalog gaps: {missing}"
+
+
+# -- F2: the guard's own guard ---------------------------------------------------------------------------------
+
+CTX = DecisionContext(session_id="match-f", tournament_id=None, game_type="pokemon_vgc_doubles_draft", agent_id="agent-a", seat_position=0)
+GOOD_SLOTS = [
+    {"slot": 0, "board_position": -1, "active": {"species": "incineroar"}, "force_switch": False,
+     "options": [{"type": "move", "move_id": "fakeout", "targets": [1, 2]}, {"type": "switch", "species": "amoonguss"}]},
+    {"slot": 1, "board_position": -2, "active": {"species": "rillaboom"}, "force_switch": False,
+     "options": [{"type": "move", "move_id": "woodhammer", "targets": [1, 2]}, {"type": "switch", "species": "amoonguss"}]},
+]
+
+
+def _state(*legal: dict, observation=None, version: int = 3, phase: str = "moving") -> GameState:
+    return GameState.from_mcp_state({"session_id": "match-f", "status": "in_progress", "phase": phase, "is_current_actor": True,
+                                     "state_version": version, "observation": observation or {},
+                                     "legal_actions": {"session_id": "match-f", "state_version": version, "actions": list(legal)}})
+
+
+def _templated(action_id: str, template) -> dict:
+    return {"action_id": action_id, "label": action_id,
+            "input": {"session_id": "match-f", "action_id": action_id, "state_version": 3, "action": template}}
+
+
+def _doubles(slots) -> GameState:
+    return _state(_templated("doubles_turn", {"type": "doubles_turn", "slots": slots, "target_legend": {}, "instructions": "pick"}))
+
+
+def _rows(log_dir: Path) -> list[dict]:
+    return [json.loads(line) for f in Path(log_dir).glob("*.jsonl") for line in f.read_text().splitlines() if line.strip()]
+
+
+def _raise(exc):
+    raise exc
+
+
+def test_guard_plays_the_smoke_move_when_the_decision_logic_raises(tmp_path, monkeypatch):
+    import agent.agent as agent_mod
+
+    monkeypatch.setattr(agent_mod.battle_rules, "build_sheet", lambda *a, **k: _raise(RuntimeError("sheet bug")))
+    agent = _agent(tmp_path, "f2")
+    decision = agent.choose_action(_doubles(GOOD_SLOTS), CTX)
+    assert decision.action == {"type": "doubles_turn", "slot_0": {"type": "move", "move_id": "fakeout", "target": 1},
+                               "slot_1": {"type": "move", "move_id": "woodhammer", "target": 1}}
+    assert decision.reasoning_summary.startswith("Fallback:") and agent.memory.fallbacks == 1
+    rows = _rows(tmp_path)
+    assert [r["kind"] for r in rows if r["kind"] in ("error", "fallback")] == ["error", "fallback"]
+    assert "sheet bug" in next(r for r in rows if r["kind"] == "error")["error"]
+
+
+def test_guard_builds_a_minimal_payload_when_even_the_smoke_agent_cannot_read_the_request(tmp_path):
+    """A slot whose options the smoke agent rejects (it raises SmokeAgentError on anything unreadable) still leaves a
+    legal first move in the other slot: the hand-built payload plays it and passes the broken slot."""
+    broken = [GOOD_SLOTS[0], {"slot": 1, "board_position": -2, "active": None, "force_switch": False, "options": "garbage"}]
+    agent = _agent(tmp_path, "f2")
+    decision = agent.choose_action(_doubles(broken), CTX)
+    assert decision.action == {"type": "doubles_turn", "slot_0": {"type": "move", "move_id": "fakeout", "target": 1}, "slot_1": {"type": "pass"}}
+    rows = _rows(tmp_path)
+    assert any("smoke agent" in (r.get("error") or "") for r in rows if r["kind"] == "error")
+    assert "hand-built" in next(r for r in rows if r["kind"] == "fallback")["reason"]
+
+
+def test_a_log_writer_and_a_console_that_raise_never_cost_a_move(tmp_path, monkeypatch):
+    from agent.pokemon.log import DecisionLog
+
+    monkeypatch.setattr(DecisionLog, "write", lambda self, kind, **fields: _raise(RuntimeError("disk on fire")))
+    agent = _agent(tmp_path, "f2")
+    agent._print = lambda line: _raise(OSError("stderr closed"))
+    decision = agent.choose_action(_doubles(GOOD_SLOTS), CTX)  # the normal path: a computed turn, not a fallback
+    assert decision.action["type"] == "doubles_turn" and not decision.reasoning_summary.startswith("Fallback:")
+    import agent.agent as agent_mod
+
+    monkeypatch.setattr(agent_mod.battle_rules, "build_sheet", lambda *a, **k: _raise(RuntimeError("sheet bug")))
+    decision = agent.choose_action(_doubles(GOOD_SLOTS), CTX)  # the guard path, logging and printing both broken
+    assert decision.reasoning_summary.startswith("Fallback:") and decision.action["slot_0"]["move_id"] == "fakeout"
+
+
+def test_a_log_that_cannot_be_opened_never_costs_a_move(tmp_path, monkeypatch):
+    import agent.agent as agent_mod
+
+    monkeypatch.setattr(agent_mod, "DecisionLog", lambda *a, **k: _raise(PermissionError("logs/ is read-only")))
+    agent = _agent(tmp_path, "f2")
+    decision = agent.choose_action(_doubles(GOOD_SLOTS), CTX)
+    assert decision.action["type"] == "doubles_turn" and not decision.reasoning_summary.startswith("Fallback:")
+
+
+def test_minimal_legal_payload_covers_every_decision_kind():
+    from agent.agent import minimal_legal_payload
+
+    # doubles: first move into the first opposing target; a pass-only slot passes; two switches never pick the same one
+    assert minimal_legal_payload(_doubles(GOOD_SLOTS)) == {"type": "doubles_turn", "slot_0": {"type": "move", "move_id": "fakeout", "target": 1},
+                                                           "slot_1": {"type": "move", "move_id": "woodhammer", "target": 1}}
+    switches = [{"slot": 0, "options": [{"type": "switch", "species": "amoonguss"}, {"type": "switch", "species": "garchomp"}]},
+                {"slot": 1, "options": [{"type": "switch", "species": "amoonguss"}, {"type": "switch", "species": "garchomp"}]}]
+    assert minimal_legal_payload(_doubles(switches)) == {"type": "doubles_turn", "slot_0": {"type": "switch", "species": "amoonguss"},
+                                                         "slot_1": {"type": "switch", "species": "garchomp"}}
+    odd = [{"slot": 0, "options": [{"type": "pass"}]}, {"options": [{"type": "move", "move_id": "tailwind", "targets": []}, {"type": "move"}]}]
+    assert minimal_legal_payload(_doubles(odd)) == {"type": "doubles_turn", "slot_0": {"type": "pass"}, "slot_1": {"type": "move", "move_id": "tailwind"}}
+    assert minimal_legal_payload(_doubles("not even a list")) == {"type": "doubles_turn", "slot_0": {"type": "pass"}, "slot_1": {"type": "pass"}}
+    # Team Preview: the first four distinct of the roster, else the observation's roster
+    lineup = _templated("select_lineup", {"type": "select_lineup", "roster": ["a", "b", "a", "c", "d", "e"]})
+    assert minimal_legal_payload(_state(lineup, phase="team_preview")) == {"type": "select_lineup", "bring": ["a", "b", "c", "d"], "leads": ["a", "b"]}
+    short = _templated("select_lineup", {"type": "select_lineup", "roster": None})
+    obs = {"your_roster": [{"species": s} for s in ("w", "x", "y", "z", "v", "u")]}
+    assert minimal_legal_payload(_state(short, observation=obs, phase="team_preview"))["bring"] == ["w", "x", "y", "z"]
+    with pytest.raises(ValueError):
+        minimal_legal_payload(_state(short, phase="team_preview"))
+    # a draft pick (or any plain legal action): the first one
+    pick = {"action_id": "draft_pick:vgc-garchomp", "label": "Garchomp", "input": {}}
+    assert minimal_legal_payload(_state(pick, phase="draft")).action_id == "draft_pick:vgc-garchomp"
+    with pytest.raises(ValueError):
+        minimal_legal_payload(_state(phase="draft"))
+
+
+def test_guard_re_raises_only_when_nothing_legal_can_be_built(tmp_path):
+    """Team Preview with a two-species roster and no observation: the smoke agent and the builder both fail, so the
+    original error reaches the runner (which reports it) instead of a guessed payload."""
+    agent = _agent(tmp_path, "f2")
+    state = _state(_templated("select_lineup", {"type": "select_lineup", "roster": ["a", "b"]}), phase="team_preview")
+    with pytest.raises(Exception):
+        agent.choose_action(state, CTX)
+    assert [r["kind"] for r in _rows(tmp_path) if r["kind"] == "error"] == ["error", "error", "error"]
