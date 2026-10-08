@@ -858,3 +858,22 @@ def test_stat_stages_are_floored_like_the_engine():
         assert abs(hp[0] - c["damage"][0]) < 0.6 and abs(hp[1] - c["damage"][1]) < 0.6, (name, hp, c["damage"])  # to the HP
     waterfall = case("stagefloor_waterfall_minus1_landorus")
     assert waterfall["damage"][0] <= 108 <= waterfall["damage"][1]
+
+
+def test_partner_threat_rows_under_an_intimidate_switch():
+    """da9c168e T3: we switched Landorus-T into slot b; its Intimidate dropped Incineroar before the Fake Out, which hit
+    the STAYING Thundurus (57 HP) for 16 HP against the sheet's 23-28 (priced at +0, as it must be before our choice).
+    The recipe for the core lane's switch candidates: intimidated_foes(incoming, [foe]) and hit_profile on the partner
+    with entry_field, which lands the live 16 HP in its range."""
+    plain, minus = case("fakeout_thundurus57"), case("fakeout_minus1_thundurus57")
+    incineroar, fake_out, thundurus, fs = _pair(plain)
+    thundurus = replace(thundurus, side="mine")
+    assert error_vs_calc(plain, battle.hit_profile(incineroar, fake_out, thundurus, field=fs)["damage_pct_of_current_hp"]) < TOLERANCE
+    landorus, kingambit = catalog_mon("Landorus-Therian", side="mine", position=1), catalog_mon("Kingambit", side="mine", position=1)
+    fs.actives = [thundurus, kingambit, incineroar]
+    after = battle.entry_field(fs, add=[landorus], drop=[kingambit])
+    dropped = battle.intimidated_foes(landorus, [incineroar])[0]
+    hit = battle.hit_profile(dropped, fake_out, thundurus, field=after)["damage_pct_of_current_hp"]
+    assert error_vs_calc(minus, hit) < TOLERANCE
+    assert minus["damage"][0] <= 16 <= minus["damage"][1] and not plain["damage"][0] <= 16 <= plain["damage"][1]
+    assert hit[0] * 57 / 100 <= 16.5 and hit[1] * 57 / 100 >= 16
