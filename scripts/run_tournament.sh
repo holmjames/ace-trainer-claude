@@ -6,7 +6,8 @@
 #   ./scripts/run_tournament.sh --match      # also play Testing matches (upstream PR #5 merged Oct 7)
 #
 # Stop with Ctrl+C (twice if the runtime is mid-restart).
-set -u
+# pipefail: the pre-flight's exit code must survive the tee, or a failed check never stops the launcher.
+set -uo pipefail
 cd "$(dirname "$0")/.."
 
 mkdir -p logs

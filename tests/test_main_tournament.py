@@ -274,6 +274,9 @@ def test_modes_are_mutually_exclusive(env, monkeypatch, argv):
 def _check(monkeypatch, capsys, official, argv=("--check-tournament",)):
     _install(monkeypatch, official)
     monkeypatch.setattr(agent_main, "_mark", lambda symbol, fallback: symbol)
+    # The real probe makes a model call and fails without a provider (no key here): tests/test_reliability_f.py
+    # covers it with a mocked provider; the CLI tests see a canned answer.
+    monkeypatch.setattr(agent_main, "_probe_model", lambda contestant: ("model probe: claude-test-model 123 ms", False))
     code = agent_main.main(list(argv))
     return code, capsys.readouterr().out
 
@@ -288,9 +291,23 @@ def test_check_tournament_success(env, monkeypatch, capsys):
         "✓ Tournament agent authenticated",
         "✓ Assignment discovery available (0 active assignment(s))",
         "✓ Agent ready (agent.agent:create_agent)",
+        "✓ model probe: claude-test-model 123 ms",
         "✓ Ready to play Testing and tournament games",
     ]
     assert KEY not in out
+
+
+def test_check_tournament_fails_when_the_model_probe_fails(env, monkeypatch, capsys):
+    _install(monkeypatch, FakeOfficial(assignments_result=[]))
+    monkeypatch.setattr(agent_main, "_mark", lambda symbol, fallback: symbol)
+    monkeypatch.setattr(agent_main, "_probe_model", lambda contestant: ("model probe failed through FallbackProvider(['m']): m: request failed (HTTP 401)", True))
+
+    code = agent_main.main(["--check-tournament"])
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert out.splitlines()[-1] == "✗ model probe failed through FallbackProvider(['m']): m: request failed (HTTP 401)"
+    assert "Ready to play" not in out
 
 
 def test_check_tournament_never_acquires_or_renews_a_seat_lease(env, monkeypatch, capsys):
@@ -311,6 +328,7 @@ def test_check_tournament_never_acquires_or_renews_a_seat_lease(env, monkeypatch
     monkeypatch.setattr(agent_main, "OfficialAgentClient",
                         lambda: OfficialAgentClient(load_env_file=False, transport=httpx.MockTransport(backend)))
     monkeypatch.setattr(agent_main, "_mark", lambda symbol, fallback: symbol)
+    monkeypatch.setattr(agent_main, "_probe_model", lambda contestant: ("model probe: claude-test-model 1 ms", False))  # no model call here
 
     assert agent_main.main(["--check-tournament"]) == 0
     assert paths == ["/tournament/agent/authenticate", "/tournament/agent/assignments"]

@@ -325,3 +325,139 @@ def test_guard_re_raises_only_when_nothing_legal_can_be_built(tmp_path):
     with pytest.raises(Exception):
         agent.choose_action(state, CTX)
     assert [r["kind"] for r in _rows(tmp_path) if r["kind"] == "error"] == ["error", "error", "error"]
+
+
+# -- F3: the pre-flight proves a model answers; loud when none does; one summary line per match -----------------
+
+
+class _FakeProvider:
+    """A scripted provider chain: answers in order; an exception is raised instead."""
+
+    def __init__(self, *answers, model="claude-primary", last_model=None):
+        self.answers = list(answers)
+        self.model = model
+        self.last_model = last_model or model
+        self.last_latency_ms = 42
+        self.last_usage = None
+        self.last_errors: list[str] = []
+        self.calls: list[tuple] = []
+
+    def complete_structured(self, messages, schema_name, schema):
+        self.calls.append((messages, schema_name, schema))
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def __repr__(self):
+        return f"FakeProvider({self.model!r})"
+
+
+def test_probe_makes_one_tiny_structured_call_and_reports_who_answered():
+    from agent.llm.anthropic_provider import PROBE_SCHEMA, probe
+
+    provider = _FakeProvider({"ok": True}, last_model="claude-fallback")
+    provider.last_errors = ["claude-primary: timed out after 18s"]
+    result = probe(provider)
+    assert result == {"model": "claude-fallback", "latency_ms": 42, "errors": ["claude-primary: timed out after 18s"]}
+    messages, schema_name, schema = provider.calls[0]
+    assert schema == PROBE_SCHEMA and schema_name == "preflight_probe" and len(messages) == 2
+
+
+def test_probe_fails_on_a_wrong_answer_or_a_dead_chain():
+    from examples.llm.providers import ProviderError
+
+    from agent.llm.anthropic_provider import probe
+
+    with pytest.raises(ProviderError, match="probe answer"):
+        probe(_FakeProvider({"ok": False}))
+    with pytest.raises(ProviderError, match="every model failed"):
+        probe(_FakeProvider(ProviderError("every model failed: a: timed out | b: HTTP 429")))
+
+
+def test_check_tournament_probe_line_through_the_agents_provider_chain(monkeypatch):
+    import agent.__main__ as agent_main
+
+    answered = _FakeProvider({"ok": True})
+    line, failed = agent_main._probe_model(PokemonAgent(answered, log=lambda *_: None))
+    assert (line, failed) == ("model probe: claude-primary 42 ms", False)
+
+    rescued = _FakeProvider({"ok": True}, last_model="claude-fallback")
+    rescued.last_errors = ["claude-primary: request failed (HTTP 529)"]
+    line, failed = agent_main._probe_model(PokemonAgent(rescued, log=lambda *_: None))
+    assert not failed and line.startswith("model probe: claude-fallback 42 ms (the fallback answered; the primary model failed: claude-primary: request failed (HTTP 529)")
+
+    from examples.llm.providers import ProviderError
+
+    dead = _FakeProvider(ProviderError("every model failed: claude-primary: request failed (HTTP 401) [authentication_error: invalid x-api-key]"))
+    line, failed = agent_main._probe_model(PokemonAgent(dead, log=lambda *_: None))
+    assert failed and line.startswith("model probe failed through FakeProvider('claude-primary'): every model failed")
+
+    line, failed = agent_main._probe_model(PokemonAgent(None, log=lambda *_: None))  # a reverted .env: code-only
+    assert failed and "NO MODEL PROVIDER" in line and "CODE-ONLY" in line
+
+    from examples import smoke_agent
+
+    line, failed = agent_main._probe_model(smoke_agent.create_agent())  # a plain function: nothing to probe
+    assert not failed and line.startswith("model probe: skipped")
+
+    crashing = _FakeProvider(RuntimeError("socket exploded"))
+    line, failed = agent_main._probe_model(PokemonAgent(crashing, log=lambda *_: None))
+    assert failed and "RuntimeError: socket exploded" in line
+
+
+def test_every_model_failing_prints_the_all_models_failed_banner(tmp_path):
+    from examples.llm.providers import ProviderError
+
+    lines: list[str] = []
+    provider = _FakeProvider(ProviderError("every model failed: claude-primary: timed out after 18s | claude-fallback: timed out after 8s"))
+    agent = PokemonAgent(provider, version="f3", log_dir=tmp_path, capture_dir="", log=lines.append)
+    decision = agent.choose_action(_doubles(GOOD_SLOTS), CTX)
+    assert decision.action["type"] == "doubles_turn" and not decision.reasoning_summary.startswith("Fallback:")
+    banner = [line for line in lines if "ALL MODELS FAILED" in line]
+    assert len(banner) == 1 and "timed out after 18s" in banner[0] and "playing the computed move" in banner[0]
+    assert agent._all_failed == 1
+
+
+def test_match_summary_counts_turns_by_model_and_prints_once_when_the_match_ends(tmp_path):
+    from examples.llm.providers import ProviderError
+
+    lines: list[str] = []
+    good = {"slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 1}, "win_condition": "w", "reasoning_summary": "attack"}
+    provider = _FakeProvider(good, good, ProviderError("every model failed: x"))
+    agent = PokemonAgent(provider, version="f3", log_dir=tmp_path, capture_dir="", log=lines.append)
+    agent.choose_action(_doubles(GOOD_SLOTS), CTX)  # primary answers
+    provider.last_model = "claude-fallback"
+    agent.choose_action(_doubles(GOOD_SLOTS), CTX)  # the fallback model answers
+    agent.choose_action(_doubles(GOOD_SLOTS), CTX)  # nobody answers: code
+    agent.on_action_result({"accepted": True, "status": "in_progress", "state_version": 4}, CTX)
+    assert not [line for line in lines if "match summary" in line]
+    agent.on_action_result({"accepted": True, "status": "completed", "state_version": 5}, CTX)
+    agent.on_action_result({"accepted": True, "status": "completed", "state_version": 5}, CTX)
+    agent.print_match_summary()
+    summary = [line for line in lines if "match summary" in line]
+    assert len(summary) == 1, summary
+    assert "3 battle decisions: 1 by claude-primary, 1 by the fallback model, 1 code-only" in summary[0]
+    assert "Team Preview by code" in summary[0] and "all-models-failed 1" in summary[0]
+    assert [r["kind"] for r in _rows(tmp_path)][-1] == "summary"
+    # a worker that never got a decision stays quiet
+    quiet: list[str] = []
+    PokemonAgent(None, version="f3", log_dir=tmp_path, capture_dir="", log=quiet.append).print_match_summary()
+    assert quiet == []
+
+
+def test_on_action_result_never_raises(tmp_path):
+    agent = PokemonAgent(None, version="f3", log_dir=tmp_path, capture_dir="", log=lambda line: _raise(OSError("closed")))
+    agent.memory.llm_calls = 1
+    for result in (None, "x", {"is_terminal": True}, {"state": {"is_terminal": True}}, {"error": "RUNTIME_TEMPORARILY_UNAVAILABLE"}):
+        agent.on_action_result(result, CTX)
+    assert agent._summarized
+
+
+def test_launcher_script_parses_and_stops_on_a_failed_preflight():
+    import subprocess
+
+    script = Path(__file__).parent.parent / "scripts" / "run_tournament.sh"
+    assert subprocess.run(["bash", "-n", str(script)], capture_output=True).returncode == 0
+    text = script.read_text()
+    assert "pipefail" in text.split("check-tournament")[0], "pipefail must be set before the pre-flight's tee pipeline"

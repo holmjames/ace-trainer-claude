@@ -208,6 +208,29 @@ class FallbackProvider:
         raise ProviderError("every model failed: " + " | ".join(self.last_errors))
 
 
+PROBE_SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"], "additionalProperties": False}
+PROBE_MESSAGES = [{"role": "system", "content": "You answer a pre-flight connectivity check."},
+                  {"role": "user", "content": 'Reply with exactly {"ok": true}.'}]
+
+
+def probe(provider: Any) -> dict:
+    """One tiny real call through the configured chain: the pre-flight proof that a model answers.
+
+    Returns ``{"model": who answered, "latency_ms": ..., "errors": [what earlier models in the chain said]}``.
+    Raises ``ProviderError`` when every model fails or the answer is not ``{"ok": true}``. Never includes a key:
+    provider errors carry status codes and class names only."""
+    started = time.monotonic()
+    answer = provider.complete_structured(PROBE_MESSAGES, "preflight_probe", PROBE_SCHEMA)
+    latency = int((time.monotonic() - started) * 1000)
+    if not isinstance(answer, dict) or answer.get("ok") is not True:
+        raise ProviderError(f"probe answer was {str(answer)[:80]!r}, expected {{'ok': True}}")
+    return {
+        "model": getattr(provider, "last_model", None) or getattr(provider, "model", None),
+        "latency_ms": getattr(provider, "last_latency_ms", None) or latency,
+        "errors": list(getattr(provider, "last_errors", None) or []),
+    }
+
+
 def provider_from_env(*, log: Callable[[str], None] | None = None) -> FallbackProvider:
     """Build the Fable -> Sonnet chain from the environment (or ``.env``).
 

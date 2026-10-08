@@ -163,14 +163,48 @@ def _check_tournament(agent_spec: str) -> int:
         ok(f"Assignment discovery available ({len(assignments)} active assignment(s))")
 
         try:
-            _resolve_decision_fn(_load_agent_factory(agent_spec)())
+            contestant = _load_agent_factory(agent_spec)()
+            _resolve_decision_fn(contestant)
         except Exception as exc:  # noqa: BLE001 - contestant code
             return fail(f"Agent {agent_spec} could not be created: {exc}")
         ok(f"Agent ready ({agent_spec})")
+
+        # The model must answer before a tournament day starts: a reverted .env or an exhausted key would otherwise
+        # play every game code-only without anyone noticing (the runtime only logs it per call).
+        line, failed = _probe_model(contestant)
+        if failed:
+            return fail(line)
+        ok(line)
         ok("Ready to play Testing and tournament games")
         return 0
     finally:
         official.close()
+
+
+def _probe_model(contestant: object) -> tuple[str, bool]:
+    """One real, tiny structured call through the agent's provider chain. Returns ``(message, failed)``; the message
+    never contains a key. An agent object without a ``_provider`` attribute (the smoke agent) has nothing to probe;
+    the Pokémon agent without a provider would play code-only all day, which is a failure here."""
+    if not hasattr(contestant, "_provider"):
+        return "model probe: skipped (this agent has no model provider)", False
+    provider = getattr(contestant, "_provider")
+    if provider is None:
+        return ("model probe: NO MODEL PROVIDER — the agent would play CODE-ONLY all day "
+                "(is ANTHROPIC_API_KEY in .env? was .env reverted?)"), True
+    try:
+        from examples.llm.providers import ProviderError
+
+        from agent.llm.anthropic_provider import probe
+
+        result = probe(provider)
+    except ProviderError as exc:
+        return f"model probe failed through {provider!r}: {exc}", True
+    except Exception as exc:  # noqa: BLE001 - anything else is a failure too, reported without a traceback
+        return f"model probe failed through {provider!r}: {type(exc).__name__}: {exc}", True
+    line = f"model probe: {result['model']} {result['latency_ms']} ms"
+    if result.get("errors"):
+        line += f" (the fallback answered; the primary model failed: {' | '.join(result['errors'])})"
+    return line, False
 
 
 _DESCRIPTION = """\

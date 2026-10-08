@@ -28,6 +28,7 @@ Run it (after keys are in ``.env``):
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import sys
@@ -137,6 +138,46 @@ class PokemonAgent:
         self._print = log if log is not None else _stderr
         self.memory = MatchMemory()
         self.decision_log: DecisionLog | None = None
+        self._all_failed = 0  # decisions on which every model failed (the ALL MODELS FAILED banner)
+        self._breaker_skips = 0  # decisions the circuit breaker kept away from the model
+        self._lineup_model: str | None = None  # who answered Team Preview (None: code)
+        self._summarized = False
+
+    # -- end of match: one summary line -------------------------------------------------
+
+    def on_action_result(self, result: Any, context: DecisionContext) -> None:
+        """The runner reports every play_action result; the one that ends the match (or a result whose state is
+        terminal) triggers the per-match summary line. Never raises (the runner would turn that into an error)."""
+        try:
+            if not isinstance(result, dict):
+                return
+            state = result.get("state") if isinstance(result.get("state"), dict) else {}
+            if result.get("is_terminal") is True or result.get("status") == "completed" or state.get("is_terminal") is True:
+                self.print_match_summary(context)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def match_summary(self) -> str:
+        """Turns decided by the primary model / the fallback model / code only, with the failure counters."""
+        primary = getattr(self._provider, "model", None)
+        turns = list(self.memory.turns)
+        by_primary = sum(1 for t in turns if t.get("model") and t.get("model") == primary)
+        by_fallback = sum(1 for t in turns if t.get("model") and t.get("model") != primary)
+        code_only = len(turns) - by_primary - by_fallback
+        preview = "model" if self._lineup_model == primary and primary else ("fallback model" if self._lineup_model else "code")
+        return (f"[agent] match summary: {len(turns)} battle decisions: {by_primary} by {primary or 'no model'}, "
+                f"{by_fallback} by the fallback model, {code_only} code-only; Team Preview by {preview}; "
+                f"model calls {self.memory.llm_calls}, all-models-failed {self._all_failed}, "
+                f"breaker skips {self._breaker_skips}, fallbacks {self.memory.fallbacks}")
+
+    def print_match_summary(self, context: DecisionContext | None = None) -> None:
+        """Once per match, and only if something was decided (a worker that never got a game stays quiet)."""
+        if self._summarized or not (self.memory.turns or self.memory.llm_calls or self._lineup_model):
+            return
+        self._summarized = True
+        self._say(self.match_summary())
+        if context is not None:
+            self._safe_log_for(context).write("summary", line=self.match_summary(), memory=self.memory.summary())
 
     # -- the one method the runtime calls ----------------------------------------------
 
@@ -251,6 +292,7 @@ class PokemonAgent:
             "observation": _compact(_preview_view(obs), ("your_roster", "opponent_roster", "battle_format")),
         }
         value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"))
+        self._lineup_model = info.get("model")
         if isinstance(value, dict):
             self.memory.my_lineup = list(value.get("bring") or [])
         log.write("lineup", state_version=state.state_version, payload=_payload(value),
@@ -339,6 +381,11 @@ class PokemonAgent:
                 answer = self._provider.complete_structured(messages, choice.kind, choice.schema)
             except ProviderError as exc:
                 info["errors"].append(str(exc))
+                self._all_failed += 1
+                # Loud on purpose: a dead key or a dead API plays the whole match code-only, and the runtime log is
+                # the only place anyone would see it (the provider's own lines say "trying next provider").
+                self._say(f"[agent] !!! ALL MODELS FAILED on this {kind} ({self._all_failed} so far this match): {exc} "
+                          "— playing the computed move !!!")
                 break  # every model failed; retrying the same question won't help
             info["model"] = getattr(self._provider, "last_model", None) or getattr(self._provider, "model", None)
             info["latency_ms"] = getattr(self._provider, "last_latency_ms", None)
@@ -654,4 +701,8 @@ def create_agent() -> PokemonAgent:
         _stderr(f"[agent] model chain: {provider!r}")
     else:
         _stderr("[agent] WARNING: ANTHROPIC_API_KEY is not set — running in code-only mode (no model calls).")
-    return PokemonAgent(provider)
+    agent = PokemonAgent(provider)
+    # The runtime runs one worker process per match: when it exits, the match is over. The summary line also comes
+    # from on_action_result when our own move ended the game; this catches a game the opponent's move ended.
+    atexit.register(agent.print_match_summary)
+    return agent
