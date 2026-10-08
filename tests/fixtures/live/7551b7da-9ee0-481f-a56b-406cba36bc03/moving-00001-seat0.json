@@ -1,0 +1,1332 @@
+{
+ "session_id": "7551b7da-9ee0-481f-a56b-406cba36bc03",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 1,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-69",
+  "turn": 1,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {},
+  "fields": {
+   "GRASSY_TERRAIN": 0
+  },
+  "side_conditions": {},
+  "opponent_side_conditions": {},
+  "team": {
+   "p1: Salamence": {
+    "species": "salamence",
+    "name": "Salamence",
+    "current_hp": 171,
+    "max_hp": 171,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "lumberry",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 80,
+     "hp": 95,
+     "spa": 110,
+     "spd": 80,
+     "spe": 100
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "dracometeor",
+     "hurricane",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Sneasler": {
+    "species": "sneasler",
+    "name": "Sneasler",
+    "current_hp": 156,
+    "max_hp": 156,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "unburden",
+    "item": "aguavberry",
+    "types": [
+     "FIGHTING",
+     "POISON"
+    ],
+    "base_stats": {
+     "atk": 130,
+     "def": 60,
+     "hp": 80,
+     "spa": 40,
+     "spd": 80,
+     "spe": 120
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "closecombat",
+     "direclaw",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Iron Hands": {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 259,
+    "max_hp": 259,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "assaultvest",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "closecombat",
+     "wildcharge",
+     "drainpunch"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Gholdengo": {
+    "species": "gholdengo",
+    "name": "Gholdengo",
+    "current_hp": 162,
+    "max_hp": 162,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "goodasgold",
+    "item": "airballoon",
+    "types": [
+     "STEEL",
+     "GHOST"
+    ],
+    "base_stats": {
+     "atk": 60,
+     "def": 95,
+     "hp": 87,
+     "spa": 133,
+     "spd": 91,
+     "spe": 84
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "makeitrain",
+     "shadowball",
+     "nastyplot",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Great Tusk": {
+    "species": "greattusk",
+    "name": "Great Tusk",
+    "current_hp": 222,
+    "max_hp": 222,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": "boosterenergy",
+    "types": [
+     "GROUND",
+     "FIGHTING"
+    ],
+    "base_stats": {
+     "atk": 131,
+     "def": 131,
+     "hp": 115,
+     "spa": 53,
+     "spd": 53,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "headlongrush",
+     "closecombat",
+     "rockslide",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Incineroar": {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 201,
+    "max_hp": 201,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "safetygoggles",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "knockoff",
+     "partingshot",
+     "flareblitz"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p2: Rillaboom": {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Tornadus": {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   false
+  ],
+  "can_tera": [
+   true,
+   true
+  ],
+  "active_pokemon": [
+   {
+    "species": "salamence",
+    "name": "Salamence",
+    "current_hp": 171,
+    "max_hp": 171,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "lumberry",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 135,
+     "def": 80,
+     "hp": 95,
+     "spa": 110,
+     "spd": 80,
+     "spe": 100
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "dracometeor",
+     "hurricane",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "sneasler",
+    "name": "Sneasler",
+    "current_hp": 156,
+    "max_hp": 156,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "unburden",
+    "item": "aguavberry",
+    "types": [
+     "FIGHTING",
+     "POISON"
+    ],
+    "base_stats": {
+     "atk": 130,
+     "def": 60,
+     "hp": 80,
+     "spa": 40,
+     "spd": 80,
+     "spe": 120
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "closecombat",
+     "direclaw",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_active_pokemon": [
+   {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 100,
+    "max_hp": 100,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -1,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [
+    {
+     "id": "dracometeor",
+     "type": "DRAGON",
+     "category": "SPECIAL",
+     "base_power": 130,
+     "accuracy": 0.9,
+     "priority": 0,
+     "current_pp": 8,
+     "max_pp": 8,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "sneasler"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "tornadus"
+      }
+     ]
+    },
+    {
+     "id": "hurricane",
+     "type": "FLYING",
+     "category": "SPECIAL",
+     "base_power": 110,
+     "accuracy": 0.7,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "ANY",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "sneasler"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "tornadus"
+      }
+     ]
+    },
+    {
+     "id": "tailwind",
+     "type": "FLYING",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 24,
+     "max_pp": 24,
+     "target": "ALLY_SIDE",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "id": "fakeout",
+     "type": "NORMAL",
+     "category": "PHYSICAL",
+     "base_power": 40,
+     "accuracy": 1.0,
+     "priority": 3,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "salamence"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "tornadus"
+      }
+     ]
+    },
+    {
+     "id": "closecombat",
+     "type": "FIGHTING",
+     "category": "PHYSICAL",
+     "base_power": 120,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 8,
+     "max_pp": 8,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "salamence"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "tornadus"
+      }
+     ]
+    },
+    {
+     "id": "direclaw",
+     "type": "POISON",
+     "category": "PHYSICAL",
+     "base_power": 80,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 24,
+     "max_pp": 24,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "salamence"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "rillaboom"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "tornadus"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ]
+  ],
+  "available_switches": [
+   [
+    {
+     "species": "gholdengo",
+     "name": "Gholdengo",
+     "current_hp": 162,
+     "max_hp": 162,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "goodasgold",
+     "item": "airballoon",
+     "types": [
+      "STEEL",
+      "GHOST"
+     ],
+     "base_stats": {
+      "atk": 60,
+      "def": 95,
+      "hp": 87,
+      "spa": 133,
+      "spd": 91,
+      "spe": 84
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "makeitrain",
+      "shadowball",
+      "nastyplot",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    },
+    {
+     "species": "greattusk",
+     "name": "Great Tusk",
+     "current_hp": 222,
+     "max_hp": 222,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "protosynthesis",
+     "item": "boosterenergy",
+     "types": [
+      "GROUND",
+      "FIGHTING"
+     ],
+     "base_stats": {
+      "atk": 131,
+      "def": 131,
+      "hp": 115,
+      "spa": 53,
+      "spd": 53,
+      "spe": 87
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "headlongrush",
+      "closecombat",
+      "rockslide",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ],
+   [
+    {
+     "species": "gholdengo",
+     "name": "Gholdengo",
+     "current_hp": 162,
+     "max_hp": 162,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "goodasgold",
+     "item": "airballoon",
+     "types": [
+      "STEEL",
+      "GHOST"
+     ],
+     "base_stats": {
+      "atk": 60,
+      "def": 95,
+      "hp": 87,
+      "spa": 133,
+      "spd": 91,
+      "spe": 84
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "makeitrain",
+      "shadowball",
+      "nastyplot",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    },
+    {
+     "species": "greattusk",
+     "name": "Great Tusk",
+     "current_hp": 222,
+     "max_hp": 222,
+     "current_hp_fraction": 1.0,
+     "status": null,
+     "ability": "protosynthesis",
+     "item": "boosterenergy",
+     "types": [
+      "GROUND",
+      "FIGHTING"
+     ],
+     "base_stats": {
+      "atk": 131,
+      "def": 131,
+      "hp": 115,
+      "spa": 53,
+      "spd": 53,
+      "spe": 87
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "headlongrush",
+      "closecombat",
+      "rockslide",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": false,
+     "is_terastallized": false
+    }
+   ]
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-7551b7 1 vs. able-p1-7551b7 1",
+   "|j|☆able-p0-7551b7 1",
+   "|j|☆able-p1-7551b7 1",
+   "|gametype|doubles",
+   "|player|p1|able-p0-7551b7 1|1|",
+   "|player|p2|able-p1-7551b7 1|101|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Salamence, L50, F|",
+   "|poke|p1|Sneasler, L50, F|",
+   "|poke|p1|Iron Hands, L50|",
+   "|poke|p1|Gholdengo, L50|",
+   "|poke|p1|Great Tusk, L50|",
+   "|poke|p1|Incineroar, L50, M|",
+   "|poke|p2|Baxcalibur, L50, F|",
+   "|poke|p2|Archaludon, L50, M|",
+   "|poke|p2|Tornadus, L50, M|",
+   "|poke|p2|Arcanine, L50, F|",
+   "|poke|p2|Indeedee-F, L50, F|",
+   "|poke|p2|Rillaboom, L50, M|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p0-7551b7 1)",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p1-7551b7 1 also wants the timer to be on.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Salamence|Salamence, L50, F|171/171",
+   "|switch|p1b: Sneasler|Sneasler, L50, F|156/156",
+   "|switch|p2a: Rillaboom|Rillaboom, L50, M|100/100",
+   "|switch|p2b: Tornadus|Tornadus, L50, M|100/100",
+   "|-ability|p1a: Salamence|Intimidate|boost",
+   "|-unboost|p2a: Rillaboom|atk|1",
+   "|-unboost|p2b: Tornadus|atk|1",
+   "|-fieldstart|move: Grassy Terrain|[from] ability: Grassy Surge|[of] p2a: Rillaboom",
+   "|turn|1"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 420
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "894148dd-ba8f-467f-91a0-09c2f8f7e503",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "7551b7da-9ee0-481f-a56b-406cba36bc03",
+  "state_version": 1,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "7551b7da-9ee0-481f-a56b-406cba36bc03",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "salamence",
+         "name": "Salamence",
+         "current_hp": 171,
+         "max_hp": 171,
+         "current_hp_fraction": 1.0,
+         "status": null,
+         "ability": "intimidate",
+         "item": "lumberry",
+         "types": [
+          "DRAGON",
+          "FLYING"
+         ],
+         "base_stats": {
+          "atk": 135,
+          "def": 80,
+          "hp": 95,
+          "spa": 110,
+          "spd": 80,
+          "spe": 100
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "dracometeor",
+          "hurricane",
+          "tailwind",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "dracometeor",
+          "base_power": 130,
+          "category": "SPECIAL",
+          "move_type": "DRAGON",
+          "current_pp": 8,
+          "accuracy": 0.9,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "sneasler"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "tornadus"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "hurricane",
+          "base_power": 110,
+          "category": "SPECIAL",
+          "move_type": "FLYING",
+          "current_pp": 16,
+          "accuracy": 0.7,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "sneasler"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "tornadus"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "tailwind",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "FLYING",
+          "current_pp": 24,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "gholdengo"
+         },
+         {
+          "type": "switch",
+          "species": "greattusk"
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": {
+         "species": "sneasler",
+         "name": "Sneasler",
+         "current_hp": 156,
+         "max_hp": 156,
+         "current_hp_fraction": 1.0,
+         "status": null,
+         "ability": "unburden",
+         "item": "aguavberry",
+         "types": [
+          "FIGHTING",
+          "POISON"
+         ],
+         "base_stats": {
+          "atk": 130,
+          "def": 60,
+          "hp": 80,
+          "spa": 40,
+          "spd": 80,
+          "spe": 120
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "fakeout",
+          "closecombat",
+          "direclaw",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "fakeout",
+          "base_power": 40,
+          "category": "PHYSICAL",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "salamence"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "tornadus"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "closecombat",
+          "base_power": 120,
+          "category": "PHYSICAL",
+          "move_type": "FIGHTING",
+          "current_pp": 8,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "salamence"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "tornadus"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "direclaw",
+          "base_power": 80,
+          "category": "PHYSICAL",
+          "move_type": "POISON",
+          "current_pp": 24,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "salamence"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "rillaboom"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "tornadus"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "gholdengo"
+         },
+         {
+          "type": "switch",
+          "species": "greattusk"
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 1
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}

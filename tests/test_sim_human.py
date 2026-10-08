@@ -35,7 +35,8 @@ def test_human_seat_plays_a_whole_game_against_the_code_brain_on_blank_input():
     assert result["winner_side"] in ("p1", "p2", None)
     assert result["rejected"]["p1"] == 0
     text = "\n".join(out)
-    assert "=== DRAFT pick 1 of 12 ===" in text and "=== TEAM PREVIEW" in text and "=== TURN 1 ===" in text
+    # who drafts first depends on the seed and the pool; the human seat must see its picks, the preview and the battle
+    assert "=== DRAFT pick " in text and "=== TEAM PREVIEW" in text and "=== TURN 1 ===" in text
 
 
 def test_human_seat_validates_input_and_shows_a_hint():

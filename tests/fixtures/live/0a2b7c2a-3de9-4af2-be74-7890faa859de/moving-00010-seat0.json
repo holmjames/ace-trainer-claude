@@ -1,0 +1,1360 @@
+{
+ "session_id": "0a2b7c2a-3de9-4af2-be74-7890faa859de",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 10,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-96",
+  "turn": 7,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {},
+  "fields": {},
+  "side_conditions": {
+   "TAILWIND": 6
+  },
+  "opponent_side_conditions": {},
+  "team": {
+   "p1: Landorus": {
+    "species": "landorustherian",
+    "name": "Landorus",
+    "current_hp": 0,
+    "max_hp": 164,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "intimidate",
+    "item": "choicescarf",
+    "types": [
+     "GROUND",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 90,
+     "hp": 89,
+     "spa": 105,
+     "spd": 80,
+     "spe": 91
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "uturn",
+     "protect"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Baxcalibur": {
+    "species": "baxcalibur",
+    "name": "Baxcalibur",
+    "current_hp": 0,
+    "max_hp": 191,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "thermalexchange",
+    "item": "loadeddice",
+    "types": [
+     "DRAGON",
+     "ICE"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 92,
+     "hp": 115,
+     "spa": 75,
+     "spd": 86,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "iciclespear",
+     "glaiverush",
+     "iceshard",
+     "protect"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Tornadus": {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 90,
+    "max_hp": 186,
+    "current_hp_fraction": 0.4838709677419355,
+    "status": null,
+    "ability": "prankster",
+    "item": "mentalherb",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -2,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "bleakwindstorm",
+     "taunt",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Lucario": {
+    "species": "lucario",
+    "name": "Lucario",
+    "current_hp": 132,
+    "max_hp": 146,
+    "current_hp_fraction": 0.9041095890410958,
+    "status": null,
+    "ability": "innerfocus",
+    "item": "lifeorb",
+    "types": [
+     "FIGHTING",
+     "STEEL"
+    ],
+    "base_stats": {
+     "atk": 110,
+     "def": 70,
+     "hp": 70,
+     "spa": 115,
+     "spd": 70,
+     "spe": 90
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": -1,
+     "evasion": 0,
+     "spa": 0,
+     "spd": -1,
+     "spe": 0
+    },
+    "moves": [
+     "closecombat",
+     "bulletpunch",
+     "poisonjab",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Great Tusk": {
+    "species": "greattusk",
+    "name": "Great Tusk",
+    "current_hp": 222,
+    "max_hp": 222,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": "boosterenergy",
+    "types": [
+     "GROUND",
+     "FIGHTING"
+    ],
+    "base_stats": {
+     "atk": 131,
+     "def": 131,
+     "hp": 115,
+     "spa": 53,
+     "spd": 53,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "headlongrush",
+     "closecombat",
+     "rockslide",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p1: Hatterene": {
+    "species": "hatterene",
+    "name": "Hatterene",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "magicbounce",
+    "item": "safetygoggles",
+    "types": [
+     "PSYCHIC",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 90,
+     "def": 95,
+     "hp": 57,
+     "spa": 136,
+     "spd": 103,
+     "spe": 29
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "trickroom",
+     "dazzlinggleam",
+     "psychic",
+     "mysticalfire"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p2: Dragonite": {
+    "species": "dragonite",
+    "name": "Dragonite",
+    "current_hp": 65,
+    "max_hp": 100,
+    "current_hp_fraction": 0.65,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 95,
+     "hp": 91,
+     "spa": 100,
+     "spd": 100,
+     "spe": 80
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": -1,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 1
+    },
+    "moves": [
+     "tailwind",
+     "scaleshot",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Gholdengo": {
+    "species": "gholdengo",
+    "name": "Gholdengo",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "goodasgold",
+    "item": null,
+    "types": [
+     "STEEL",
+     "GHOST"
+    ],
+    "base_stats": {
+     "atk": 60,
+     "def": 95,
+     "hp": 87,
+     "spa": 133,
+     "spd": 91,
+     "spe": 84
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "shadowball",
+     "makeitrain"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Incineroar": {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 58,
+    "max_hp": 100,
+    "current_hp_fraction": 0.58,
+    "status": null,
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Archaludon": {
+    "species": "archaludon",
+    "name": "Archaludon",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "stamina",
+    "item": "leftovers",
+    "types": [
+     "STEEL",
+     "DRAGON"
+    ],
+    "base_stats": {
+     "atk": 105,
+     "def": 130,
+     "hp": 90,
+     "spa": 125,
+     "spd": 65,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "dracometeor",
+     "protect"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   false
+  ],
+  "can_tera": [
+   true,
+   true
+  ],
+  "active_pokemon": [
+   {
+    "species": "lucario",
+    "name": "Lucario",
+    "current_hp": 132,
+    "max_hp": 146,
+    "current_hp_fraction": 0.9041095890410958,
+    "status": null,
+    "ability": "innerfocus",
+    "item": "lifeorb",
+    "types": [
+     "FIGHTING",
+     "STEEL"
+    ],
+    "base_stats": {
+     "atk": 110,
+     "def": 70,
+     "hp": 70,
+     "spa": 115,
+     "spd": 70,
+     "spe": 90
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": -1,
+     "evasion": 0,
+     "spa": 0,
+     "spd": -1,
+     "spe": 0
+    },
+    "moves": [
+     "closecombat",
+     "bulletpunch",
+     "poisonjab",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 90,
+    "max_hp": 186,
+    "current_hp_fraction": 0.4838709677419355,
+    "status": null,
+    "ability": "prankster",
+    "item": "mentalherb",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -2,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "bleakwindstorm",
+     "taunt",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_active_pokemon": [
+   {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 58,
+    "max_hp": 100,
+    "current_hp_fraction": 0.58,
+    "status": null,
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "dragonite",
+    "name": "Dragonite",
+    "current_hp": 65,
+    "max_hp": 100,
+    "current_hp_fraction": 0.65,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 95,
+     "hp": 91,
+     "spa": 100,
+     "spd": 100,
+     "spe": 80
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": -1,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 1
+    },
+    "moves": [
+     "tailwind",
+     "scaleshot",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [
+    {
+     "id": "closecombat",
+     "type": "FIGHTING",
+     "category": "PHYSICAL",
+     "base_power": 120,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 6,
+     "max_pp": 8,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "tornadus"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "incineroar"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "dragonite"
+      }
+     ]
+    },
+    {
+     "id": "bulletpunch",
+     "type": "STEEL",
+     "category": "PHYSICAL",
+     "base_power": 40,
+     "accuracy": 1.0,
+     "priority": 1,
+     "current_pp": 48,
+     "max_pp": 48,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "tornadus"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "incineroar"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "dragonite"
+      }
+     ]
+    },
+    {
+     "id": "poisonjab",
+     "type": "POISON",
+     "category": "PHYSICAL",
+     "base_power": 80,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 32,
+     "max_pp": 32,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "tornadus"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "incineroar"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "dragonite"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "id": "bleakwindstorm",
+     "type": "FLYING",
+     "category": "SPECIAL",
+     "base_power": 100,
+     "accuracy": 0.8,
+     "priority": 0,
+     "current_pp": 13,
+     "max_pp": 16,
+     "target": "ALL_ADJACENT_FOES",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "taunt",
+     "type": "DARK",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 32,
+     "max_pp": 32,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "lucario"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": "incineroar"
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "dragonite"
+      }
+     ]
+    },
+    {
+     "id": "tailwind",
+     "type": "FLYING",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 22,
+     "max_pp": 24,
+     "target": "ALLY_SIDE",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 15,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ]
+  ],
+  "available_switches": [
+   [],
+   []
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-0a2b7c 1 vs. able-p1-0a2b7c 1",
+   "|j|☆able-p0-0a2b7c 1",
+   "|j|☆able-p1-0a2b7c 1",
+   "|gametype|doubles",
+   "|player|p1|able-p0-0a2b7c 1|170|",
+   "|player|p2|able-p1-0a2b7c 1|102|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Landorus-Therian, L50, M|",
+   "|poke|p1|Baxcalibur, L50, F|",
+   "|poke|p1|Tornadus, L50, M|",
+   "|poke|p1|Lucario, L50, F|",
+   "|poke|p1|Great Tusk, L50|",
+   "|poke|p1|Hatterene, L50, F|",
+   "|poke|p2|Incineroar, L50, M|",
+   "|poke|p2|Dragonite, L50, F|",
+   "|poke|p2|Archaludon, L50, F|",
+   "|poke|p2|Gholdengo, L50|",
+   "|poke|p2|Gyarados, L50, F|",
+   "|poke|p2|Indeedee-F, L50, F|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p1-0a2b7c 1)",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p0-0a2b7c 1 also wants the timer to be on.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Landorus|Landorus-Therian, L50, M|164/164",
+   "|switch|p1b: Tornadus|Tornadus, L50, M|186/186",
+   "|switch|p2a: Dragonite|Dragonite, L50, F|100/100",
+   "|switch|p2b: Gholdengo|Gholdengo, L50|100/100",
+   "|-ability|p1a: Landorus|Intimidate|boost",
+   "|-unboost|p2a: Dragonite|atk|1",
+   "|-unboost|p2b: Gholdengo|atk|1",
+   "|-item|p2b: Gholdengo|Air Balloon",
+   "|turn|1",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|move|p1b: Tornadus|Tailwind|p1b: Tornadus",
+   "|-sidestart|p1: able-p0-0a2b7c 1|move: Tailwind",
+   "|move|p1a: Landorus|U-turn|p2a: Dragonite",
+   "|-resisted|p2a: Dragonite",
+   "|-damage|p2a: Dragonite|94/100",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|switch|p1a: Baxcalibur|Baxcalibur, L50, F|191/191|[from] U-turn",
+   "|move|p2b: Gholdengo|Shadow Ball|p1a: Baxcalibur",
+   "|-damage|p1a: Baxcalibur|110/191",
+   "|move|p2a: Dragonite|Tailwind|p2a: Dragonite",
+   "|-sidestart|p2: able-p1-0a2b7c 1|move: Tailwind",
+   "|",
+   "|upkeep",
+   "|turn|2",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|switch|p2a: Incineroar|Incineroar, L50, M|100/100",
+   "|-ability|p2a: Incineroar|Intimidate|boost",
+   "|-unboost|p1a: Baxcalibur|atk|1",
+   "|-unboost|p1b: Tornadus|atk|1",
+   "|move|p1b: Tornadus|Bleakwind Storm|p2b: Gholdengo|[spread] p2a,p2b",
+   "|-resisted|p2b: Gholdengo",
+   "|-damage|p2a: Incineroar|81/100",
+   "|-damage|p2b: Gholdengo|83/100",
+   "|-enditem|p2b: Gholdengo|Air Balloon",
+   "|move|p1a: Baxcalibur|Icicle Spear|p2a: Incineroar",
+   "|-resisted|p2a: Incineroar",
+   "|-damage|p2a: Incineroar|77/100",
+   "|-resisted|p2a: Incineroar",
+   "|-damage|p2a: Incineroar|72/100",
+   "|-resisted|p2a: Incineroar",
+   "|-damage|p2a: Incineroar|67/100",
+   "|-resisted|p2a: Incineroar",
+   "|-damage|p2a: Incineroar|63/100",
+   "|-resisted|p2a: Incineroar",
+   "|-damage|p2a: Incineroar|58/100",
+   "|-hitcount|p2a: Incineroar|5",
+   "|move|p2b: Gholdengo|Make It Rain|p1a: Baxcalibur|[spread] p1a,p1b",
+   "|-supereffective|p1a: Baxcalibur",
+   "|-damage|p1a: Baxcalibur|0 fnt",
+   "|-damage|p1b: Tornadus|90/186",
+   "|-unboost|p2b: Gholdengo|spa|1",
+   "|faint|p1a: Baxcalibur",
+   "|",
+   "|upkeep",
+   "|inactive|Time left: 55 sec this turn | 410 sec total",
+   "|",
+   "|switch|p1a: Landorus|Landorus-Therian, L50, M|164/164",
+   "|-ability|p1a: Landorus|Intimidate|boost",
+   "|-unboost|p2a: Incineroar|atk|1",
+   "|-unboost|p2b: Gholdengo|atk|1",
+   "|turn|3",
+   "|inactive|Time left: 55 sec this turn | 400 sec total",
+   "|",
+   "|switch|p2a: Archaludon|Archaludon, L50, F|100/100",
+   "|move|p1a: Landorus|Earthquake|p2a: Archaludon|[spread] p2a,p2b",
+   "|-immune|p1b: Tornadus",
+   "|-supereffective|p2a: Archaludon",
+   "|-supereffective|p2b: Gholdengo",
+   "|-damage|p2a: Archaludon|57/100",
+   "|-damage|p2b: Gholdengo|0 fnt",
+   "|-ability|p2a: Archaludon|Stamina|boost",
+   "|-boost|p2a: Archaludon|def|1",
+   "|faint|p2b: Gholdengo",
+   "|move|p1b: Tornadus|Bleakwind Storm|p2a: Archaludon",
+   "|-resisted|p2a: Archaludon",
+   "|-damage|p2a: Archaludon|29/100",
+   "|-unboost|p2a: Archaludon|spe|1",
+   "|-ability|p2a: Archaludon|Stamina|boost",
+   "|-boost|p2a: Archaludon|def|1",
+   "|",
+   "|-heal|p2a: Archaludon|35/100|[from] item: Leftovers",
+   "|upkeep",
+   "|",
+   "|switch|p2b: Dragonite|Dragonite, L50, F|94/100",
+   "|turn|4",
+   "|inactive|Time left: 55 sec this turn | 395 sec total",
+   "|",
+   "|move|p1a: Landorus|Earthquake|p2a: Archaludon|[spread] p2a",
+   "|-immune|p1b: Tornadus",
+   "|-immune|p2b: Dragonite",
+   "|-supereffective|p2a: Archaludon",
+   "|-damage|p2a: Archaludon|11/100",
+   "|-ability|p2a: Archaludon|Stamina|boost",
+   "|-boost|p2a: Archaludon|def|1",
+   "|move|p1b: Tornadus|Bleakwind Storm|p2b: Dragonite|[spread] p2b",
+   "|-miss|p1b: Tornadus|p2a: Archaludon",
+   "|-damage|p2b: Dragonite|65/100",
+   "|move|p2b: Dragonite|Scale Shot|p1a: Landorus",
+   "|-damage|p1a: Landorus|134/164",
+   "|-damage|p1a: Landorus|104/164",
+   "|-damage|p1a: Landorus|76/164",
+   "|-damage|p1a: Landorus|46/164",
+   "|-hitcount|p1a: Landorus|4",
+   "|-unboost|p2b: Dragonite|def|1",
+   "|-boost|p2b: Dragonite|spe|1",
+   "|move|p2a: Archaludon|Draco Meteor|p1a: Landorus",
+   "|-damage|p1a: Landorus|0 fnt",
+   "|-unboost|p2a: Archaludon|spa|2",
+   "|faint|p1a: Landorus",
+   "|",
+   "|-heal|p2a: Archaludon|17/100|[from] item: Leftovers",
+   "|-sideend|p2: able-p1-0a2b7c 1|move: Tailwind",
+   "|-sideend|p1: able-p0-0a2b7c 1|move: Tailwind",
+   "|upkeep",
+   "|inactive|Time left: 55 sec this turn | 390 sec total",
+   "|",
+   "|switch|p1a: Lucario|Lucario, L50, F|146/146",
+   "|turn|5",
+   "|inactive|Time left: 55 sec this turn | 385 sec total",
+   "|",
+   "|move|p1b: Tornadus|Protect|p1b: Tornadus",
+   "|-singleturn|p1b: Tornadus|Protect",
+   "|move|p2b: Dragonite|Protect|p2b: Dragonite",
+   "|-singleturn|p2b: Dragonite|Protect",
+   "|move|p2a: Archaludon|Protect|p2a: Archaludon",
+   "|-singleturn|p2a: Archaludon|Protect",
+   "|move|p1a: Lucario|Close Combat|p2a: Archaludon",
+   "|-activate|p2a: Archaludon|move: Protect",
+   "|",
+   "|-heal|p2a: Archaludon|23/100|[from] item: Leftovers",
+   "|upkeep",
+   "|turn|6",
+   "|inactive|Time left: 55 sec this turn | 385 sec total",
+   "|",
+   "|move|p1b: Tornadus|Tailwind|p1b: Tornadus",
+   "|-sidestart|p1: able-p0-0a2b7c 1|move: Tailwind",
+   "|move|p1a: Lucario|Close Combat|p2a: Archaludon",
+   "|-supereffective|p2a: Archaludon",
+   "|-damage|p2a: Archaludon|0 fnt",
+   "|-unboost|p1a: Lucario|def|1",
+   "|-unboost|p1a: Lucario|spd|1",
+   "|faint|p2a: Archaludon",
+   "|-damage|p1a: Lucario|132/146|[from] item: Life Orb",
+   "|move|p2b: Dragonite|Scale Shot|p1b: Tornadus|[miss]",
+   "|-miss|p2b: Dragonite|p1b: Tornadus",
+   "|",
+   "|upkeep",
+   "|",
+   "|switch|p2a: Incineroar|Incineroar, L50, M|58/100",
+   "|-ability|p2a: Incineroar|Intimidate|boost",
+   "|-fail|p1a: Lucario|unboost|Attack|[from] ability: Inner Focus|[of] p1a: Lucario",
+   "|-unboost|p1b: Tornadus|atk|1",
+   "|turn|7"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 385
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "fbe1dc85-2d28-4e6e-9aa2-758f45e14cd5",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "0a2b7c2a-3de9-4af2-be74-7890faa859de",
+  "state_version": 10,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "0a2b7c2a-3de9-4af2-be74-7890faa859de",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "lucario",
+         "name": "Lucario",
+         "current_hp": 132,
+         "max_hp": 146,
+         "current_hp_fraction": 0.9041095890410958,
+         "status": null,
+         "ability": "innerfocus",
+         "item": "lifeorb",
+         "types": [
+          "FIGHTING",
+          "STEEL"
+         ],
+         "base_stats": {
+          "atk": 110,
+          "def": 70,
+          "hp": 70,
+          "spa": 115,
+          "spd": 70,
+          "spe": 90
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": -1,
+          "evasion": 0,
+          "spa": 0,
+          "spd": -1,
+          "spe": 0
+         },
+         "moves": [
+          "closecombat",
+          "bulletpunch",
+          "poisonjab",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "closecombat",
+          "base_power": 120,
+          "category": "PHYSICAL",
+          "move_type": "FIGHTING",
+          "current_pp": 6,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "tornadus"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "incineroar"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "dragonite"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "bulletpunch",
+          "base_power": 40,
+          "category": "PHYSICAL",
+          "move_type": "STEEL",
+          "current_pp": 48,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "tornadus"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "incineroar"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "dragonite"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "poisonjab",
+          "base_power": 80,
+          "category": "PHYSICAL",
+          "move_type": "POISON",
+          "current_pp": 32,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "tornadus"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "incineroar"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "dragonite"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": {
+         "species": "tornadus",
+         "name": "Tornadus",
+         "current_hp": 90,
+         "max_hp": 186,
+         "current_hp_fraction": 0.4838709677419355,
+         "status": null,
+         "ability": "prankster",
+         "item": "mentalherb",
+         "types": [
+          "FLYING"
+         ],
+         "base_stats": {
+          "atk": 115,
+          "def": 70,
+          "hp": 79,
+          "spa": 125,
+          "spd": 80,
+          "spe": 111
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": -2,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+         },
+         "moves": [
+          "bleakwindstorm",
+          "taunt",
+          "tailwind",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "bleakwindstorm",
+          "base_power": 100,
+          "category": "SPECIAL",
+          "move_type": "FLYING",
+          "current_pp": 13,
+          "accuracy": 0.8,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "taunt",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "DARK",
+          "current_pp": 32,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "lucario"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": "incineroar"
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "dragonite"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "tailwind",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "FLYING",
+          "current_pp": 22,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 15,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 10
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}

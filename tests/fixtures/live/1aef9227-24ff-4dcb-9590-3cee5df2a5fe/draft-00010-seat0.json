@@ -1,0 +1,397 @@
+{
+ "session_id": "1aef9227-24ff-4dcb-9590-3cee5df2a5fe",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 10,
+ "observation": {
+  "phase": "draft",
+  "draft_complete": false,
+  "battle_format": "gen9vgc2025regi",
+  "current_seat": "0118204d-12cb-49e4-8645-311edca0b085",
+  "pick_number": 11,
+  "picks_remaining": 2,
+  "first_drafter": "de5cdb1a-97d2-4baf-8a8f-30d6f3d16ce0",
+  "available_card_ids": [
+   "vgc-cresselia",
+   "vgc-klefki",
+   "vgc-great-tusk",
+   "vgc-wo-chien",
+   "vgc-dondozo",
+   "vgc-chien-pao",
+   "vgc-hatterene",
+   "vgc-indeedee-f"
+  ],
+  "available_cards": [
+   {
+    "card_id": "vgc-cresselia",
+    "species": "Cresselia",
+    "item": "Sitrus Berry",
+    "ability": "Levitate",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Icy Wind",
+     "Moonblast",
+     "Helping Hand",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-klefki",
+    "species": "Klefki",
+    "item": "Light Clay",
+    "ability": "Prankster",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Reflect",
+     "Light Screen",
+     "Dazzling Gleam",
+     "Foul Play"
+    ]
+   },
+   {
+    "card_id": "vgc-great-tusk",
+    "species": "Great Tusk",
+    "item": "Booster Energy",
+    "ability": "Protosynthesis",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 252,
+     "spe": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Headlong Rush",
+     "Close Combat",
+     "Rock Slide",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-wo-chien",
+    "species": "Wo-Chien",
+    "item": "Sitrus Berry",
+    "ability": "Tablets of Ruin",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spa": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Leech Seed",
+     "Foul Play",
+     "Giga Drain",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-dondozo",
+    "species": "Dondozo",
+    "item": "Leftovers",
+    "ability": "Unaware",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Wave Crash",
+     "Earthquake",
+     "Liquidation",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-chien-pao",
+    "species": "Chien-Pao",
+    "item": "Focus Sash",
+    "ability": "Sword of Ruin",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 4,
+     "atk": 252,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Icicle Crash",
+     "Sacred Sword",
+     "Sucker Punch",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-hatterene",
+    "species": "Hatterene",
+    "item": "Safety Goggles",
+    "ability": "Magic Bounce",
+    "nature": "Quiet",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spa": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Trick Room",
+     "Dazzling Gleam",
+     "Psychic",
+     "Mystical Fire"
+    ]
+   },
+   {
+    "card_id": "vgc-indeedee-f",
+    "species": "Indeedee-F",
+    "item": "Rocky Helmet",
+    "ability": "Psychic Surge",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Follow Me",
+     "Helping Hand",
+     "Dazzling Gleam",
+     "Psychic"
+    ]
+   }
+  ],
+  "rosters": {
+   "0118204d-12cb-49e4-8645-311edca0b085": [
+    {
+     "card_id": "vgc-iron-bundle",
+     "species": "Iron Bundle"
+    },
+    {
+     "card_id": "vgc-iron-hands",
+     "species": "Iron Hands"
+    },
+    {
+     "card_id": "vgc-archaludon",
+     "species": "Archaludon"
+    },
+    {
+     "card_id": "vgc-gyarados",
+     "species": "Gyarados"
+    },
+    {
+     "card_id": "vgc-whimsicott",
+     "species": "Whimsicott"
+    }
+   ],
+   "de5cdb1a-97d2-4baf-8a8f-30d6f3d16ce0": [
+    {
+     "card_id": "vgc-incineroar",
+     "species": "Incineroar"
+    },
+    {
+     "card_id": "vgc-flutter-mane",
+     "species": "Flutter Mane"
+    },
+    {
+     "card_id": "vgc-sylveon",
+     "species": "Sylveon"
+    },
+    {
+     "card_id": "vgc-rillaboom",
+     "species": "Rillaboom"
+    },
+    {
+     "card_id": "vgc-kingambit",
+     "species": "Kingambit"
+    }
+   ]
+  },
+  "picks": [
+   {
+    "pick_number": 1,
+    "seat_id": "de5cdb1a-97d2-4baf-8a8f-30d6f3d16ce0",
+    "card_id": "vgc-incineroar",
+    "species": "Incineroar",
+    "public_reason": "Incineroar: Fake Out pressure, Intimidate.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 2,
+    "seat_id": "0118204d-12cb-49e4-8645-311edca0b085",
+    "card_id": "vgc-iron-bundle",
+    "species": "Iron Bundle",
+    "public_reason": "Drafted Iron Bundle.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 3,
+    "seat_id": "0118204d-12cb-49e4-8645-311edca0b085",
+    "card_id": "vgc-iron-hands",
+    "species": "Iron Hands",
+    "public_reason": "Drafted Iron Hands.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 4,
+    "seat_id": "de5cdb1a-97d2-4baf-8a8f-30d6f3d16ce0",
+    "card_id": "vgc-flutter-mane",
+    "species": "Flutter Mane",
+    "public_reason": "Flutter Mane: spread damage, beats Iron Bundle.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 5,
+    "seat_id": "de5cdb1a-97d2-4baf-8a8f-30d6f3d16ce0",
+    "card_id": "vgc-sylveon",
+    "species": "Sylveon",
+    "public_reason": "Sylveon: spread damage, beats Iron Bundle, Iron Hands.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 6,
+    "seat_id": "0118204d-12cb-49e4-8645-311edca0b085",
+    "card_id": "vgc-archaludon",
+    "species": "Archaludon",
+    "public_reason": "Drafted Archaludon.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 7,
+    "seat_id": "0118204d-12cb-49e4-8645-311edca0b085",
+    "card_id": "vgc-gyarados",
+    "species": "Gyarados",
+    "public_reason": "Drafted Gyarados.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 8,
+    "seat_id": "de5cdb1a-97d2-4baf-8a8f-30d6f3d16ce0",
+    "card_id": "vgc-rillaboom",
+    "species": "Rillaboom",
+    "public_reason": "Rillaboom: Fake Out pressure, beats Gyarados.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 9,
+    "seat_id": "de5cdb1a-97d2-4baf-8a8f-30d6f3d16ce0",
+    "card_id": "vgc-kingambit",
+    "species": "Kingambit",
+    "public_reason": "Kingambit: strong attacker.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 10,
+    "seat_id": "0118204d-12cb-49e4-8645-311edca0b085",
+    "card_id": "vgc-whimsicott",
+    "species": "Whimsicott",
+    "public_reason": "Drafted Whimsicott.",
+    "auto": false,
+    "auto_reason": null
+   }
+  ],
+  "unused_card_ids": [
+   "vgc-cresselia",
+   "vgc-klefki",
+   "vgc-great-tusk",
+   "vgc-wo-chien",
+   "vgc-dondozo",
+   "vgc-chien-pao",
+   "vgc-hatterene",
+   "vgc-indeedee-f"
+  ],
+  "decision_timeout_seconds": 15.0,
+  "decision_deadline_at": "2026-10-08T03:59:59.306569+00:00",
+  "battle_starting": false
+ },
+ "phase": "draft",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "0118204d-12cb-49e4-8645-311edca0b085",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "1aef9227-24ff-4dcb-9590-3cee5df2a5fe",
+  "state_version": 10,
+  "actions": [
+   {
+    "action_id": "draft_pick:vgc-klefki",
+    "label": "Draft vgc-klefki",
+    "input": {
+     "session_id": "1aef9227-24ff-4dcb-9590-3cee5df2a5fe",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-klefki"
+     },
+     "action_id": "draft_pick:vgc-klefki",
+     "state_version": 10
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-hatterene",
+    "label": "Draft vgc-hatterene",
+    "input": {
+     "session_id": "1aef9227-24ff-4dcb-9590-3cee5df2a5fe",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-hatterene"
+     },
+     "action_id": "draft_pick:vgc-hatterene",
+     "state_version": 10
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-indeedee-f",
+    "label": "Draft vgc-indeedee-f",
+    "input": {
+     "session_id": "1aef9227-24ff-4dcb-9590-3cee5df2a5fe",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-indeedee-f"
+     },
+     "action_id": "draft_pick:vgc-indeedee-f",
+     "state_version": 10
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ]
+}
