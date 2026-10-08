@@ -11,6 +11,9 @@ every run to logs/scenarios.jsonl so prompt changes can be compared over time.
     python scripts/scenarios.py --code-only             # what the computed fallback would do (no model)
 
 Costs a few cents per scenario on Fable.
+
+The cards are the live sets from data/cards.json (``LIVE_SPECIES``); only species the catalog has never seen keep a
+hand-written stand-in (``HAND_SETS``).
 """
 
 from __future__ import annotations
@@ -43,38 +46,32 @@ def card(species, moves, *, item="Leftovers", ability="Pressure", nature="Seriou
             "nature": nature, "level": 50, "evs": evs or {}, "moves": moves}
 
 
-CARDS = {
-    "rillaboom": card("Rillaboom", ["Wood Hammer", "Grassy Glide", "Fake Out", "U-turn"], ability="Grassy Surge", nature="Adamant", evs={"atk": 252, "hp": 252}, item="Assault Vest"),
-    "incineroar": card("Incineroar", ["Flare Blitz", "Knock Off", "Fake Out", "Parting Shot"], ability="Intimidate", nature="Careful", evs={"hp": 252, "spd": 252}, item="Safety Goggles"),
-    "garchomp": card("Garchomp", ["Earthquake", "Dragon Claw", "Rock Slide", "Protect"], ability="Rough Skin", nature="Jolly", evs={"spe": 252, "atk": 252}, item="Life Orb"),
-    "fluttermane": card("Flutter Mane", ["Moonblast", "Shadow Ball", "Dazzling Gleam", "Protect"], ability="Protosynthesis", nature="Timid", evs={"spa": 252, "spe": 252}, item="Choice Specs"),
-    "amoonguss": card("Amoonguss", ["Spore", "Rage Powder", "Pollen Puff", "Protect"], ability="Regenerator", nature="Calm", evs={"hp": 252, "spd": 252}, item="Rocky Helmet"),
-    "whimsicott": card("Whimsicott", ["Tailwind", "Moonblast", "Encore", "Protect"], ability="Prankster", nature="Timid", evs={"spe": 252, "hp": 252}, item="Focus Sash"),
-    "gyarados": card("Gyarados", ["Waterfall", "Tera Blast", "Dragon Dance", "Protect"], ability="Intimidate", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Sitrus Berry"),
+def live_card(species: str) -> dict:
+    """The set the platform actually deals for ``species`` (data/cards.json: every card seen live)."""
+    found = data.catalog_card(species=species)
+    if found is None:
+        raise KeyError(f"{species} is not in the live card catalog")
+    return found
+
+
+# Every species the live catalog has seen uses its live set; the hand-written sets in HAND_SETS stand in only for the
+# species the catalog has not seen yet (tests/test_sim_scenarios.py fails the day it gains one, so it gets switched).
+LIVE_SPECIES = ["Rillaboom", "Incineroar", "Garchomp", "Flutter Mane", "Amoonguss", "Whimsicott", "Gyarados", "Kingambit",
+                "Pelipper", "Dragonite", "Gholdengo", "Sneasler", "Iron Bundle", "Archaludon", "Basculegion", "Chien-Pao",
+                "Hatterene", "Iron Hands", "Tornadus", "Scream Tail"]
+HAND_SETS = {
     "urshifurapidstrike": card("Urshifu-Rapid-Strike", ["Surging Strikes", "Close Combat", "Aqua Jet", "Detect"], ability="Unseen Fist", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Choice Scarf"),
-    "kingambit": card("Kingambit", ["Kowtow Cleave", "Sucker Punch", "Iron Head", "Protect"], ability="Defiant", nature="Adamant", evs={"atk": 252, "hp": 252}, item="Black Glasses"),
-    "pelipper": card("Pelipper", ["Hurricane", "Weather Ball", "Tailwind", "Protect"], ability="Drizzle", nature="Modest", evs={"spa": 252, "hp": 252}, item="Covert Cloak"),
-    "dragonite": card("Dragonite", ["Extreme Speed", "Scale Shot", "Fire Punch", "Protect"], ability="Multiscale", nature="Adamant", evs={"atk": 252, "hp": 252}, item="Loaded Dice"),
-    "gholdengo": card("Gholdengo", ["Make It Rain", "Shadow Ball", "Nasty Plot", "Protect"], ability="Good as Gold", nature="Modest", evs={"spa": 252, "hp": 252}, item="Choice Specs"),
-    "sneasler": card("Sneasler", ["Close Combat", "Dire Claw", "Fake Out", "Protect"], ability="Unburden", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Focus Sash"),
     "zamazenta": card("Zamazenta", ["Body Press", "Heavy Slam", "Wide Guard", "Protect"], ability="Dauntless Shield", nature="Jolly", evs={"hp": 252, "spe": 252}, item="Rusted Shield"),
-    "ironbundle": card("Iron Bundle", ["Freeze-Dry", "Hydro Pump", "Icy Wind", "Protect"], ability="Quark Drive", nature="Timid", evs={"spa": 252, "spe": 252}, item="Booster Energy"),
-    "archaludon": card("Archaludon", ["Electro Shot", "Draco Meteor", "Flash Cannon", "Body Press"], ability="Stamina", nature="Modest", evs={"hp": 252, "spa": 252}, item="Assault Vest"),
-    "basculegion": card("Basculegion", ["Wave Crash", "Last Respects", "Aqua Jet", "Protect"], ability="Swift Swim", nature="Adamant", evs={"atk": 252, "spe": 252}, item="Mystic Water"),
     "koraidon": card("Koraidon", ["Flare Blitz", "Collision Course", "Drain Punch", "Protect"], ability="Orichalcum Pulse", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Clear Amulet"),
     "miraidon": card("Miraidon", ["Electro Drift", "Draco Meteor", "Dazzling Gleam", "Volt Switch"], ability="Hadron Engine", nature="Modest", evs={"hp": 252, "spa": 252}, item="Choice Specs"),
-    "chienpao": card("Chien-Pao", ["Icicle Crash", "Sucker Punch", "Sacred Sword", "Protect"], ability="Sword of Ruin", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Focus Sash"),
     "farigiraf": card("Farigiraf", ["Trick Room", "Psychic", "Foul Play", "Protect"], ability="Armor Tail", nature="Quiet", evs={"hp": 252, "spa": 252}, item="Sitrus Berry"),
-    "hatterene": card("Hatterene", ["Trick Room", "Dazzling Gleam", "Expanding Force", "Protect"], ability="Magic Bounce", nature="Quiet", evs={"hp": 252, "spa": 252}, item="Life Orb"),
-    "ironhands": card("Iron Hands", ["Fake Out", "Drain Punch", "Wild Charge", "Heavy Slam"], ability="Quark Drive", nature="Adamant", evs={"hp": 252, "atk": 252}, item="Assault Vest"),
     "maushold": card("Maushold", ["Population Bomb", "Follow Me", "Beat Up", "Protect"], ability="Technician", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Wide Lens"),
     "kommoo": card("Kommo-o", ["Clanging Scales", "Aura Sphere", "Flamethrower", "Protect"], ability="Overcoat", nature="Timid", evs={"spa": 252, "spe": 252}, item="Throat Spray"),
     "chiyu": card("Chi-Yu", ["Heat Wave", "Dark Pulse", "Overheat", "Snarl"], ability="Beads of Ruin", nature="Timid", evs={"spa": 252, "spe": 252}, item="Choice Scarf"),
     "arcaninehisui": card("Arcanine-Hisui", ["Rock Slide", "Flare Blitz", "Extreme Speed", "Protect"], ability="Intimidate", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Clear Amulet"),
-    "tornadus": card("Tornadus", ["Bleakwind Storm", "Taunt", "Tailwind", "Protect"], ability="Prankster", nature="Timid", evs={"hp": 252, "spd": 4, "spe": 252}, item="Mental Herb"),
-    "screamtail": card("Scream Tail", ["Dazzling Gleam", "Encore", "Wish", "Protect"], ability="Protosynthesis", nature="Bold", evs={"hp": 252, "def": 252, "spd": 4}, item="Covert Cloak"),
     "urshifu": card("Urshifu", ["Wicked Blow", "Close Combat", "Sucker Punch", "Detect"], ability="Unseen Fist", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Focus Sash"),
 }
+CARDS = {data.to_id(s): live_card(s) for s in LIVE_SPECIES} | HAND_SETS
 MINE_DEFAULT = ["rillaboom", "incineroar", "garchomp", "fluttermane", "amoonguss", "whimsicott"]
 THEIRS_DEFAULT = ["gyarados", "urshifurapidstrike", "kingambit", "pelipper", "dragonite", "gholdengo"]
 
@@ -166,7 +163,7 @@ SCENARIOS: list[Scenario] = [
         accept_text="Amoonguss uses Spore/Rage Powder/Pollen Puff; Incineroar attacks (Knock Off into Gholdengo is ideal).",
     ),
     Scenario(
-        "sucker_punch_respect", "Our Tailwind is up, but Kingambit's priority Sucker Punch OHKOs Flutter Mane (155 vs 130 HP). Garchomp beside it.",
+        "sucker_punch_respect", "Our Tailwind is up, but Kingambit's priority Sucker Punch OHKOs Flutter Mane (101-119%). Garchomp beside it.",
         ("fluttermane", "garchomp"), ("kingambit", "urshifurapidstrike"), my_side=["Tailwind"],
         accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and move_of(p, "slot_1") in ("earthquake", "dragonclaw", "rockslide"),
         accept_text="Flutter Mane Protects or switches out (Sucker Punch would KO it first, and fails against a switching target); Garchomp attacks.",
@@ -175,7 +172,7 @@ SCENARIOS: list[Scenario] = [
         "tailwind_up_go_aggressive", "Our Tailwind is up; Flutter Mane + Garchomp vs Gyarados + Pelipper, nothing with priority threatens a KO.",
         ("fluttermane", "garchomp"), ("gyarados", "pelipper"), my_side=["Tailwind"],
         accept=lambda p: move_of(p, "slot_0") in ("moonblast", "dazzlinggleam", "shadowball") and move_of(p, "slot_1") in ("rockslide", "dragonclaw"),
-        accept_text="Both attack: Flutter Mane fires off a Specs move, Garchomp Rock Slides the two Flying types (not Earthquake: both immune).",
+        accept_text="Both attack: Flutter Mane fires off Moonblast or Shadow Ball, Garchomp Rock Slides the two Flying types (not Earthquake: both immune).",
     ),
 ]
 
@@ -185,16 +182,16 @@ SCENARIOS.append(Scenario(
     ("hatterene", "incineroar"), ("ironhands", "maushold"), turn=3, their_hp={"maushold": 0.06}, their_boosts={"maushold": {"atk": -1}, "ironhands": {"atk": -1}},
     mine=["hatterene", "incineroar", "basculegion", "urshifurapidstrike", "archaludon", "urshifu"], theirs=["ironhands", "maushold", "farigiraf", "kommoo", "arcaninehisui", "chiyu"],
     accept=lambda p: move_of(p, "slot_1") != "fakeout" and move_of(p, "slot_0") != "protect",
-    accept_text="No Fake Out from Incineroar (not its first turn out: it fails) and no second Protect in a row from Hatterene. Attack: Maushold at 6% dies to anything, Expanding Force / Dazzling Gleam pressure Iron Hands.",
+    accept_text="No Fake Out from Incineroar (not its first turn out: it fails) and no second Protect in a row from Hatterene. Attack: Maushold at 6% dies to anything, Psychic / Dazzling Gleam pressure Iron Hands.",
 ))
 
 HARD: list[Scenario] = [
     Scenario(
-        "break_sash_then_ko", "Chien-Pao at full HP behind a Focus Sash beside Kingambit; our Garchomp + Flutter Mane. One hit can't KO it.",
-        ("garchomp", "fluttermane"), ("chienpao", "kingambit"), hard=True,
+        "break_sash_then_ko", "Chien-Pao at full HP behind a Focus Sash beside Kingambit; our Garchomp (90%, its own sash spent) + Flutter Mane. One hit can't KO Chien-Pao.",
+        ("garchomp", "fluttermane"), ("chienpao", "kingambit"), hard=True, my_hp={"garchomp": 0.9},
         mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
         accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and (move_of(p, "slot_1") in ("dazzlinggleam", "moonblast", "shadowball", "protect") or p["slot_1"].get("type") == "switch"),
-        accept_text="Garchomp must Protect or pivot to Incineroar (Chien-Pao speed-ties/outspeeds it and Icicle Crash is 4x). Flutter Mane either breaks the sash with Dazzling Gleam, or, since Sword of Ruin makes Kingambit's Sucker Punch and Chien-Pao's Icicle Crash both lethal to it, Protects or pivots out. Attacking with Garchomp just loses it.",
+        accept_text="Garchomp must Protect or pivot to Incineroar (Chien-Pao speed-ties/outspeeds it and Icicle Crash is 4x). Flutter Mane either breaks the sash with Moonblast or Shadow Ball, or, since Sword of Ruin makes Kingambit's Sucker Punch and Chien-Pao's Icicle Crash both lethal to it, Protects or pivots out. Attacking with Garchomp just loses it.",
     ),
     Scenario(
         "fake_out_the_scarf_urshifu", "Turn 1: our Incineroar + Tornadus lead into Flutter Mane + Choice Scarf Urshifu (Unseen Fist). Surging Strikes KOs Incineroar before it moves and goes through Protect.",
@@ -213,45 +210,45 @@ HARD: list[Scenario] = [
         accept_text="Garchomp cannot be saved (slower than Scarf Urshifu, Protect is pierced) and Iron Bundle would be KO'd on entry, so switching only donates a Pokémon. Stay in and attack; Scream Tail's Dazzling Gleam KOs both weakened opponents if it moves (lost sparring game 7, Oct 7).",
     ),
     Scenario(
-        "repeat_protect_pinned", "Garchomp Protected LAST turn and Chien-Pao's 4x Icicle Crash still KOs it before it moves; Incineroar waits on the bench. A second Protect works 1 time in 3.",
+        "repeat_protect_pinned", "Garchomp (90%, its sash spent) Protected LAST turn and Chien-Pao's 4x Icicle Crash still KOs it before it moves; Incineroar waits on the bench. A second Protect works 1 time in 3.",
         ("garchomp", "fluttermane"), ("chienpao", "kingambit"), hard=True, turn=3, my_protected_last=("garchomp",), my_bench=("incineroar", "rillaboom"),
-        their_hp={"chienpao": 0.35},
+        their_hp={"chienpao": 0.35}, my_hp={"garchomp": 0.9},
         mine=["garchomp", "fluttermane", "incineroar", "rillaboom", "amoonguss", "whimsicott"], theirs=["chienpao", "kingambit", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
         accept=lambda p: p["slot_0"].get("type") == "switch",
         accept_text="Garchomp must switch out (Incineroar resists Ice and Intimidates). Protecting again is a 1-in-3 gamble with the game on the line, and attacking loses Garchomp before it moves.",
     ),
     Scenario(
-        "intimidate_the_dancer", "Gyarados sits at +1 Attack after Dragon Dance beside Pelipper; our Amoonguss + Whimsicott, Incineroar (Intimidate) on the bench.",
+        "intimidate_the_dancer", "Gyarados sits at +1 Attack and Speed beside Pelipper; our Amoonguss + Whimsicott, Incineroar (Intimidate) on the bench.",
         ("amoonguss", "whimsicott"), ("gyarados", "pelipper"), their_boosts={"gyarados": {"atk": 1, "spe": 1}}, my_bench=("incineroar", "garchomp"), hard=True,
         accept=lambda p: (move_of(p, "slot_0") == "spore" and p["slot_0"].get("target") == 1) or (p["slot_1"].get("type") == "switch" and p["slot_1"].get("species", "").lower().startswith("incineroar")),
         accept_text="Shut the boosted Gyarados down: Spore it, and/or bring Incineroar in for Intimidate.",
     ),
     Scenario(
-        "redirect_to_free_specs_attacker", "Specs Flutter Mane (frail) beside Amoonguss vs Scarf Urshifu-RS (Surging Strikes KOs it) and Kingambit (Sucker Punch KOs it). Rage Powder soaks both single-target hits; Amoonguss resists Water and Sucker Punch fails on a non-attacker.",
+        "redirect_to_free_specs_attacker", "Flutter Mane (frail) beside Amoonguss vs Scarf Urshifu-RS (Surging Strikes KOs it) and Kingambit (Sucker Punch KOs it). Rage Powder soaks both single-target hits; Amoonguss resists Water and Sucker Punch fails on a non-attacker.",
         ("amoonguss", "fluttermane"), ("urshifurapidstrike", "kingambit"), hard=True, turn=2,
         accept=lambda p: move_of(p, "slot_0") == "ragepowder" and move_of(p, "slot_1") != "protect",
         accept_text="Amoonguss Rage Powder redirects both lethal single-target attacks; Flutter Mane then attacks freely (ideal) or pivots.",
     ),
     Scenario(
-        "deny_trick_room", "Farigiraf (Armor Tail: no Fake Out) wants Trick Room beside Hatterene; our Incineroar + Garchomp outspeed it this turn only.",
+        "deny_trick_room", "Farigiraf (Armor Tail: no Fake Out) and Hatterene both carry Trick Room; our Incineroar + Garchomp outspeed them this turn only.",
         ("incineroar", "garchomp"), ("farigiraf", "hatterene"), hard=True,
         mine=["incineroar", "garchomp", "fluttermane", "rillaboom", "amoonguss", "whimsicott"], theirs=["farigiraf", "hatterene", "urshifurapidstrike", "pelipper", "dragonite", "gholdengo"],
-        accept=lambda p: move_of(p, "slot_0") not in ("fakeout", None) and p["slot_0"].get("target") == 1
-        and (p["slot_1"].get("type") == "switch" or move_of(p, "slot_1") == "protect" or (p["slot_1"].get("type") == "move" and p["slot_1"].get("target") == 1)),
-        accept_text="Incineroar attacks Farigiraf (no Fake Out: Armor Tail). Garchomp either joins in to deny Trick Room, or Protects/switches from Hatterene's 96-113% Dazzling Gleam. Both are defensible.",
+        accept=lambda p: move_of(p, "slot_0") not in ("fakeout", "partingshot", None) and p["slot_0"].get("target") in (1, 2)
+        and (p["slot_1"].get("type") == "switch" or move_of(p, "slot_1") == "protect" or (p["slot_1"].get("type") == "move" and p["slot_1"].get("target") in (1, 2))),
+        accept_text="Incineroar attacks a setter (no Fake Out: Armor Tail blocks it): Farigiraf to deny its Trick Room, or the double into Hatterene that removes the other setter. Garchomp joins in, or Protects/switches from Hatterene's Dazzling Gleam.",
     ),
     Scenario(
-        "endgame_immunities", "1v1 endgame: our Specs Flutter Mane alone vs Dragonite (Extreme Speed, Scale Shot, Fire Punch). Both immune moves are irrelevant.",
+        "endgame_immunities", "1v1 endgame: our Flutter Mane alone vs Dragonite (Extreme Speed, Scale Shot, Tailwind). Neither of its attacks can touch a Ghost/Fairy.",
         ("fluttermane", "garchomp"), ("dragonite", "gholdengo"), slot1_fainted=True, their_hp={"gholdengo": 0.0}, hard=True,
         accept=lambda p: move_of(p, "slot_0") in ("moonblast", "dazzlinggleam") and p["slot_1"].get("type") == "pass",
         accept_text="Attack with the Fairy move: Dragonite's Extreme Speed (Normal) and Scale Shot (Dragon) cannot touch a Ghost/Fairy; Protect gains nothing.",
     ),
     Scenario(
-        "sash_does_not_stop_multihit", "Our Sneasler (Focus Sash, full HP) and Zamazenta vs Scarf Urshifu-RS (Surging Strikes = 3 hits) and Iron Bundle. Urshifu outspeeds and KOs Sneasler through the sash.",
+        "sash_does_not_stop_multihit", "Our Sneasler (full HP) and Zamazenta vs Scarf Urshifu-RS (Surging Strikes = 3 hits) and Iron Bundle. Urshifu outspeeds and KOs Sneasler; three hits mean even a Focus Sash would not save it.",
         ("sneasler", "zamazenta"), ("urshifurapidstrike", "ironbundle"), hard=True, turn=2, drop_moves={"sneasler": {"fakeout"}},
         mine=["sneasler", "zamazenta", "kingambit", "archaludon", "garchomp", "incineroar"], theirs=["urshifurapidstrike", "ironbundle", "garchomp", "gholdengo", "pelipper", "dragonite"],
         accept=lambda p: p["slot_0"].get("type") == "switch",
-        accept_text="Sneasler must switch out: Surging Strikes breaks the sash, KOs it before it moves, and Unseen Fist goes through Protect.",
+        accept_text="Sneasler must switch out: Surging Strikes KOs it before it moves (three hits, so a Focus Sash would not help either) and Unseen Fist goes through Protect.",
     ),
     Scenario(
         "trust_the_boosted_numbers", "Miraidon at -2 Special Attack still KOs our Basculegion (the ranges already include the drop). Koraidon beside it.",
@@ -261,11 +258,11 @@ HARD: list[Scenario] = [
         accept_text="Basculegion Protects or switches; the LETHAL warning already accounts for Miraidon's -2.",
     ),
     Scenario(
-        "sun_koraidon_outspeeds_the_redirector", "Game-17 turn 1: our Maushold + sashed Sneasler vs Koraidon (sun up, 205 speed) and Farigiraf. Flare Blitz one-shots Maushold before it moves; Follow Me would only pull the hit onto itself.",
+        "sun_koraidon_outspeeds_the_redirector", "Game-17 turn 1: our Maushold + Sneasler vs Koraidon (sun up, 205 speed) and Farigiraf. Flare Blitz one-shots Maushold before it moves; Follow Me would only pull the hit onto itself.",
         ("maushold", "sneasler"), ("koraidon", "farigiraf"), turn=1, weather="sunnyday", hard=True,
         mine=["maushold", "sneasler", "kommoo", "arcaninehisui", "dragonite", "whimsicott"], theirs=["koraidon", "farigiraf", "incineroar", "garchomp", "pelipper", "gholdengo"],
-        accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and move_of(p, "slot_1") not in ("protect", None),
-        accept_text="Maushold Protects or switches out of the lethal sun-boosted Flare Blitz; Sneasler attacks (Close Combat into Koraidon, or Fake Out Koraidon so neither of ours is hit). Follow Me or Population Bomb from Maushold loses it for nothing.",
+        accept=lambda p: (move_of(p, "slot_0") == "protect" or p["slot_0"].get("type") == "switch") and move_of(p, "slot_1") not in ("fakeout", None),
+        accept_text="Maushold Protects or switches out of the lethal sun-boosted Flare Blitz; Sneasler attacks Koraidon or Protects (no Fake Out: Armor Tail). Follow Me or Population Bomb from Maushold loses it for nothing.",
     ),
     Scenario(
         "spread_breaks_sash_partner_finishes", "Whimsicott (sash, full HP) beside Gyarados at 30%; our Garchomp (faster than Incineroar) + Incineroar.",
@@ -278,7 +275,7 @@ HARD: list[Scenario] = [
 
 
 def build_template(sc: Scenario, mine_bring: list[str]) -> dict:
-    opp = [{"target": i + 1, "side": "opponent", "species": CARDS[s]["species"]} for i, s in enumerate(sc.their_active)]
+    opp = [{"target": i + 1, "side": "opponent", "species": CARDS[s]["species"]} for i, s in enumerate(sc.their_active) if sc.their_hp.get(s, 1.0) > 0]
 
     def options_for(slot: int, species_id: str) -> list[dict]:
         ally = sc.my_active[1 - slot]
@@ -328,7 +325,7 @@ def build_observation(sc: Scenario, mine_bring: list[str]) -> dict:
     return {"phase": "moving", "is_doubles": True, "turn": sc.turn, "weather": sc.weather, "fields": sc.fields,
             "side_conditions": sc.my_side, "opponent_side_conditions": sc.their_side,
             "active_pokemon": [team[f"p1: {CARDS[s]['species']}"] for s in sc.my_active if team[f"p1: {CARDS[s]['species']}"]["active"]],
-            "opponent_active_pokemon": [opp[f"p2: {CARDS[s]['species']}"] for s in sc.their_active],
+            "opponent_active_pokemon": [opp[f"p2: {CARDS[s]['species']}"] for s in sc.their_active if sc.their_hp.get(s, 1.0) > 0],
             "force_switch": [False, False], "team": team, "opponent_team": opp}
 
 
