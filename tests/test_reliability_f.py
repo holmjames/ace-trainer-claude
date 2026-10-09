@@ -786,3 +786,181 @@ def test_the_public_reason_the_runtime_sends_is_cleaned(tmp_path):
     decision = agent.choose_action(_doubles(GOOD_SLOTS), CTX)
     assert decision.reasoning_summary == "Fake Out OPPONENT a, Wood Hammer OPPONENT b."
     assert decision.action["slot_0"] == {"type": "move", "move_id": "fakeout", "target": 1}
+
+
+# -- E3: the recheck is condition-aware and never discards a valid first answer -------------------------------------
+
+
+def _position(prefix: str, seat: int, turn: int, index: int = 0):
+    """Replay a live session to a battle decision: (agent, sheet, template, build) for that position."""
+    import tempfile
+
+    from examples.llm import pokemon as adapters
+
+    from agent.pokemon import battle as battle_rules
+
+    folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(prefix))
+    agent = PokemonAgent(None, version="e3", log_dir=Path(tempfile.mkdtemp()), capture_dir="", log=lambda *_: None)
+    seen = 0
+    for path in _sequence(folder, seat):
+        raw = json.loads(path.read_text())
+        state = GameState.from_mcp_state(raw)
+        if not state.legal_actions:
+            continue
+        ctx = _context(folder, raw, seat)
+        obs = observation_dict(state)
+        if state.phase == "moving" and obs.get("turn") == turn:
+            if seen == index:
+                agent.memory.observe_battle(obs)
+                action = state.legal_actions[0]
+                template = action.input.get("action") or {}
+                sheet = battle_rules.build_sheet(template, obs, agent.memory, agent.params)
+                return agent, sheet, template, adapters.doubles_choice(action, state).build
+            seen += 1
+        agent.choose_action(state, ctx)
+    raise AssertionError(f"turn {turn} not in {prefix}")
+
+
+def _answer(build, slot_0: tuple, slot_1: tuple) -> dict:
+    return build({"slot_0": {"option": slot_0[0], "target": slot_0[1]}, "slot_1": {"option": slot_1[0], "target": slot_1[1]}})
+
+
+def _index(template: dict, number: int, move_or_species: str) -> int:
+    options = next(s for s in template["slots"] if s.get("slot") == number)["options"]
+    return next(i for i, o in enumerate(options) if o.get("move_id") == move_or_species or o.get("species") == move_or_species)
+
+
+def test_recheck_fires_when_the_priority_move_cannot_ko_the_threat_bcbaabe2_t13():
+    """Arcanine (slot 1) under Dragonite's Scale Shot (LETHAL, "a priority move from this slot, +2, would go first"):
+    Extreme Speed does 39-46% to Dragonite, so priority is no escape. The recheck fires and quotes the sheet's
+    protect_threatened row: slot 1 option 3 (protect)."""
+    from agent.agent import _lethal_recheck
+
+    agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 13)
+    attack = _answer(build, (_index(template, 0, "bodypress"), 2), (_index(template, 1, "extremespeed"), 1))
+    info: dict = {}
+    message = _lethal_recheck(attack, sheet, memory=agent.memory, template=template, info=info)
+    assert message and "slot 1 attacks with extremespeed" in message and "LETHAL: dragonite's scaleshot" in message
+    assert "protect_threatened: slot 1 option 3 (protect)" in message, message
+    assert info["recheck_outcome"].startswith("fired")
+    protect = _answer(build, (_index(template, 0, "bodypress"), 2), (_index(template, 1, "protect"), 0))
+    assert _lethal_recheck(protect, sheet, memory=agent.memory, template=template) is None
+
+
+def test_recheck_skips_on_a_protect_streak_with_no_safe_switch_bcbaabe2_t14():
+    """A turn later Arcanine Protected last turn (1 in 3) and the only switch-in, Wo-Chien, is KO'd on entry 57% of
+    the time: attacking is what is left, so the attacking answer is not sent back."""
+    from agent.agent import _lethal_recheck
+
+    agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 14)
+    assert agent.memory.protect_streak("arcanine", 1) == 1 and sheet.switch_ins["wochien"]["verdict"] == "ko_on_entry"
+    attack = _answer(build, (_index(template, 0, "bodypress"), 1), (_index(template, 1, "extremespeed"), 1))
+    info: dict = {}
+    assert _lethal_recheck(attack, sheet, memory=agent.memory, template=template, info=info) is None
+    assert "Protect is on a streak of 1" in info["recheck_outcome"] and "no switch-in is safe" in info["recheck_outcome"]
+
+
+def test_recheck_fires_on_two_attacks_under_two_lethal_hits_93a98b6f_t4():
+    """Both slots under a LETHAL hit (Flutter Mane's Shadow Ball 78% into Iron Treads, Rillaboom's Wood Hammer into
+    Sylveon) and a DOUBLE-TARGET on slot 0: the live first answer attacked with both. The recheck fires for both
+    slots and quotes a Protect row; the derived deadline (E1) now leaves time for the second call."""
+    from agent.agent import _lethal_recheck
+
+    agent, sheet, template, build = _position("93a98b6f", 0, 4)
+    attack = _answer(build, (_index(template, 0, "ironhead"), 1), (_index(template, 1, "hypervoice"), 0))
+    info: dict = {}
+    message = _lethal_recheck(attack, sheet, memory=agent.memory, template=template, info=info)
+    assert message and "slot 0 attacks with ironhead" in message and "it goes down BEFORE it moves" in message
+    assert "protect_threatened: slot 0 option 3 (protect)" in message, message
+    # Sylveon (slot 1) Protected the turn before and both switch-ins die on entry: by the rule, attacking is what is
+    # left for that slot, so its Wood Hammer trigger is skipped (logged), not sent back.
+    assert info["recheck_skips"] == ["slot 1: Protect is on a streak of 1 (1 in 3) and no switch-in is safe: attacking is what is left"]
+    assert info["recheck_outcome"].startswith("fired: slot 0")
+    switch_out = _answer(build, (_index(template, 0, "gyarados"), 0), (_index(template, 1, "baxcalibur"), 0))
+    assert _lethal_recheck(switch_out, sheet, memory=agent.memory, template=template) is None
+
+
+def test_recheck_skips_when_two_priority_hits_remove_the_threat_first_da9c168e_t6():
+    """Kingambit (slot 0) under Lucario's Close Combat: Arcanine's Extreme Speed (+2) then Sucker Punch (+1) both land
+    before Lucario moves and together KO it (live: 83 -> 51 -> 0). The attacking answer stands. Sucker Punch into
+    Gyarados with a slower Flare Blitz on Lucario leaves Kingambit exposed: that one is sent back."""
+    from agent.agent import _lethal_recheck
+
+    agent, sheet, template, build = _position("da9c168e", 1, 6)
+    double = _answer(build, (_index(template, 0, "suckerpunch"), 1), (_index(template, 1, "extremespeed"), 1))
+    info: dict = {}
+    assert _lethal_recheck(double, sheet, memory=agent.memory, template=template, info=info) is None
+    assert "together KO it" in info["recheck_outcome"], info
+    # Sucker Punch into Gyarados with a Flare Blitz that lands after Lucario (156 vs 116 speed) removes nothing first.
+    # Kingambit Protected the turn before and has no safe switch, so by the rule its trigger is skipped (logged);
+    # Arcanine's DOUBLE-TARGET still sends the answer back.
+    exposed = _answer(build, (_index(template, 0, "suckerpunch"), 2), (_index(template, 1, "flareblitz"), 1))
+    info = {}
+    message = _lethal_recheck(exposed, sheet, memory=agent.memory, template=template, info=info)
+    assert message and "slot 1 attacks with flareblitz although: DOUBLE-TARGET" in message
+    assert info["recheck_skips"] == ["slot 0: Protect is on a streak of 1 (1 in 3) and no switch-in is safe: attacking is what is left"]
+    assert not any("together KO it" in skip or "lands first" in skip for skip in info["recheck_skips"])
+
+
+def test_recheck_skips_when_a_fake_out_that_goes_first_flinches_the_threat_d9405f02_t6():
+    """Oct 7 L1 T6: Dragonite's Extreme Speed (+2) is LETHAL on Sneasler (slot 0); Sneasler's Fake Out (+3) goes
+    first and flinches it, so the code's Fake Out line is not sent back. Dire Claw (no priority) is."""
+    from agent.agent import _lethal_recheck
+
+    agent, sheet, template, build = _position("d9405f02", 0, 6)
+    fake_out = _answer(build, (_index(template, 0, "fakeout"), 1), (_index(template, 1, "protect"), 0))
+    info: dict = {}
+    message = _lethal_recheck(fake_out, sheet, memory=agent.memory, template=template, info=info)
+    # the flinch answers both of Dragonite's rows on slot 0 (the LETHAL Extreme Speed and the EXPOSED Scale Shot)
+    assert set(info["recheck_skips"]) == {"slot 0: slot 0's Fake Out goes first and flinches dragonite"} and len(info["recheck_skips"]) == 2
+    # Gholdengo is untouched by the Fake Out and KOs Sneasler after it moves: that EXPOSED trigger still fires.
+    assert message and "slot 0 attacks with fakeout although: EXPOSED: slot 0 (sneasler) moves before gholdengo" in message
+    assert "protect_threatened: slot 0 option 3 (protect)" in message
+    dire_claw = _answer(build, (_index(template, 0, "direclaw"), 1), (_index(template, 1, "protect"), 0))
+    info = {}
+    message = _lethal_recheck(dire_claw, sheet, memory=agent.memory, template=template, info=info)
+    assert message and "slot 0 attacks with direclaw although: LETHAL: dragonite's extremespeed" in message and info["recheck_skips"] == []
+
+
+def test_recheck_triggers_on_exposed_and_double_target_too():
+    from agent.agent import _lethal_recheck
+
+    class Sheet:
+        warnings = ["DOUBLE-TARGET: if both foes go into slot 1 (tornadus) — incineroar's flareblitz + gholdengo's makeitrain = 147-172% — it goes down. Opponents double the target that threatens them most; Protect or switch if that is this slot."]
+        notes = ["EXPOSED: slot 0 (lucario) moves before basculegion, but basculegion's wavecrash KOs it (303.2-356.7%) afterwards unless basculegion is removed, flinched, redirected or this slot Protects/switches."]
+        threats: list = []
+        our_options: list = []
+        candidates: list = []
+        speed_order: list = []
+        switch_ins: dict = {}
+        alone = False
+        stall_reasons: list = []
+
+    attack = {"type": "doubles_turn", "slot_0": {"type": "move", "move_id": "closecombat", "target": 1}, "slot_1": {"type": "move", "move_id": "bleakwindstorm", "target": 0}}
+    message = _lethal_recheck(attack, Sheet())
+    assert message and "slot 0 attacks with closecombat although: EXPOSED" in message and "slot 1 attacks with bleakwindstorm although: DOUBLE-TARGET" in message
+    safe = {"type": "doubles_turn", "slot_0": {"type": "switch", "species": "x"}, "slot_1": {"type": "move", "move_id": "protect"}}
+    assert _lethal_recheck(safe, Sheet()) is None
+
+
+def test_a_failed_or_invalid_recheck_call_keeps_the_valid_first_answer(tmp_path):
+    from examples.llm.base import Choice, InvalidChoice
+    from examples.llm.providers import ProviderError
+
+    first = {"slot_0": {"option": 0, "target": 2}, "reasoning_summary": "attack"}
+    choice = Choice(kind="doubles_turn", prompt={}, schema={"type": "object"}, build=lambda a: dict(a) if a.get("slot_0", {}).get("option") != 9 else _raise(InvalidChoice("no option 9")),
+                    fallback=lambda: {"computed": True})
+    for second, result in ((ProviderError("every model failed: timed out"), "the recheck call failed"), ({"slot_0": {"option": 9}}, "was invalid")):
+        provider = _FakeProvider(first, second)
+        agent = PokemonAgent(provider, version="e3", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
+        value, answer, info = agent._ask(choice, {}, kind="turn", recheck=lambda v: "Recheck: slot 0 is LETHAL.")
+        assert value == first and answer == first and info["fallback"] is False, info
+        assert len(provider.calls) == 2 and result in info["recheck_result"]
+    # a second answer that differs stands; one that repeats the first is noted as kept
+    provider = _FakeProvider(first, {"slot_0": {"option": 1, "target": 0}, "reasoning_summary": "protect"})
+    agent = PokemonAgent(provider, version="e3", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
+    value, answer, info = agent._ask(choice, {}, kind="turn", recheck=lambda v: "Recheck.")
+    assert answer["slot_0"]["option"] == 1 and info["recheck_result"] == "second answer stands"
+
+
+MATCH_BCBAABE2 = "bcbaabe2"

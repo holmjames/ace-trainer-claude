@@ -215,3 +215,25 @@ def test_draft_profile_on_the_live_match(tmp_path):
     assert all(isinstance(p["public_reason"], str) and p["public_reason"] for p in theirs)
     assert profile["reasons"]["templated"] >= 4, profile  # "<Species>: beats <Species>." every time
     assert profile["timed_picks"] >= 4 and 0 < profile["mean_seconds_per_pick"] < 15, profile
+
+
+def test_93a98b6f_failed_protect_streak_is_zero_at_t4_and_one_at_t5(tmp_path):
+    """Flutter Mane Protected at T2, failed at T3 ("[still]" + "-fail"), Protected again at T4. The live sheet said
+    "1 in 9" at T4 and "1 in 27" at T5; the truth is certain (0) then 1 in 3 (streak 1)."""
+    at_t4 = _obs("93a98b6f", "moving-00004-seat0.json")
+    at_t5 = _obs("93a98b6f", "moving-00005-seat0.json")
+    assert at_t4["turn"] == 4 and at_t5["turn"] == 5
+    memory = MatchMemory()
+    memory.observe_battle(at_t4)
+    assert memory.opp_protect_streak.get("fluttermane", 0) == 0 and "fluttermane" not in memory.opp_protected_last_turn
+    assert memory.protect_failed["theirs"]["fluttermane"] == {3}
+    memory.observe_battle(at_t5)
+    assert memory.opp_protect_streak.get("fluttermane") == 1 and memory.opp_protected_last_turn == ["fluttermane"]
+    folder = _folder("93a98b6f")
+    agent = PokemonAgent(None, version="d1g", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
+    ctx = DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft", agent_id="me", seat_position=0)
+    agent.choose_action(GameState.from_mcp_state(json.loads((folder / "moving-00005-seat0.json").read_text())), ctx)
+    rows = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines() if line.strip()]
+    notes = " ".join(n for r in rows if r.get("kind") == "turn" for n in r["turn_sheet"]["notes"])
+    assert "fluttermane probably protected last turn" in notes.lower(), notes
+    assert "1 in 27" not in notes and "1 in 9" not in notes

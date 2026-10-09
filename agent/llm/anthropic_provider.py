@@ -35,11 +35,13 @@ from examples.llm.providers import LLMProvider, ProviderError
 
 DEFAULT_MODEL = "claude-opus-5-5"  # chosen Oct 6 by self-play: not worse than Fable 5.1 over 40 games, half the p95 latency; Fable stays one .env line away
 DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
-DEFAULT_TIMEOUT_SECONDS = 18.0  # Showdown VGC timer: 55 s per battle decision, 420 s bank; p95 Opus latency is ~8 s at low effort
+DEFAULT_TIMEOUT_SECONDS = 18.0  # the platform auto-moves at 50 s per battle decision (420 s bank); p95 Opus latency is ~8 s at low effort. The agent passes a per-call deadline from the live clock; this is the ceiling.
 DEFAULT_FALLBACK_TIMEOUT_SECONDS = 8.0  # whole chain worst case: 18+2 + 8+2 = 30 s
 DEFAULT_EFFORT = "low"  # thinking is always on for Fable 5.1; effort controls how long it thinks
 DEFAULT_MAX_TOKENS = 4000
 HARD_TIMEOUT_GRACE_SECONDS = 2.0  # wall-clock guard on top of the SDK's own timeout  # thinking counts toward output; 2000 was cut off once in self-play
+MIN_CALL_SECONDS = 3.0  # a model with less than this left of the chain's deadline is not asked
+FALLBACK_RESERVE_SECONDS = 6.0  # what the first model leaves the next one when the chain has a deadline
 
 
 _SECRET = re.compile(r"(sk-ant-|eak_live_|wrkspc_)[A-Za-z0-9_\-]+")
@@ -84,12 +86,14 @@ class AnthropicProvider:
         self._client = client
         self.last_latency_ms: int | None = None
         self.last_usage: dict | None = None
+        self.last_effort: str | None = None
+        self.last_timeout: float | None = None
 
     def __repr__(self) -> str:
         return f"AnthropicProvider(model={self.model!r}, timeout={self.timeout}, effort={self.effort!r})"
 
-    def _call_with_deadline(self, request: dict):
-        """Run the SDK call in a worker thread and give up at timeout + grace.
+    def _call_with_deadline(self, request: dict, limit: float):
+        """Run the SDK call in a worker thread and give up at ``limit`` + grace.
 
         The SDK has its own timeout, but a socket that stops answering mid-read has been seen
         to hang far past it. The game clock does not care why. If the worker has not returned
@@ -99,24 +103,33 @@ class AnthropicProvider:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="anthropic-call")
         future = executor.submit(self._client.messages.create, **request)
         try:
-            return future.result(timeout=self.timeout + HARD_TIMEOUT_GRACE_SECONDS)
+            return future.result(timeout=limit + HARD_TIMEOUT_GRACE_SECONDS)
         except concurrent.futures.TimeoutError:
             raise anthropic.APITimeoutError(request=None) from None  # type: ignore[arg-type]
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
-    def complete_structured(self, messages: list[dict], schema_name: str, schema: dict) -> dict:
+    def complete_structured(self, messages: list[dict], schema_name: str, schema: dict, *,
+                            timeout: float | None = None, effort: str | None = None) -> dict:
+        """One structured call. ``timeout`` (seconds) bounds this request instead of the instance default: the game
+        clock is per decision, so the agent passes what it can still afford. ``effort`` overrides the instance's
+        effort for this call (Team Preview and a battle turn may differ)."""
         system_text = "\n\n".join(str(m.get("content", "")) for m in messages if m.get("role") == "system")
         chat = [m for m in messages if m.get("role") != "system"]
+        limit = float(timeout) if timeout is not None else float(self.timeout)
+        self.last_effort = effort or self.effort
+        self.last_timeout = limit
         request: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.max_tokens,
             "messages": chat,
             "output_config": {
                 "format": {"type": "json_schema", "schema": schema},
-                "effort": self.effort,
+                "effort": self.last_effort,
             },
         }
+        if timeout is not None:
+            request["timeout"] = limit  # the SDK's per-request timeout (the instance default otherwise)
         if system_text:
             # The system prompt is identical every turn, so mark it cacheable:
             # repeated turns pay a fraction of its input price.
@@ -124,9 +137,9 @@ class AnthropicProvider:
 
         started = time.monotonic()
         try:
-            response = self._call_with_deadline(request)
+            response = self._call_with_deadline(request, limit)
         except anthropic.APITimeoutError:
-            raise ProviderError(f"{self.model}: timed out after {self.timeout:.0f}s") from None
+            raise ProviderError(f"{self.model}: timed out after {limit:.0f}s") from None
         except anthropic.RateLimitError:
             raise ProviderError(f"{self.model}: rate limited (HTTP 429)") from None
         except anthropic.APIStatusError as exc:
@@ -178,27 +191,56 @@ class FallbackProvider:
         self.last_latency_ms: int | None = None
         self.last_usage: dict | None = None
         self.last_errors: list[str] = []
+        self.last_attempts: list[dict] = []  # per model tried on the last call: model, effort, timeout, latency, outcome
         self._credit_warned = False
 
     @property
     def model(self) -> str:
         return self._providers[0].model
 
+    @property
+    def effort(self) -> str | None:
+        return getattr(self._providers[0], "effort", None)
+
     def __repr__(self) -> str:
         return f"FallbackProvider({[p.model for p in self._providers]!r})"
 
-    def complete_structured(self, messages: list[dict], schema_name: str, schema: dict) -> dict:
+    def complete_structured(self, messages: list[dict], schema_name: str, schema: dict, *,
+                            deadline: float | None = None, effort: str | None = None) -> dict:
+        """Try each provider in order within ``deadline`` seconds of wall clock for the whole chain: the first model
+        gets the larger share but leaves the next one a usable slice (``FALLBACK_RESERVE_SECONDS``), a model with
+        less than ``MIN_CALL_SECONDS`` left is not tried. Without a deadline each model keeps its own timeout."""
         self.last_errors = []
-        for provider in self._providers:
+        self.last_attempts = []
+        started = time.monotonic()
+        for index, provider in enumerate(self._providers):
+            timeout = None
+            if deadline is not None:
+                remaining = deadline - (time.monotonic() - started)
+                if remaining < MIN_CALL_SECONDS:
+                    self.last_errors.append(f"{provider.model}: not tried ({remaining:.1f}s left of the {deadline:.1f}s deadline)")
+                    self.last_attempts.append({"model": provider.model, "outcome": "skipped", "left_s": round(remaining, 1)})
+                    continue
+                reserve = 0.0
+                if index + 1 < len(self._providers):
+                    reserve = min(float(getattr(self._providers[index + 1], "timeout", FALLBACK_RESERVE_SECONDS)), FALLBACK_RESERVE_SECONDS)
+                timeout = min(float(getattr(provider, "timeout", remaining)), max(remaining - reserve, remaining * 0.7))
+            call_started = time.monotonic()
             try:
-                answer = provider.complete_structured(messages, schema_name, schema)
+                answer = provider.complete_structured(messages, schema_name, schema, timeout=timeout, effort=effort)
             except ProviderError as exc:
                 self.last_errors.append(str(exc))
+                self.last_attempts.append({"model": provider.model, "effort": effort or getattr(provider, "effort", None),
+                                           "timeout_s": round(timeout, 1) if timeout is not None else getattr(provider, "timeout", None),
+                                           "latency_ms": int((time.monotonic() - call_started) * 1000), "outcome": "error", "error": str(exc)})
                 self._log(f"[llm] {schema_name}: {exc}; trying next provider")
                 continue
             self.last_model = provider.model
             self.last_latency_ms = getattr(provider, "last_latency_ms", None)
             self.last_usage = getattr(provider, "last_usage", None)
+            self.last_attempts.append({"model": provider.model, "effort": effort or getattr(provider, "effort", None),
+                                       "timeout_s": round(timeout, 1) if timeout is not None else getattr(provider, "timeout", None),
+                                       "latency_ms": self.last_latency_ms, "outcome": "ok", "usage": self.last_usage})
             return answer
         self.last_model = None
         if any("credit balance" in e.lower() for e in self.last_errors) and not self._credit_warned:
