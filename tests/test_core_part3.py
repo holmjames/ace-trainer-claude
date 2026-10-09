@@ -415,3 +415,18 @@ def test_the_search_read_expects_the_protect_the_bot_made():
     assert (payload.get("slot_1") or {}).get("move_id") != "earthquake", payload
     sheet, *_ = _sheet_at(M2, 3, {"reply_mixture": 1, "reply_seed": 7, "reply_search_qr": 0.0})
     assert sum(c["prior"] for c in sheet.reply["columns"] if c["name"].startswith("sylveon Protect")) < 0.5  # the tally alone
+
+
+def test_the_mixture_taunts_the_spore_user_and_reads_protect_or_switch_with_spore():
+    # 51c86e5c T1/T3 with the mixture on: the bot's replies were Protect + Spore and a switch + Spore; both are columns,
+    # the Taunt row aims at Amoonguss (a status row used to go at target 0, nobody), and it is code #1 both turns.
+    for turn, combo in ((1, "chienpao Protect + amoonguss spore"), (3, "chienpao -> Iron Hands + amoonguss spore")):
+        ctx, rows, cols = _context(S51, turn)
+        assert any(c.name.startswith(combo) for c in cols), (turn, [c.name for c in cols])
+        taunts = [a for r in rows for a in r.actions if a.move == "taunt"]
+        assert taunts and all(a.target == 2 for a in taunts), [(a.target, a.name) for a in taunts]
+    from tests.test_replies_live import decision
+
+    for turn in (1, 3):
+        payload, template, row = decision(S51, turn)
+        assert move_of(payload, 0) == "taunt" and payload["slot_0"]["target"] == 2, (turn, payload)

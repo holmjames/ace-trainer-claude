@@ -232,6 +232,11 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
     kappa = float(P.get("reply_search_qr", 0.0))
     if kappa > 0 and klass == "search":
         searched = _search_reply(matrix, prior, P)
+        # a one-turn search sees a sleep move as one lost action, our cells as the turns it takes: such a column keeps at
+        # least the class's own rate for it (the Oct 8 evening loss: Spore on 6 of 7 turns, a read of 0.05 on turn 1)
+        searched = [max(s, t) if any(a.kind == "sleep" for a in c.actions) else s for s, t, c in zip(searched, prior, cols)]
+        total = sum(searched) or 1.0
+        searched = [s / total for s in searched]
         prior = [(1.0 - kappa) * a + kappa * b for a, b in zip(prior, searched)]
     lam = _lambda(memory, ctx, cols, prior)
     floor_cols = [j for j in range(len(cols)) if prior[j] >= float(P.get("reply_floor_min_prior", 0.08))] or list(range(len(cols)))
@@ -841,11 +846,14 @@ class _Context:
             info = data.move_info(move_id) or {}
             if data.is_damaging(info) or move_id in PROTECT_IDS or move_id == "fakeout":
                 continue
-            if move_id not in SETUP_IDS and move_id not in battle.SETUP_MOVES and move_id not in battle.ALLY_ONLY \
-                    and battle.status_value(move_id, me, self.theirs, self.sheet, number, has_ally=len(self.ours) > 1)[0] <= 0:
+            value, aim = battle.status_value(move_id, me, self.theirs, self.sheet, number, has_ally=len(self.ours) > 1)
+            if move_id not in SETUP_IDS and move_id not in battle.SETUP_MOVES and move_id not in battle.ALLY_ONLY and value <= 0:
                 continue
             legal = o.get("targets") or []
-            target = next((t for t in legal if t < 0), legal[0] if legal else 0) if move_id in battle.ALLY_ONLY else 0
+            if move_id in battle.ALLY_ONLY:
+                target = next((t for t in legal if t < 0), legal[0] if legal else 0)
+            else:  # a move aimed at a foe goes where it is worth most (Taunt on the Spore user), not at target 0
+                target = aim if aim in legal else (next((t for t in legal if t > 0), 0) if legal and legal != [0] else 0)
             out.append((move_id, {"option": i, "target": target}))
         return out
 
@@ -928,6 +936,13 @@ class _Context:
         for pos, foe in self.theirs.items():
             partner_pos = next((p for p in positions if p != pos), None)
             partners = [q for q in attacks.get(partner_pos, []) if q.kind != "pass"] if partner_pos is not None else []
+            mate_sleep = self.sleep_target(partner_pos) if partner_pos in sleepers else None
+            if mate_sleep is not None:
+                # the partner's sleep move next to this foe's Protect or switch (the Oct 8 evening loss: Protect + Spore on
+                # turn 1, a switch + Spore on turn 3)
+                mv, slot = mate_sleep
+                prio = (mv.get("priority") or 0) + (1 if data.to_id(self.theirs[partner_pos].ability) == "prankster" else 0)
+                partners.append(_Actor("theirs", partner_pos, "sleep", move=mv["id"], priority=prio, target=slot, species=self.theirs[partner_pos].species))
             variants = [[q] for q in partners] or [[]]
 
             def text(acts: list[_Actor]) -> str:
