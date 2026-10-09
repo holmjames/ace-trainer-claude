@@ -56,7 +56,7 @@ def live_card(species: str) -> dict:
 
 # Every species the live catalog has seen uses its live set; the hand-written sets in HAND_SETS stand in only for the
 # species the catalog has not seen yet (tests/test_sim_scenarios.py fails the day it gains one, so it gets switched).
-LIVE_SPECIES = ["Rillaboom", "Incineroar", "Garchomp", "Flutter Mane", "Amoonguss", "Whimsicott", "Gyarados", "Kingambit",
+LIVE_SPECIES = ["Farigiraf", "Rillaboom", "Incineroar", "Garchomp", "Flutter Mane", "Amoonguss", "Whimsicott", "Gyarados", "Kingambit",
                 "Pelipper", "Dragonite", "Gholdengo", "Sneasler", "Iron Bundle", "Archaludon", "Basculegion", "Chien-Pao",
                 "Hatterene", "Iron Hands", "Tornadus", "Scream Tail"]
 HAND_SETS = {
@@ -64,7 +64,6 @@ HAND_SETS = {
     "zamazenta": card("Zamazenta", ["Body Press", "Heavy Slam", "Wide Guard", "Protect"], ability="Dauntless Shield", nature="Jolly", evs={"hp": 252, "spe": 252}, item="Rusted Shield"),
     "koraidon": card("Koraidon", ["Flare Blitz", "Collision Course", "Drain Punch", "Protect"], ability="Orichalcum Pulse", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Clear Amulet"),
     "miraidon": card("Miraidon", ["Electro Drift", "Draco Meteor", "Dazzling Gleam", "Volt Switch"], ability="Hadron Engine", nature="Modest", evs={"hp": 252, "spa": 252}, item="Choice Specs"),
-    "farigiraf": card("Farigiraf", ["Trick Room", "Psychic", "Foul Play", "Protect"], ability="Armor Tail", nature="Quiet", evs={"hp": 252, "spa": 252}, item="Sitrus Berry"),
     "maushold": card("Maushold", ["Population Bomb", "Follow Me", "Beat Up", "Protect"], ability="Technician", nature="Jolly", evs={"atk": 252, "spe": 252}, item="Wide Lens"),
     "kommoo": card("Kommo-o", ["Clanging Scales", "Aura Sphere", "Flamethrower", "Protect"], ability="Overcoat", nature="Timid", evs={"spa": 252, "spe": 252}, item="Throat Spray"),
     "chiyu": card("Chi-Yu", ["Heat Wave", "Dark Pulse", "Overheat", "Snarl"], ability="Beads of Ruin", nature="Timid", evs={"spa": 252, "spe": 252}, item="Choice Scarf"),
