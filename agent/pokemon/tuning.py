@@ -48,6 +48,7 @@ DEFAULTS: dict[str, float] = {
     "draft_hole_w": 0.5,           # B4: log-odds per coverage hole in the finished-draft value (their card none of our four hits for 40% of its HP with its best real attack; immunities and Air Balloon count); 0 = off
     "draft_sleep_w": 0.0,          # their sleepers against our sleep-proof cards in the finished-draft value (one-sided: x matchup.Board.sleep_reach of their four into ours; a Spore user against a four with no sleep-proof card is 1, one 0.5, two 0). 0 = off, the deployed draft: unmeasured at 0.4 it changed 21 of 120 live picks (Oct 9 review); set it from a simulator series
     "draft_tiebreak_eps": 0.01,    # picks whose finished-draft win chance is within this of the best are a tie, broken by the match's secret seed (0 = always the best)
+    "draft_tiebreak_exposure": 0.0,  # > 0: inside that window only the cards the fewest undrafted pool cards beat (ScoredCard.exposure: the counters the opponent can still take) go to the seed's draw (Oct 9 draft review: the lower-exposure card won 61 % of 171 near-tie pairs). 0 = the draw over the whole window, bit for bit; off until its simulator A/B
     "lineup_tiebreak_eps": 0.01,   # same for the four we bring and the lead pair (win chance of the candidate value / the lead value)
     # lineup
     "lineup_offense_w": 6.0,

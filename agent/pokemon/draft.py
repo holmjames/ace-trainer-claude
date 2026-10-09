@@ -87,6 +87,7 @@ class ScoredCard:
     species: str
     score: float
     notes: list[str]
+    exposure: int = 0  # v2 (rank_picks_v2): undrafted pool cards that beat this card by >= BEATS_MARGIN, the counters left to take
 
 
 def card_id_of(action: LegalAction) -> str:
@@ -870,7 +871,7 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
         if board.sleep_r[i] and them:
             safe = [board.units[j].species for j in them if board.proof[i][j]]
             notes.append(f"its sleep move cannot touch their {', '.join(safe)}" if safe else "its sleep move reaches all their picks")
-        threats = sorted(((board.base[j][i], j) for j in pool if j != i and board.base[j][i] >= 0.2), key=lambda t: -t[0])
+        threats = sorted(((board.base[j][i], j) for j in pool if j != i and board.base[j][i] >= BEATS_MARGIN), key=lambda t: -t[0])
         if rank == 0 and len(scored) > 1:
             runner = scored[1]
             notes.append(f"next best {board.units[runner[2]].species} ({100 * matchup.win_probability(runner[0].value):.0f}%)")
@@ -887,13 +888,48 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
             gaps = board.holes(list(four), plan.final_them)
             if gaps:
                 notes.append(f"coverage hole: nothing in that four hits {[board.units[k].species for k in gaps]} for {matchup.HOLE_THRESHOLD:.0f}%")
-        ranked.append(ScoredCard(action, card_id_of(action), me.species, round(plan.value, 3), notes))
+        ranked.append(ScoredCard(action, card_id_of(action), me.species, round(plan.value, 3), notes, exposure=len(threats)))
     return ranked
+
+
+# -- exposure-first near-ties (``draft_tiebreak_exposure``) --------------------------------------------------------------
+#
+# The Oct 9 draft review's natural experiment: among picks inside the tie window, the card fewer undrafted pool cards
+# beat (its exposure: the counters the opponent can still take) won 61 % of 171 discordant pairs, while the search's
+# own value inside the window picked the winner 44 %. With the key on, the window tiebreak() builds is cut to its
+# lowest-exposure cards and the secret seed draws among those. Search values are untouched, so by the model's measure
+# a decision gives up at most eps. tiebreak() itself is unchanged: Team Preview shares it.
+
+
+def tiebreak_exposure(ranked: list[ScoredCard], eps: float, seed: int | None, context: str) -> tuple[int, list[ScoredCard]]:
+    """``tiebreak`` over the scores of ``ranked`` with its window cut to the cards of lowest ``exposure`` before the
+    draw: the same window (same values, same ``eps`` test) and the same ``random.Random(f"{seed}:{context}")`` draw,
+    made among the cards kept. Returns the chosen index and the window's cards the cut set aside: none when the window
+    holds one card or all its cards have the same exposure, and then the answer is ``tiebreak``'s."""
+    from . import matchup
+
+    values = [s.score for s in ranked]
+    if not values:
+        raise ValueError("no candidates")
+    best = max(values)
+    if seed is None or eps <= 0:
+        return values.index(best), []
+    top = matchup.win_probability(best)
+    tied = [i for i, v in enumerate(values) if top - matchup.win_probability(v) <= eps]
+    if len(tied) == 1:
+        return tied[0], []
+    fewest = min(ranked[i].exposure for i in tied)
+    kept = [i for i in tied if ranked[i].exposure == fewest]
+    set_aside = [ranked[i] for i in tied if ranked[i].exposure != fewest]
+    if len(kept) == 1:
+        return kept[0], set_aside
+    return random.Random(f"{seed}:{context}").choice(kept), set_aside
 
 
 def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> ScoredCard:
     """Counter-aware pick: the offered card whose rest-of-draft lookahead gives our finished team the best odds;
-    among cards within ``draft_tiebreak_eps`` of the best, the match's secret seed decides (``tiebreak``)."""
+    among cards within ``draft_tiebreak_eps`` of the best, the match's secret seed decides (``tiebreak``), among the
+    window's fewest-counters cards only when ``draft_tiebreak_exposure`` > 0 (``tiebreak_exposure``)."""
     from . import matchup
 
     P = params or DEFAULTS
@@ -903,8 +939,19 @@ def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params
     seed = tiebreak_seed(memory.my_cards, memory)
     picks_made = len(memory.my_cards) + len(memory.opp_cards)
     eps = float(P.get("draft_tiebreak_eps", 0.0))
-    chosen = ranked[tiebreak([s.score for s in ranked], eps, seed, f"pick:{picks_made}")]
+    set_aside: list[ScoredCard] = []
+    if float(P.get("draft_tiebreak_exposure", 0.0)) > 0:
+        index, set_aside = tiebreak_exposure(ranked, eps, seed, f"pick:{picks_made}")
+        chosen = ranked[index]
+    else:
+        chosen = ranked[tiebreak([s.score for s in ranked], eps, seed, f"pick:{picks_made}")]
     best = ranked[0]
     tied = [s.species for s in ranked if s is not chosen and matchup.win_probability(best.score) - matchup.win_probability(s.score) <= eps]
     chosen.notes.append(f"tie-break seed {seed:#x}" + (f": {chosen.species} over {tied} (within {100 * eps:.0f}% win chance)" if tied else ""))
+    if set_aside:  # exposure cut the window: it decided the pick, or narrowed the seed's draw
+        by_seed = ranked[tiebreak([s.score for s in ranked], eps, seed, f"pick:{picks_made}")]
+        n = chosen.exposure
+        chosen.notes.append(f"exposure tie-break: {chosen.species} is beaten by {n} undrafted pool card{'' if n == 1 else 's'}, the fewest in the "
+                            "window; set aside " + ", ".join(f"{s.species} ({s.exposure})" for s in set_aside)
+                            + ("" if by_seed is chosen else f"; the seed alone would take {by_seed.species}"))
     return chosen
