@@ -6,6 +6,7 @@
     python sim/draft_eval.py live v2 counter --games 200       # the four Oct 7 pools, our drafter in our live seat
     python sim/draft_eval.py preview --games 200                # Team Preview choices vs their live lineups (M2, M3)
     python sim/draft_eval.py match v2l checkout:<path>:checkout_shim:<python> --pairs 150   # paired vs another checkout
+    python sim/draft_eval.py match v2l v1 --pairs 200 --seed 7 --pool-has Archaludon   # only pools holding that card
 
 Players (``PLAYERS`` below): ``v1`` is the old greedy scorer with the old Team Preview, ``v2`` the counter-aware
 drafter (old Team Preview), ``v2l`` the counter-aware drafter with the new Team Preview, ``v1l`` the old drafter
@@ -20,7 +21,9 @@ Opus-piloted games; ``--log-dir`` keeps their decision logs). Every ``--out`` li
 
 ``match`` plays games in PAIRS: the same 18-card pool and the same battle seed twice, with the two players swapping
 seats, so each drafts first exactly once per pool. That cancels most of the pool and first-pick luck. Output: win
-rate of the first player with a 95% Wilson interval, overall and by who drafted first.
+rate of the first player with a 95% Wilson interval, overall and by who drafted first. ``--pool-has <Species>`` plays
+only the pools holding that card: seeds without it are skipped, deterministically, so every arm run with the same
+``--seed`` plays the same pools in the same seats (``--pairs`` then counts the pools played).
 
 Decision logs are switched off (the agent's DecisionLog is pointed at /dev/null) and each game appends one short
 JSON line to ``--out`` (default: none), so thousands of games cost a few megabytes at most. One engine process; do
@@ -43,7 +46,7 @@ sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
 from agent.agent import PokemonAgent  # noqa: E402
-from agent.pokemon import tuning  # noqa: E402
+from agent.pokemon import data, tuning  # noqa: E402
 from sim import harness  # noqa: E402
 from sim.clock import Clock  # noqa: E402
 
@@ -174,10 +177,40 @@ def rate(played: int, started: float) -> str:
     return f"{60 * played / elapsed:.1f} games/min" if elapsed > 0 and played else "no games"
 
 
+def pool_of(seed: int) -> tuple[list[dict], str]:
+    """The 18-card pool and the first drafter ("p1" / "p2") that ``match`` plays for battle seed ``seed``:
+    harness.play_game's first two draws from ``random.Random(seed)``, made without playing."""
+    rng = random.Random(seed)
+    pool = rng.sample(harness.CARDS, 18)
+    return pool, rng.choice(["p1", "p2"])
+
+
+def match_seeds(seed: int, pairs: int, pool_has: str | None = None) -> list[int]:
+    """The battle seeds ``match`` plays, in order: ``seed * 1_000_003 + k`` for k = 0, 1, 2, ... With ``pool_has`` (a
+    species) every seed whose pool lacks it is skipped until ``pairs`` pools hold it: the same pools for every arm."""
+    if not pool_has:
+        return [seed * 1_000_003 + k for k in range(pairs)]
+    want = data.to_id(pool_has)
+    if not any(data.to_id(c["species"]) == want for c in harness.CARDS):
+        raise SystemExit(f"--pool-has {pool_has!r}: no such species in sim/cards.json")
+    seeds: list[int] = []
+    k = 0
+    while len(seeds) < pairs:
+        if any(data.to_id(c["species"]) == want for c in pool_of(seed * 1_000_003 + k)[0]):
+            seeds.append(seed * 1_000_003 + k)
+        k += 1
+    return seeds
+
+
 def cmd_match(args) -> int:
     global LOG_DIR
     LOG_DIR = getattr(args, "log_dir", None) or NO_LOG
     a, b = args.a, args.b
+    pool_has = getattr(args, "pool_has", None)
+    seeds = match_seeds(args.seed, args.pairs, pool_has)
+    if pool_has and seeds:
+        print(f"--pool-has {pool_has}: {len(seeds)} pools from seeds {args.seed * 1_000_003}..{seeds[-1]} "
+              f"({seeds[-1] - args.seed * 1_000_003 + 1 - len(seeds)} without it skipped)", flush=True)
     out = open(args.out, "a", encoding="utf-8") if args.out else None
     bridge = harness.Bridge()
     wins = games = played = 0
@@ -185,8 +218,7 @@ def cmd_match(args) -> int:
     errors = timeouts = forfeits = 0
     started = time.monotonic()
     try:
-        for k in range(args.pairs):
-            seed = args.seed * 1_000_003 + k
+        for k, seed in enumerate(seeds):
             for swap in (False, True):
                 specs = {"p1": b, "p2": a} if swap else {"p1": a, "p2": b}
                 names = {"p1": "B" if swap else "A", "p2": "A" if swap else "B"}
@@ -433,6 +465,8 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--progress", type=int, default=50)
     m.add_argument("--clock", action="store_true", help="the live clock (sim/clock.py): late decisions become random moves, an empty bank forfeits")
     m.add_argument("--log-dir", default=None, help="write the in-process agents' decision logs here (default: off)")
+    m.add_argument("--pool-has", default=None, metavar="SPECIES",
+                   help="play only pools holding this card; seeds without it are skipped, the same ones for every arm on one --seed")
     c = sub.add_parser("collect", help="training data: rosters and results, one JSON line per game")
     c.add_argument("a")
     c.add_argument("b")
