@@ -90,6 +90,11 @@ DEFAULTS: dict[str, float] = {
     "ko_threat_w": 0.5,            # KO bonus scales by the threat removed (its best action into us, in damage points) x this (Oct 8)
     "exposure_w": 1.0,             # charge for the EXTRA KO risk a move creates for its user (stat drops, recoil, Glaive Rush) x its value
     "reply_mixture": 0.0,          # 1 = rank candidates by the reply mixture (agent/pokemon/replies.py); 0 = the scorer above (until the gate passes)
+    "reply_seed": 0.0,             # the mixture's tie-break seed: 0 = a secret per-match seed (logged), else this value (tests, replays)
+    "reply_worst_w": 0.15,         # the mixture's risk aversion: the row's worst plausible reply weighted into its value
+    "reply_floor_margin": 100.0,   # never a row whose worst plausible reply trails the best worst case by more than this (one Pokémon)
+    "reply_loss_w": 1.0,           # the mixture's charge for one of ours KO'd (x its material) and reply_chip_w for damage taken
+    "reply_chip_w": 0.35,
 }
 
 

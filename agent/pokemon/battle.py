@@ -2784,6 +2784,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                                   obs={"turn": sheet.turn})
         if ranked:
             candidates = ranked
+            return candidates[:6]  # the mixture's rows carry their value, worst case and best reply: the model sees six
     # The cut: the best four, plus the Protect / switch rows that cover a slot in a KO range (the Oct 8 loss, turn 3:
     # the row that Protected the exposed Thundurus ranked 5th and was cut; it decided the game).
     kept = candidates[:4]

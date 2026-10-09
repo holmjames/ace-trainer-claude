@@ -34,7 +34,7 @@ from .tuning import DEFAULTS
 
 PROTECT_IDS = battle.PROTECT_OPTIONS
 SETUP_IDS = {"nastyplot": 30, "calmmind": 25, "swordsdance": 30, "dragondance": 30, "bulkup": 25, "quiverdance": 35,
-             "tailwind": 40, "trickroom": 40, "icywind": 20, "electroweb": 20, "snarl": 12}
+             "tailwind": 28, "trickroom": 28, "icywind": 20, "electroweb": 20, "snarl": 12}
 FLINCH_IMMUNE_ABILITIES = ("innerfocus", "shielddust")
 
 
@@ -157,7 +157,7 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
     turn = (obs or {}).get("turn") if obs else None
     if turn is None:
         turn = getattr(memory, "turn", None)
-    seed = _match_seed(memory)
+    seed = _match_seed(memory, P)
     rng = rng or random.Random(seed)
     ctx = _Context(sheet, memory, slots, ours, theirs, P, klass, turn, (obs or {}).get("opponent_team"))
     rows = ctx.our_menu(candidates or [])
@@ -167,25 +167,30 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
     matrix = [[ctx.cell(r, c) for c in cols] for r in rows]
     prior = ctx.prior(cols)
     lam = _lambda(memory, ctx, cols, prior)
-    eq_cols = _regret_matching(matrix, iterations=int(P.get("reply_iterations", 200)))
-    scored = []
     floor_cols = [j for j in range(len(cols)) if prior[j] >= float(P.get("reply_floor_min_prior", 0.08))] or list(range(len(cols)))
+    # the equilibrium is over the PLAUSIBLE columns: a reply the class never makes (a second Protect in a row) is not
+    # a strategy the opponent can mix in
+    sub = _regret_matching([[matrix[i][j] for j in floor_cols] for i in range(len(rows))], iterations=int(P.get("reply_iterations", 200)))
+    eq_cols = [0.0] * len(cols)
+    for k, j in enumerate(floor_cols):
+        eq_cols[j] = sub[k]
+    scored = []
     for i, r in enumerate(rows):
         v_pi = sum(matrix[i][j] * prior[j] for j in range(len(cols)))
         v_eq = sum(matrix[i][j] * eq_cols[j] for j in range(len(cols)))
         worst = min(matrix[i][j] for j in floor_cols)  # the worst PLAUSIBLE reply: a column nobody plays is not a floor
-        value = (1.0 - lam) * v_eq + lam * v_pi
+        value = (1.0 - lam) * v_eq + lam * v_pi + float(P.get("reply_worst_w", 0.15)) * worst  # a little risk aversion
         scored.append((value, worst, i))
     best_worst = max(w for _, w, _ in scored)
     margin = float(P.get("reply_floor_margin", 100.0))
     kept = [(v, w, i) for v, w, i in scored if w >= best_worst - margin] or scored
     kept.sort(key=lambda t: -t[0])
     # tie-break: rows within epsilon of the top are sampled at a low temperature from the per-match seed
-    eps = float(P.get("reply_tie_eps", 4.0))
+    eps = float(P.get("reply_tie_eps", 2.0))
     top_value = kept[0][0]
     tied = [t for t in kept if t[0] >= top_value - eps]
     if len(tied) > 1:
-        temperature = float(P.get("reply_temperature", 0.5))
+        temperature = float(P.get("reply_temperature", 0.3))
         weights = [math.exp((t[0] - top_value) / max(temperature * eps, 1e-6)) for t in tied]
         pick = rng.choices(range(len(tied)), weights=weights)[0]
         chosen = tied[pick]
@@ -193,7 +198,7 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
     out = []
     for value, worst, i in kept:
         r = rows[i]
-        j_best = min(range(len(cols)), key=lambda j: matrix[i][j])
+        j_best = min(floor_cols, key=lambda j: matrix[i][j])
         cand = dict(r.payload)
         cand.update({"score": round(value, 1), "value": round(value, 1), "worst": round(worst, 1),
                      "best_reply": cols[j_best].name, "what": ctx.describe(r, cols[j_best])})
@@ -209,8 +214,12 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
     return out
 
 
-def _match_seed(memory: MatchMemory | None) -> int:
-    """A per-match secret seed (logged in the sheet's reply table), made once from os.urandom."""
+def _match_seed(memory: MatchMemory | None, P: dict | None = None) -> int:
+    """A per-match secret seed (logged in the sheet's reply table), made once from os.urandom; ``reply_seed`` in the
+    params pins it (tests, replays)."""
+    pinned = int((P or {}).get("reply_seed", 0) or 0)
+    if pinned:
+        return pinned
     seed = getattr(memory, "_reply_seed", None)
     if seed is None:
         seed = int.from_bytes(os.urandom(4), "big")
@@ -227,10 +236,10 @@ def _lambda(memory: MatchMemory | None, ctx: "_Context", cols: list["_Actor"], p
     protocol log shows the opponent did, halved per miss, capped at 0.7."""
     lam = float(getattr(memory, "_reply_lambda", 0.3) or 0.3)
     predicted = getattr(memory, "_reply_predicted", None)
-    if predicted and memory is not None:
+    if predicted and memory is not None and isinstance(ctx.turn, int) and predicted.get("turn") is not None and ctx.turn > predicted["turn"]:
         matched = ctx.prediction_matched(predicted)
         if matched is not None:
-            lam = min(0.7, lam + 0.15) if matched else lam / 2
+            lam = min(0.7, lam + 0.15) if matched else max(0.15, lam / 2)
             try:
                 setattr(memory, "_reply_lambda", lam)
                 setattr(memory, "_reply_predicted", None)
@@ -309,7 +318,10 @@ class _Context:
         self.switch_rows = self._their_switch_rows()
         self.our_switch_rows = self._our_switch_rows()
         self.broken_rows = self._broken_rows()
-        self.material = {n: battle.material(m, P) for n, m in ours.items()}
+        # what each of ours is worth: its HP and the KO bonus (battle.material), plus what it threatens them with, the
+        # mirror of the KO credit on their side (losing a sweeper in a 2-for-1 is not a bargain)
+        self.material = {n: battle.material(m, P) + P.get("ko_threat_w", 0.0) * max(battle._best_attack(self.by_slot.get(n, {}), P=P, threats=self.weights)[2], 0.0)
+                         for n, m in ours.items()}
 
     # -- tables ------------------------------------------------------------------------------------------------------
 
@@ -422,6 +434,32 @@ class _Context:
         return rows
 
     # -- helpers -----------------------------------------------------------------------------------------------------
+
+    def post_rows(self, number: int, option_index: int, prio: int) -> dict:
+        """(their position, move) -> the threat row into our slot AFTER it used this option: its stat drops, recoil /
+        Life Orb and Glaive Rush applied (A3). Empty for a move without such effects. Cached per (slot, option)."""
+        key = (number, option_index)
+        cache = self.__dict__.setdefault("_post_cache", {})
+        if key in cache:
+            return cache[key]
+        out: dict = {}
+        me = self.ours.get(number)
+        opt = self.move_option(number, option_index)
+        if me is not None and opt is not None:
+            move_id = opt.get("move") or ""
+            has_effect = move_id in battle.POST_MOVE_STAGES or move_id == battle.GLAIVE_RUSH or move_id in battle.RECOIL_MOVES \
+                or data.to_id(me.item) == "lifeorb"
+            if has_effect:
+                row = next((r for r in opt.get("targets") or [] if r.get("side") == "theirs"), None)
+                foe = self.theirs.get(row["target"]) if row and row.get("target", 0) > 0 else None
+                dealt = tuple(row["damage_pct_of_current_hp"]) if row else None
+                cost = battle.self_cost_pct(me, move_id, dealt, foe)
+                after = battle.post_move_mon(me, move_id, cost=cost)
+                for h in battle.post_move_threat_hits(self.sheet, number, after, prio, self.theirs, self.fs, self.speed_rank,
+                                                      doubled=(move_id == battle.GLAIVE_RUSH), ours_count=len(self.ours)):
+                    out[(h["position"], h["move"])] = {**h, "into_slot": number}
+        cache[key] = out
+        return out
 
     def slot_template(self, number: int) -> dict | None:
         return next((s for s in self.slots if s.get("slot", 0) == number), None)
@@ -547,6 +585,8 @@ class _Context:
         def from_payload(name: str, p0: dict | None, p1: dict | None) -> None:
             a0 = self.actor_for(0, p0, name) if p0 else None
             a1 = self.actor_for(1, p1, name) if p1 else None
+            if self.sheet.alone and not self.sheet.stall_reasons and any(a is not None and a.kind == "protect" for a in (a0, a1)):
+                return  # our last Pokémon with nothing to wait for: a Protect only delays the same position (Oct 7, match 1)
             add(name, a0, a1, {"name": name, "slot_0": p0, "slot_1": p1})
 
         for c in candidates:
@@ -569,9 +609,16 @@ class _Context:
                 other = 1 - n
                 if protect[n] is not None and best[other]:
                     from_payload(f"protect_{n}", *(({"option": protect[n], "target": 0}, best[other]) if n == 0 else (best[other], {"option": protect[n], "target": 0})))
+                    for pos in sorted(self.theirs):
+                        aimed = self.best_single_answer(other, pos)
+                        if aimed and aimed != best[other]:
+                            from_payload(f"protect_{n}_into_{pos}", *(({"option": protect[n], "target": 0}, aimed) if n == 0 else (aimed, {"option": protect[n], "target": 0})))
                 idx, species, preview, safe = battle.safe_switch(self.slot_template(n) or {}, self.theirs, self.memory, sheet=self.sheet) if self.memory else (None, None, {}, False)
                 if idx is not None and best[other]:
                     from_payload(f"switch_{n}" + ("" if safe else "_risky"), *(({"option": idx, "target": 0}, best[other]) if n == 0 else (best[other], {"option": idx, "target": 0})))
+                    spread_other = self.best_spread_answer(other)
+                    if spread_other and spread_other != best[other]:
+                        from_payload(f"switch_{n}_spread", *(({"option": idx, "target": 0}, spread_other) if n == 0 else (spread_other, {"option": idx, "target": 0})))
                 if idx is not None and safe and best[other] and self.memory is not None:
                     # the best pivot by the preview score may be one the verdict calls unsafe: let the matrix price it
                     b_idx, b_species = battle.best_switch(self.slot_template(n) or {}, self.theirs, self.memory, sheet=self.sheet)
@@ -919,16 +966,25 @@ class _Context:
             return None
         last = getattr(memory, "opp_last_move", None) or {}
         actives_now = [species_key(m.species) for m in self.theirs.values()]
-        ok = True
+        checks = []
         for species, kind, move in predicted.get("actions", []):
             key = species_key(species)
+            used = str(last.get(key) or "")
             if kind == "switch":
-                ok &= key not in actives_now
+                checks.append(key not in actives_now)
             elif kind == "protect":
-                ok &= str(last.get(key) or "") in battle.PROTECT_LIKE
-            elif kind in ("attack", "fakeout", "setup"):
-                ok &= str(last.get(key) or "") == move
-        return bool(ok)
+                checks.append(used in battle.PROTECT_LIKE)
+            elif kind == "fakeout":
+                checks.append(used == "fakeout")
+            elif kind == "setup":
+                checks.append(used == move)
+            elif kind == "attack":
+                # the log gives the move, not its target: an attack is matched when the foe attacked at all
+                info = data.move_info(used) or {}
+                checks.append(bool(used) and key in actives_now and data.is_damaging(info) and used not in battle.PROTECT_LIKE)
+        if not checks:
+            return None
+        return all(checks)
 
     # -- the cell ----------------------------------------------------------------------------------------------------
 
@@ -943,6 +999,9 @@ class _Context:
         incoming: dict[tuple[str, int], tuple] = {}    # the switch-in that replaced it
         parts: dict[tuple[str, int], list] = {}        # hits landing on each Pokémon, (land prob, row)
         hit_first: dict[tuple[str, int], float] = {}   # chance a guarded foe took an earlier hit this turn
+        boosted: dict[tuple[str, int], float] = {}     # chance a slot's attack carries a Helping Hand
+        hh_boost = getattr(data, "helping_hand_boost", None)
+        moved: dict[tuple[str, int], tuple[float, dict]] = {}  # our slot -> (chance it has acted, its post-move rows)
         tempo = 0.0
         for a in order:
             me_key = (a.side, a.slot)
@@ -952,9 +1011,15 @@ class _Context:
                 acts[me_key] = 0.0
                 continue
             acts[me_key] = p_act
+            if a.side == "mine" and a.kind == "attack":
+                moved[me_key] = (p_act, self.post_rows(a.slot, a.payload.get("option"), a.priority))
+                if a.move in SETUP_IDS:  # Icy Wind / Electroweb / Snarl: the drop is worth its flips, on top of the damage
+                    tempo += SETUP_IDS[a.move] * p_act * (self._speed_control_gain(a.move) if a.move != "snarl" else 0.5)
             if a.kind == "protect":
                 streak = self.our_streak.get(a.slot, 0) if a.side == "mine" else int(self.their_streak.get(species_key(a.species), 0))
                 protected[me_key] = p_act * (1.0 / 3 ** streak)
+                if a.side == "mine" and self.sheet.alone and not self.sheet.stall_reasons:
+                    tempo -= P.get("reply_stall_w", 30.0)  # our last Pokémon with nothing to wait for: a Protect only delays
                 continue
             if a.kind == "switch":
                 gone[me_key] = p_act
@@ -970,7 +1035,10 @@ class _Context:
                     tempo -= value * p_act * (1.0 if a.move not in ("tailwind", "trickroom") else self._their_speed_control_gain(a.move))
                 continue
             if a.kind == "status":
-                tempo += battle.status_value(a.move, self.ours[a.slot], self.theirs, self.sheet, a.slot, has_ally=len(self.ours) > 1)[0] * p_act * 0.5
+                if a.move in ("helpinghand", "coaching") and a.side == "mine":
+                    boosted[("mine", 1 - a.slot)] = p_act  # the partner's attack this turn is x1.5
+                else:
+                    tempo += battle.status_value(a.move, self.ours[a.slot], self.theirs, self.sheet, a.slot, has_ally=len(self.ours) > 1)[0] * p_act * 0.5
                 continue
             # attacks and Fake Outs: each row lands on its target unless it Protected (and the Protect worked) or left
             for tgt_slot, hit in a.rows.items():
@@ -986,6 +1054,16 @@ class _Context:
                 if p_land <= 0:
                     continue
                 row_used = hit
+                if a.side == "theirs" and tgt_key in moved and moved[tgt_key][0] > 0:
+                    p_moved, post = moved[tgt_key]
+                    later = post.get((a.slot, hit["move"]))
+                    if later is not None:
+                        # the slot already used a move with a drawback: its own stat drops / recoil / Glaive Rush meet this hit
+                        lo = (1 - p_moved) * hit["damage_pct_of_current_hp"][0] + p_moved * later["damage_pct_of_current_hp"][0]
+                        hi = (1 - p_moved) * hit["damage_pct_of_current_hp"][1] + p_moved * later["damage_pct_of_current_hp"][1]
+                        row_used = {**hit, "damage_pct_of_current_hp": [round(lo, 1), round(hi, 1)], "ko": battle._ko_label(lo, hi)}
+                        for k in ("per_hit", "first_hit", "hits"):
+                            row_used.pop(k, None)
                 if a.side == "theirs" and hit["move"] in battle.FRACTION_MOVES:
                     # Ruination takes half of what is LEFT: scale by the HP the earlier hits leave, and it never finishes
                     so_far = battle._outcome(parts.get(tgt_key, []))[0]
@@ -1001,6 +1079,12 @@ class _Context:
                                                                           (1 - p_prev) * hit["damage_pct_of_current_hp"][1] + p_prev * broken["damage_pct_of_current_hp"][1]]}
                         for k in ("per_hit", "first_hit", "hits"):
                             row_used.pop(k, None)
+                if a.side == "mine" and boosted.get(me_key, 0.0) > 0 and a.kind == "attack":
+                    factor = 1.0 + 0.5 * boosted[me_key] * (float(hh_boost("helpinghand", a.move)) if callable(hh_boost) else 1.0)
+                    lo, hi = row_used["damage_pct_of_current_hp"]
+                    row_used = {**row_used, "damage_pct_of_current_hp": [round(lo * factor, 1), round(hi * factor, 1)]}
+                    for k in ("per_hit", "first_hit", "hits"):
+                        row_used.pop(k, None)
                 parts.setdefault(tgt_key, []).append((p_land, row_used))
                 hit_first[tgt_key] = 1.0 - (1.0 - hit_first.get(tgt_key, 0.0)) * (1.0 - p_land)
                 if a.kind == "fakeout" and tgt_side == "mine" and battle._flinchable(self.ours[tgt_slot], self.ours, self.fs):
@@ -1113,7 +1197,12 @@ class _Context:
             return f"slot {a.slot} {a.move}"
         if a.kind == "pass":
             return f"slot {a.slot} passes"
-        tgt = "both" if a.spread else (self.theirs[a.target].species if a.target in self.theirs else "?")
+        if a.spread:
+            tgt = "both"
+        elif a.target in self.theirs:
+            tgt = self.theirs[a.target].species
+        else:
+            tgt = ", ".join(self.theirs[p].species for p in a.rows if p in self.theirs) or "?"
         return f"slot {a.slot} {a.move} -> {tgt}"
 
 
