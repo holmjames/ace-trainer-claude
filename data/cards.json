@@ -100,6 +100,26 @@
   ]
  },
  {
+  "card_id": "vgc-chi-yu",
+  "species": "Chi-Yu",
+  "item": "Choice Specs",
+  "ability": "Beads of Ruin",
+  "nature": "Timid",
+  "level": 50,
+  "evs": {
+   "hp": 4,
+   "spa": 252,
+   "spe": 252
+  },
+  "ivs": {},
+  "moves": [
+   "Heat Wave",
+   "Dark Pulse",
+   "Overheat",
+   "Snarl"
+  ]
+ },
+ {
   "card_id": "vgc-chien-pao",
   "species": "Chien-Pao",
   "item": "Focus Sash",
@@ -878,6 +898,26 @@
    "Facade",
    "Headlong Rush",
    "Earthquake",
+   "Protect"
+  ]
+ },
+ {
+  "card_id": "vgc-urshifu-rapid-strike",
+  "species": "Urshifu-Rapid-Strike",
+  "item": "Mystic Water",
+  "ability": "Unseen Fist",
+  "nature": "Adamant",
+  "level": 50,
+  "evs": {
+   "hp": 4,
+   "atk": 252,
+   "spe": 252
+  },
+  "ivs": {},
+  "moves": [
+   "Surging Strikes",
+   "Close Combat",
+   "Aqua Jet",
    "Protect"
   ]
  },

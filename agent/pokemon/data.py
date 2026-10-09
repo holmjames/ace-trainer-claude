@@ -155,6 +155,7 @@ def expected_hits(move: dict | None, *, item: object = None, ability: object = N
 # vendored pokedex for anything else.
 SPECIES_WEIGHT_KG: dict[str, float] = {
     "farigiraf": 160.0,
+    "chiyu": 4.9, "urshifurapidstrike": 105.0,
     "amoonguss": 10.5, "arcanine": 155.0, "archaludon": 60.0, "basculegion": 110.0, "baxcalibur": 210.0,
     "chienpao": 152.2, "cresselia": 85.6, "dondozo": 220.0, "dragonite": 210.0, "fluttermane": 4.0,
     "garchomp": 95.0, "gholdengo": 30.0, "greattusk": 320.0, "grimmsnarl": 61.0, "gyarados": 235.0,
