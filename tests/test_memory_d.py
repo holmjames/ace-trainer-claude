@@ -257,14 +257,18 @@ def test_opponent_class_from_name_free_signals_on_the_live_sessions():
     """93a98b6f: 190-char free-text reasons, slow on 6 of 7 turns, two repeated Protects -> generic_llm.
     bcbaabe2 and da9c168e: 36-48-char templates, never slow, 10 and 4 Protects with no repeat -> search_bot."""
     llm = _replay_memory("93a98b6f")
-    label, evidence = llm.opponent_class()
-    assert label == "generic_llm" and evidence["draft_reason_mean_chars"] > 150 and evidence["slow_turns"] >= 5 and evidence["repeat_protects"] >= 1
+    evidence = llm.opponent_evidence()
+    label = llm.opponent_class()
+    assert label == "generic_llm" == evidence["class"] and evidence["draft_reason_mean_chars"] > 150 and evidence["slow_turns"] >= 5 and evidence["repeat_protects"] >= 1
     for prefix in ("bcbaabe2", "da9c168e"):
         bot = _replay_memory(prefix)
-        label, evidence = bot.opponent_class()
+        evidence = bot.opponent_evidence()
+        label = bot.opponent_class()
         assert label == "search_bot", (prefix, evidence)
         assert evidence["draft_reason_mean_chars"] < 60 and evidence["slow_turns"] == 0 and evidence["repeat_protects"] == 0
-    assert MatchMemory().opponent_class()[0] == "search_bot"  # nothing seen yet: the strongest class is assumed
+    assert MatchMemory().opponent_class() == "search_bot"  # nothing seen yet: the strongest class is assumed
+    # a plain string: the core lane's mixture maps it with substring checks ("llm" inside an evidence dict would have misled it)
+    assert isinstance(llm.opponent_class(), str)
     # the core lane's reply mixture reads the same label through its own adapter
     from agent.pokemon.opponent import class_of
 

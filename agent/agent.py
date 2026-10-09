@@ -605,7 +605,8 @@ class PokemonAgent:
         choice = Choice(kind=base.kind, prompt=base.prompt, schema=_TURN_SCHEMA, build=build, fallback=fallback)
         known_sets = {"mine": self.memory.known_sets("mine", only=roster["ours"]["in_this_battle"]),
                       "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])}
-        klass, evidence = self.memory.opponent_class()
+        evidence = self.memory.opponent_evidence()
+        klass = evidence["class"]
         payload = {
             "decision": "doubles_turn",
             **choice.prompt,
@@ -684,10 +685,10 @@ class PokemonAgent:
 
     def _opponent_class_view(self) -> dict:
         try:
-            label, evidence = self.memory.opponent_class()
+            evidence = self.memory.opponent_evidence()
         except Exception:  # noqa: BLE001
             return {"class": "search_bot", "evidence": {}}
-        return {"class": label, "evidence": {k: evidence.get(k) for k in ("draft_reason_mean_chars", "draft_reasons", "mean_seconds_per_pick")}}
+        return {"class": evidence["class"], "evidence": {k: evidence.get(k) for k in ("draft_reason_mean_chars", "draft_reasons", "mean_seconds_per_pick")}}
 
     # -- the model call, with retry-once and deterministic fallback ---------------------
 

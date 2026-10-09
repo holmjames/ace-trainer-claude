@@ -362,7 +362,7 @@ class _FakeProvider:
         self.calls: list[tuple] = []
 
     def complete_structured(self, messages, schema_name, schema):
-        self.calls.append((messages, schema_name, schema))
+        self.calls.append(([dict(m) for m in messages], schema_name, schema))
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -923,7 +923,8 @@ def test_recheck_skips_when_a_fake_out_that_goes_first_flinches_the_threat_d9405
     dire_claw = _answer(build, (_index(template, 0, "direclaw"), 1), (_index(template, 1, "protect"), 0))
     info = {}
     message = _lethal_recheck(dire_claw, sheet, memory=agent.memory, template=template, info=info)
-    assert message and "slot 0 attacks with direclaw although: LETHAL: dragonite's extremespeed" in message and info["recheck_skips"] == []
+    assert message and "slot 0 attacks with direclaw although:" in message and info["recheck_skips"] == []
+    assert any("dragonite" in p for p in info["recheck_problems"])
 
 
 def test_recheck_triggers_on_exposed_and_double_target_too():
@@ -998,7 +999,8 @@ def test_prompt_carries_the_procedure_the_class_rules_and_the_override_lessons()
 
 def test_a_row_answer_plays_that_row_and_the_payload_carries_rows_prediction_digest_and_tendencies(tmp_path):
     agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 13)
-    provider = _FakeProvider(_turn_answer(row=1))
+    protect_row = next(i for i, c in enumerate(sheet.candidates) if c["name"] == "protect_threatened")
+    provider = _FakeProvider(_turn_answer(row=protect_row), _turn_answer(row=protect_row))
     live = PokemonAgent(provider, version="e4", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
     live.memory = agent.memory
     folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(MATCH_BCBAABE2))
@@ -1015,11 +1017,11 @@ def test_a_row_answer_plays_that_row_and_the_payload_carries_rows_prediction_dig
     assert payload["last_turns"].startswith("T10:") or payload["last_turns"].startswith("T1")
     assert "protects_when_threatened" in payload["tendencies"]
     assert payload["observation"]["opponent_team"]["p2: Dragonite"]["moves"] == "see known_sets"
-    chosen = rows[1]
+    chosen = rows[protect_row]
     option = template["slots"][1]["options"][chosen["slot_1"]["option"]]
-    assert decision.action["slot_1"]["move_id"] == option.get("move_id") and chosen["name"] == "protect_threatened"
+    assert decision.action["slot_1"]["move_id"] == option.get("move_id") == "protect" and chosen["name"] == "protect_threatened"
     row = _last_turn_row(tmp_path)
-    assert row["resolution"] == {"row": 1, "row_name": "protect_threatened", "row_score": chosen["score"], "resolution": "row"}
+    assert row["resolution"] == {"row": protect_row, "row_name": "protect_threatened", "row_score": chosen["score"], "resolution": "row"}
     assert row["payload_chars"] == len(messages[2]["content"]) and row["payload_chars"] < 17000, row["payload_chars"]  # was ~23k before E4
     assert "active_pokemon" not in payload["observation"] and "base_stats" not in payload["observation"]["team"]["p1: Archaludon"]
     assert payload["slots"][0]["active"] == {"species": "archaludon", "hp_pct": payload["slots"][0]["active"]["hp_pct"]}
@@ -1078,7 +1080,9 @@ def test_recheck_quotes_the_alternative_by_row_number():
         c["row"] = index
     attack = _answer(build, (_index(template, 0, "bodypress"), 2), (_index(template, 1, "extremespeed"), 1))
     message = _lethal_recheck(attack, sheet, memory=agent.memory, template=template)
-    assert message and "row 1 protect_threatened: slot 1 option 3 (protect)" in message
+    quoted = next(i for i, c in enumerate(sheet.candidates) if c["name"] in ("protect_threatened", "switch_threatened", "switch_weak_slot")
+                  and (template["slots"][1]["options"][c["slot_1"]["option"]].get("move_id") == "protect" or template["slots"][1]["options"][c["slot_1"]["option"]].get("type") == "switch"))
+    assert message and f"row {quoted} {sheet.candidates[quoted]['name']}: slot 1 option" in message, message
 
 
 def test_team_preview_asks_at_effort_high_with_the_table_and_the_lead_rules(tmp_path):

@@ -454,12 +454,17 @@ class MatchMemory:
 
     # -- the opponent's class, its clock, and what happened lately -------------------------------------------------
 
-    def opponent_class(self) -> tuple[str, dict]:
-        """``("search_bot" | "generic_llm" | "random", evidence)`` from name-free signals: draft reason length (free
+    def opponent_class(self) -> str:
+        """``"search_bot" | "generic_llm" | "random"`` (a plain string: the core lane's reply mixture reads it too;
+        ``opponent_evidence()`` has the numbers) from name-free signals: draft reason length (free
         text 177-216 chars vs 28-42-char templates), pick timing (tiebreak), their ``|inactive|`` warnings (the LLM
         was slow on 6 of 7 turns, the search bot on 0 of 16), repeated Protect attempts (LLM 1 of 2, search bot 0 of
         9), voluntary switches (LLM 1 of 14), auto picks and timeouts (dead/random). Default: search_bot, the field's
         strongest class, until the evidence says otherwise."""
+        return self.opponent_evidence()["class"]
+
+    def opponent_evidence(self) -> dict:
+        """The class and the signals behind it (see ``opponent_class``)."""
         theirs = [p for p in self.draft_picks if not p["mine"]]
         reasons = [str(p.get("public_reason") or "").strip() for p in theirs]
         lengths = [len(r) for r in reasons if r]
@@ -500,7 +505,8 @@ class MatchMemory:
         label = best[0] if best[1] > 0 else "search_bot"
         if best[0] != "search_bot" and best[1] == search:
             label = "search_bot"  # ties go to the strongest class
-        return label, evidence
+        evidence["class"] = label
+        return evidence
 
     def opponent_bank_estimate(self) -> dict:
         """Their bank, estimated from Showdown's warnings about THEIR clock ("<name> has 30/20/10 seconds left": at
