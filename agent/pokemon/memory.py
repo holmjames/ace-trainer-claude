@@ -509,8 +509,8 @@ class MatchMemory:
             random_ += 1
         evidence["scores"] = {"search_bot": search, "generic_llm": llm, "random": random_}
         best = max(("search_bot", search), ("generic_llm", llm), ("random", random_), key=lambda t: t[1])
-        if constant_reason and best[1] <= 0:
-            label = "unknown"  # nothing but a constant reason so far: no read until the battle shows one
+        if constant_reason and best[1] < 1:
+            label = "unknown"  # a constant reason and at most a timing tiebreak: no read until the battle shows one
         else:
             label = best[0] if best[1] > 0 else "search_bot"
             if best[0] != "search_bot" and best[1] == search:

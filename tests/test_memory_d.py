@@ -333,6 +333,11 @@ def test_a_constant_draft_reason_is_its_own_bucket_classified_from_the_other_sig
     memory.observe_draft({**base, "picks": picks}, my_turn=True)
     evidence = memory.opponent_evidence()
     assert evidence["constant_reason"] is True and memory.opponent_class() == "unknown" and evidence["scores"] == {"search_bot": 0, "generic_llm": 0, "random": 0}
+    # a slow-pick tiebreak alone (tonight's session: ~3 s a pick) is not a read yet; the battle signals decide
+    memory._draft_turn_started, memory._draft_think_seconds = 100.0, 1.0
+    memory.observe_draft({**base, "picks": picks + [{"pick_number": 7, "seat_id": "them", "card_id": "vgc-7", "species": "Mon7", "public_reason": "Move submitted.", "auto": False}],
+                          "decision_deadline_at": "1970-01-01T00:01:59+00:00", "decision_timeout_seconds": 15.0}, my_turn=True)
+    assert memory.opponent_evidence()["scores"]["generic_llm"] == 0.5 and memory.opponent_class() == "unknown"
     # the same draft with the battle signals of a slow, re-Protecting opponent: an LLM after all
     slow = MatchMemory()
     slow.observe_draft({**base, "picks": picks}, my_turn=True)
