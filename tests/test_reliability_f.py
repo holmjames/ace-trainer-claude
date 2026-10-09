@@ -849,15 +849,26 @@ def test_recheck_fires_when_the_priority_move_cannot_ko_the_threat_bcbaabe2_t13(
     assert _lethal_recheck(protect, sheet, memory=agent.memory, template=template) is None
 
 
-def test_recheck_skips_on_a_protect_streak_with_no_safe_switch_bcbaabe2_t14():
+def test_recheck_defers_to_the_sheet_on_a_protect_streak_bcbaabe2_t14():
     """A turn later Arcanine Protected last turn (1 in 3) and the only switch-in, Wo-Chien, is KO'd on entry 57% of
-    the time: attacking is what is left, so the attacking answer is not sent back."""
+    the time. The streak rule would skip the recheck ("attacking is what is left"), but the sheet's best row is still
+    the Protect row (58.3 vs 30.9 for the attack): a 1-in-3 Protect beats a certain KO, so an attacking answer is sent
+    back with that row quoted. Model-piloted, this position was the one loss against code-only at effort low."""
     from agent.agent import _lethal_recheck
 
     agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 14)
+    for index, c in enumerate(sheet.candidates):
+        c["row"] = index
     assert agent.memory.protect_streak("arcanine", 1) == 1 and sheet.switch_ins["wochien"]["verdict"] == "ko_on_entry"
+    assert sheet.candidates[0]["name"] == "protect_threatened"
     attack = _answer(build, (_index(template, 0, "bodypress"), 1), (_index(template, 1, "extremespeed"), 1))
     info: dict = {}
+    message = _lethal_recheck(attack, sheet, memory=agent.memory, template=template, info=info)
+    assert message and "slot 1 attacks with extremespeed" in message and "row 0 protect_threatened: slot 1 option" in message
+    assert info["recheck_skips"] == []
+    # With the Protect row gone from the top (the sheet itself prefers attacking), the streak rule applies again.
+    sheet.candidates = [c for c in sheet.candidates if c["name"] != "protect_threatened"]
+    info = {}
     assert _lethal_recheck(attack, sheet, memory=agent.memory, template=template, info=info) is None
     assert "Protect is on a streak of 1" in info["recheck_outcome"] and "no switch-in is safe" in info["recheck_outcome"]
 

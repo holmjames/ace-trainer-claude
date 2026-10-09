@@ -315,6 +315,11 @@ class _SheetFacts:
                 removal.append((p, f"both hits land before {threat_key} moves and together KO it ({lo:.1f}-{hi:.1f}%, {int(p * 100)}%)"))
         if removal:
             return max(removal, key=lambda r: r[0])[1]
+        if self.top_row_covers(number):
+            # The sheet's own best row still Protects or switches this slot (a 1-in-3 Protect beats a certain KO):
+            # attacking is not "what is left", whatever the streak says. bcbaabe2 T14: the model took the attack row
+            # (30.9) over the Protect row (58.3) and the skip let it stand.
+            return None
         species = self.ours.get(number)
         streak = self.memory.protect_streak(species, number) if (self.memory is not None and species) else 0
         safe = self.safe_switches(number)
@@ -323,6 +328,16 @@ class _SheetFacts:
         if self.pierces_protect(threat, their_hit) and not safe:
             return f"{threat_key}'s {trigger['move']} goes through Protect and no switch-in is safe: attacking is what is left"
         return None
+
+    def top_row_covers(self, number: int) -> bool:
+        """Does the sheet's best row take this slot out of the line of fire (Protect or a switch)?"""
+        rows = getattr(self.sheet, "candidates", None) or []
+        if not rows:
+            return False
+        option = self.option_by_index(number, (rows[0].get(f"slot_{number}") or {}).get("option"))
+        if not option:
+            return False
+        return option.get("type") == "switch" or (option.get("type") == "move" and _move_key(option.get("move_id")) in _PROTECT_MOVES)
 
     def flinchable(self, threat: dict, number: int) -> bool:
         ability = data.to_id(threat.get("ability"))

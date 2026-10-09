@@ -44,6 +44,7 @@ Reading the opponent by class (opponent_model.class; the code's prediction alrea
 - search_bot (templated draft reasons, instant picks, never slow): with a fresh Protect it Protects a Pokémon you threaten with an obvious KO about 6 times in 10, and even against a 30-49% hit about 4 in 10; it never Protects twice in a row, so the turn after its Protect is the turn to commit into it; a fresh switch-in often Protects on its first turn (about 1 in 2); once its Protect is spent it switches the threatened Pokémon to its best absorber, even from a slower attacker; it doubles our biggest threat about half the time; it sets up rarely (1 in 5) except an early Tailwind; it Fake Outs on turn one only. Prefer the play that is still good against its best reply: a spread move or a split that keeps working if one target Protects, rather than two attacks into a target that will likely Protect.
 - generic_llm (free-text draft reasons, slow turns): slow, rarely Protects at the right time, over-switches; punish the switch with the hit that lands on the newcomer, and take the obvious KO: it will usually be there.
 - random or dead: take the sure KO every turn; nothing it does is a read.
+- unknown (a constant or generic draft reason such as "Move submitted."; no read yet): play the sheet's best row and let the tallies decide; treat a fresh Protect on an obvious KO as likely until shown otherwise.
 - Against a slow opponent in a long, level game prefer the low-variance row: an empty bank forfeits, and its clock runs out before ours.
 
 Lessons from overrides that lost (Oct 8):

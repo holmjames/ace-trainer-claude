@@ -320,3 +320,39 @@ def test_tendency_tally_counts_protects_switches_doubles_and_setups_against_what
     assert tally["switches_out_of_ko"] == "1/2" and memory.their_voluntary_switches == [2]
     assert tally["doubles_into_one_slot"] == "0/2"  # two turns with two attacks from them, never both into one of ours
     assert tally["setups_on_a_free_turn"].startswith("1/") and tally["repeat_protects"] == 0
+
+
+def test_a_constant_draft_reason_is_its_own_bucket_classified_from_the_other_signals_only():
+    """Oct 8 evening (session 48f23a42): the afternoon's free-text LLM came back with "Move submitted." on every pick.
+    A constant or generic reason is neither a template (search bot) nor free text (LLM): the class comes from the
+    battle signals alone, and is "unknown" until they say something."""
+    base = {"phase": "draft", "current_seat": "us", "first_drafter": "them", "available_cards": []}
+    picks = [{"pick_number": i + 1, "seat_id": "them" if i % 2 == 0 else "us", "card_id": f"vgc-{i}", "species": f"Mon{i}",
+              "public_reason": "Move submitted.", "auto": False} for i in range(6)]
+    memory = MatchMemory()
+    memory.observe_draft({**base, "picks": picks}, my_turn=True)
+    evidence = memory.opponent_evidence()
+    assert evidence["constant_reason"] is True and memory.opponent_class() == "unknown" and evidence["scores"] == {"search_bot": 0, "generic_llm": 0, "random": 0}
+    # the same draft with the battle signals of a slow, re-Protecting opponent: an LLM after all
+    slow = MatchMemory()
+    slow.observe_draft({**base, "picks": picks}, my_turn=True)
+    slow.observe_battle({**_log("|player|p1|me 1|1|", "|player|p2|them 1|1|", "|switch|p2a: Dragonite|Dragonite, L50|100/100", "|turn|1",
+                               "|inactive|them 1 has 30 seconds left.", "|move|p2a: Dragonite|Protect|p2a: Dragonite", "|turn|2",
+                               "|inactive|them 1 has 30 seconds left.", "|move|p2a: Dragonite|Protect||[still]", "|-fail|p2a: Dragonite", "|turn|3",
+                               "|inactive|them 1 has 20 seconds left.", "|turn|4"), "turn": 4})
+    assert slow.opponent_class() == "generic_llm" and slow.opponent_evidence()["slow_turns"] == 3
+    # and with the battle signals of a search bot: fast every turn, Protects without repeating
+    fast = MatchMemory()
+    fast.observe_draft({**base, "picks": picks}, my_turn=True)
+    fast.observe_battle({**_log("|player|p1|me 1|1|", "|player|p2|them 1|1|", "|switch|p2a: Dragonite|Dragonite, L50|100/100", "|turn|1",
+                               "|move|p2a: Dragonite|Protect|p2a: Dragonite", "|turn|2", "|move|p2a: Dragonite|Dragon Claw|p1a: X", "|turn|3",
+                               "|move|p2a: Dragonite|Protect|p2a: Dragonite", "|turn|4"), "turn": 4})
+    assert fast.opponent_class() == "search_bot"
+    # short generic reasons ("ok.") land in the same bucket; a real template does not
+    generic = MatchMemory()
+    generic.observe_draft({**base, "picks": [{**p, "public_reason": f"ok {i}"} for i, p in enumerate(picks)]}, my_turn=True)
+    assert generic.opponent_class() == "unknown"
+    names = ["Garchomp", "Incineroar", "Rillaboom", "Amoonguss", "Dragonite", "Gholdengo"]
+    templated = MatchMemory()
+    templated.observe_draft({**base, "picks": [{**p, "species": names[i], "public_reason": f"{names[i]}: beats {names[i - 1]}."} for i, p in enumerate(picks)]}, my_turn=True)
+    assert templated.opponent_class() == "search_bot" and templated.opponent_evidence()["constant_reason"] is False

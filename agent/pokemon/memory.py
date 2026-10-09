@@ -455,7 +455,7 @@ class MatchMemory:
     # -- the opponent's class, its clock, and what happened lately -------------------------------------------------
 
     def opponent_class(self) -> str:
-        """``"search_bot" | "generic_llm" | "random"`` (a plain string: the core lane's reply mixture reads it too;
+        """``"search_bot" | "generic_llm" | "random" | "unknown"`` (a plain string: the core lane's reply mixture reads it too;
         ``opponent_evidence()`` has the numbers) from name-free signals: draft reason length (free
         text 177-216 chars vs 28-42-char templates), pick timing (tiebreak), their ``|inactive|`` warnings (the LLM
         was slow on 6 of 7 turns, the search bot on 0 of 16), repeated Protect attempts (LLM 1 of 2, search bot 0 of
@@ -473,11 +473,18 @@ class MatchMemory:
         turns_seen = max(self.log_turn - 1, 0)
         slow = len(self.their_slow_turns)
         auto = sum(1 for p in theirs if p.get("auto"))
+        # A constant or generic reason ("Move submitted." on every pick, Oct 8 evening: 15 chars; anything under 16)
+        # says nothing about the drafter: neither a template (the search bot's run 28-42 chars) nor free text (an LLM's
+        # 177-216). Only the other signals count in that bucket.
+        distinct = {r.lower() for r in reasons if r}
+        constant_reason = bool(lengths) and (len(distinct) == 1 and len(lengths) >= 2 or mean_len < 16)
         evidence = {"draft_reason_mean_chars": round(mean_len, 1), "draft_reasons": profile["reasons"], "mean_seconds_per_pick": profile.get("mean_seconds_per_pick"),
-                    "slow_turns": slow, "turns_seen": turns_seen, "repeat_protects": self.their_repeat_protects,
+                    "constant_reason": constant_reason, "slow_turns": slow, "turns_seen": turns_seen, "repeat_protects": self.their_repeat_protects,
                     "protect_attempts": self.their_protect_attempts, "voluntary_switches": len(self.their_voluntary_switches), "auto_picks": auto}
         llm = search = random_ = 0
-        if mean_len >= 100:
+        if constant_reason:
+            pass  # the reason text is not evidence in this bucket
+        elif mean_len >= 100:
             llm += 2
         elif lengths and mean_len <= 60 and (profile["reasons"]["templated"] >= 2 or len(lengths) <= 1):
             search += 2
@@ -502,9 +509,12 @@ class MatchMemory:
             random_ += 1
         evidence["scores"] = {"search_bot": search, "generic_llm": llm, "random": random_}
         best = max(("search_bot", search), ("generic_llm", llm), ("random", random_), key=lambda t: t[1])
-        label = best[0] if best[1] > 0 else "search_bot"
-        if best[0] != "search_bot" and best[1] == search:
-            label = "search_bot"  # ties go to the strongest class
+        if constant_reason and best[1] <= 0:
+            label = "unknown"  # nothing but a constant reason so far: no read until the battle shows one
+        else:
+            label = best[0] if best[1] > 0 else "search_bot"
+            if best[0] != "search_bot" and best[1] == search:
+                label = "search_bot"  # ties go to the strongest class
         evidence["class"] = label
         return evidence
 
