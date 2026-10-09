@@ -662,6 +662,8 @@ class TurnSheet:
     alone: bool = False  # our last Pokémon stands alone (the other slot can only pass)
     switch_ins: dict = field(default_factory=dict)  # bench species_key -> what it takes / deals / outspeeds if it comes in now
     stall_reasons: list = field(default_factory=list)  # what a Protect would actually wait out (their Tailwind, screens, residual...)
+    reply: dict = field(default_factory=dict)  # the reply mixture's table (agent/pokemon/replies.py): columns, their prior, the top rows
+    turn: int | None = None  # the battle turn of this sheet (the reply mixture's priors depend on it)
     field: "FieldState | None" = None  # keep last: this name shadows dataclasses.field for anything declared after it
 
     def as_prompt(self) -> dict:
@@ -674,6 +676,7 @@ class TurnSheet:
             "candidate_turns": self.candidates,
             "notes": self.notes,
             **({"switch_ins": {k: {kk: vv for kk, vv in v.items() if kk != "score"} for k, v in self.switch_ins.items()}} if self.switch_ins else {}),
+            **({"reply_table": self.reply} if self.reply else {}),
         }
 
 
@@ -1016,6 +1019,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 threat["note"] = "has Fake Out but is past its first turn out: Fake Out fails now."
         sheet.threats.append(threat)
 
+    sheet.turn = turn if isinstance(turn, int) else None
     _glaive_rush_carry(sheet, ours, memory)
     _flinch_risk(sheet, ours, theirs, fs, slots=slots, P=P)
     _double_target_threats(sheet, ours, P)
@@ -2772,6 +2776,15 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                        solo_value(other) + P["switch_weak_bonus"], allow_unsafe=False)
 
     candidates.sort(key=lambda c: -c["score"])
+    if P.get("reply_mixture", 0) and not forced and memory is not None:
+        # Workstream A: value every row against the opponent's plausible replies (agent/pokemon/replies.py).
+        from . import replies  # local import: replies imports this module
+
+        ranked = replies.evaluate(sheet, memory, None, slots=slots, ours=ours, theirs=theirs, params=P, candidates=candidates,
+                                  obs={"turn": sheet.turn})
+        if ranked:
+            candidates = ranked
+            return candidates[:6]  # the mixture's rows carry their value, worst case and best reply: the model sees six
     # The cut: the best four, plus the Protect / switch rows that cover a slot in a KO range (the Oct 8 loss, turn 3:
     # the row that Protected the exposed Thundurus ranked 5th and was cut; it decided the game).
     kept = candidates[:4]
