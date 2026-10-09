@@ -4,7 +4,7 @@ Run from the integration worktree, one simulator at a time; it refuses to start 
 run is alive or while the lock file exists, and holds the lock itself while it runs.
 
     python scripts/ship_gate.py --quick --kind reliability --base <previous next tip> --mirror <worktree at that tip>
-    python scripts/ship_gate.py --adoption --previous 48.3 --clone-latest ~/projects/opponents/<newest dated clone>
+    python scripts/ship_gate.py --adoption --previous 48.3 --clone-latest     # + the newest dated clone listed in PINS.txt
     python scripts/ship_gate.py --quick --mirror ../ace-trainer-wt-mirror --dry-run      # print the commands only
     python scripts/ship_gate.py --record-deploy 48.3                                      # log a deployed build's number
 
@@ -21,11 +21,13 @@ from ``git rev-parse HEAD`` — a worktree's decision logs carry no commit of th
      (point ≥ 85).
   4. --adoption (overnight): 500 pairs vs the pinned clone at a 15 s preview budget, seeded (Wilson lower bound ≥ the
      previous deployed build's point: --previous, else the log's last ``deploy`` entry); 500 pairs vs the latest
-     dated clone when --clone-latest is given (tripwire vs the previous adoption number for that pin); with
+     dated clone (tripwire vs the previous adoption number for that pin): --clone-latest alone picks the newest dated
+     clone listed in ~/projects/opponents/PINS.txt (``<sha> <date> <dir>`` per line, the rest a comment), and so does
+     the default whenever --clone is not given and that clone is not the pin itself; with
      --opus-games N, N paired model-piloted games (the ``fable`` player, the .env of this checkout) vs the pinned
      clone, judged on their decision logs: model p95 latency < 20 s and no all-models-failed decision.
   5. a pass/fail table; exit status 1 on any failure, 3 when it refused to start. Every series row carries
-     games_per_minute.
+     games_per_minute and both clone pins (``clone_pins``: the pinned clone's commit and the newest listed clone's).
 Decision logs are off for every series (sim/draft_eval.py keeps them off). --dry-run prints every command and bar
 without running anything or touching the lock.
 """
@@ -106,23 +108,69 @@ def dated_clones() -> list[Path]:
     return sorted(p.parent.parent for p in OPPONENTS.glob("*/agent/agent.py")) if OPPONENTS.is_dir() else []
 
 
+LATEST = "newest-listed"  # --clone-latest given alone: the newest dated clone listed in PINS.txt
+
+
+@dataclass(frozen=True)
+class Pin:
+    sha: str
+    date: str
+    path: Path
+    line: int
+
+
+def is_checkout(path: Path | None) -> bool:
+    return path is not None and (Path(path) / "agent" / "agent.py").exists()
+
+
+def listed_pins() -> list[Pin]:
+    """PINS.txt in file order, one ``<sha> <date> <dir>`` per line; anything after the directory is a comment (a
+    "(latest, evening)" note), and blank or # lines are skipped."""
+    path = OPPONENTS / "PINS.txt"
+    if not path.exists():
+        return []
+    pins = []
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+        parts = line.split()
+        if len(parts) >= 3 and not parts[0].startswith("#"):
+            pins.append(Pin(parts[0], parts[1], OPPONENTS / parts[2], n))
+    return pins
+
+
 def pinned_clone() -> Path | None:
-    """The clone the baselines were measured against: the first line of PINS.txt (``<sha> <date> <dir>``), else the oldest."""
-    pins = OPPONENTS / "PINS.txt"
-    if pins.exists():
-        for line in pins.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                candidate = OPPONENTS / line.split()[-1]
-                if (candidate / "agent" / "agent.py").exists():
-                    return candidate
-                break
+    """The clone the baselines were measured against: the first line of PINS.txt, else the oldest dated directory."""
+    pins = listed_pins()
+    if pins and is_checkout(pins[0].path):
+        return pins[0].path
     clones = dated_clones()
     return clones[0] if clones else None
 
 
 def newest_clone() -> Path | None:
+    """The newest dated clone listed in PINS.txt (the latest date; on the same date the later line), else, with no
+    usable PINS.txt entry, the newest dated directory."""
+    listed = [pin for pin in listed_pins() if is_checkout(pin.path)]
+    if listed:
+        return max(listed, key=lambda pin: (pin.date, pin.line)).path
     clones = dated_clones()
     return clones[-1] if clones else None
+
+
+def pin_of(path: Path | None) -> str | None:
+    """A clone's commit: its checkout's HEAD, else the sha PINS.txt lists for that directory."""
+    if path is None:
+        return None
+    sha = commit_of(Path(path))
+    if sha != "unknown":
+        return sha
+    where = Path(path).resolve()
+    return next((pin.sha for pin in listed_pins() if pin.path.resolve() == where), "unknown")
+
+
+def clone_pins(args) -> dict:
+    """The two pins every series row records: the pinned clone's and the newest listed clone's (the adoption tier's
+    --clone-latest when one is set)."""
+    return {"pinned": pin_of(args.clone), "latest": pin_of(args.clone_latest or newest_clone())}
 
 
 # ---------------------------------------------------------------- the gate log
@@ -266,25 +314,25 @@ def plan(args) -> list[Series]:
         series.append(Series("quick:clone", args.candidate, clone_spec(args.clone, args.clone_python), args.pairs_clone,
                              "point >= previous quick number for this pin - 3", judge_tripwire("quick:clone"),
                              env=shim_env(args, "quick:clone", QUICK_PREVIEW_BUDGET), budgets={"preview": QUICK_PREVIEW_BUDGET},
-                             opponent_commit=commit_of(args.clone)))
+                             opponent_commit=pin_of(args.clone)))
         series.append(Series("quick:old", args.candidate, f"checkout:{args.old}", args.pairs_old, "point >= 85", judge_floor(85.0),
                              opponent_commit=commit_of(Path(args.old))))
     if args.adoption:
         series.append(Series("adoption:clone", args.candidate, clone_spec(args.clone, args.clone_python), args.pairs_adoption,
                              "Wilson lower bound >= the previous deployed build's point", judge_adoption(args.previous),
                              env=shim_env(args, "adoption:clone", ADOPTION_PREVIEW_BUDGET), budgets={"preview": ADOPTION_PREVIEW_BUDGET},
-                             opponent_commit=commit_of(args.clone)))
+                             opponent_commit=pin_of(args.clone)))
         if args.clone_latest:
             series.append(Series("adoption:latest", args.candidate, clone_spec(args.clone_latest, args.clone_python), args.pairs_adoption,
                                  "point >= previous adoption number for this pin - 3", judge_tripwire("adoption:latest"),
                                  env=shim_env(args, "adoption:latest", ADOPTION_PREVIEW_BUDGET), budgets={"preview": ADOPTION_PREVIEW_BUDGET},
-                                 opponent_commit=commit_of(args.clone_latest)))
+                                 opponent_commit=pin_of(args.clone_latest)))
         if args.opus_games:
             log_dir = Path(args.work_dir) / "opus-decisions"
             series.append(Series("adoption:opus", "fable", clone_spec(args.clone, args.clone_python), max(1, (args.opus_games + 1) // 2),
                                  "model p95 latency < 20 s, no all-models-failed decision", judge_opus,
                                  env=shim_env(args, "adoption:opus", ADOPTION_PREVIEW_BUDGET), budgets={"preview": ADOPTION_PREVIEW_BUDGET},
-                                 opponent_commit=commit_of(args.clone), extra=["--log-dir", str(log_dir)] + (["--clock"] if args.opus_clock else []),
+                                 opponent_commit=pin_of(args.clone), extra=["--log-dir", str(log_dir)] + (["--clock"] if args.opus_clock else []),
                                  log_dir=log_dir))
     return series
 
@@ -331,6 +379,7 @@ def run_series(s: Series, args, rows: list[dict], stamp: str) -> dict:
     row = {"ts": time.time(), "ts_text": time.strftime("%Y-%m-%d %H:%M"), "stage": s.stage, "commit": args.commit, "base": args.base,
            "kind": args.kind, "spec": {"a": s.a, "b": s.b}, "opponent_commit": s.opponent_commit,
            "clone_pin": s.opponent_commit if "clone" in s.stage or "latest" in s.stage else None,
+           "clone_pins": getattr(args, "clone_pins", None) or clone_pins(args),
            "budgets": {"preview": s.budgets.get("preview"), "turn": s.budgets.get("turn")}, "seed": args.seed, "pairs": s.pairs,
            "games": games, "wins": wins, "point": round(100 * p, 2), "lo": round(100 * lo, 2), "hi": round(100 * hi, 2),
            "seconds_per_game": per_game, "seconds": round(seconds, 1), "games_per_minute": round(60 * games / seconds, 2) if seconds > 0 else None,
@@ -410,7 +459,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--mirror", help="worktree checked out at the previous next tip (quick tier)")
     ap.add_argument("--old", default=str(Path.home() / "projects" / "ace-trainer-wt-old"), help="the Oct 7 worktree")
     ap.add_argument("--clone", type=Path, default=None, help="the pinned external checkout (default: the first line of PINS.txt, else the oldest dated one)")
-    ap.add_argument("--clone-latest", type=Path, default=None, help="the latest dated external checkout (adoption tier; default: the newest dated one when it differs from the pin)")
+    ap.add_argument("--clone-latest", nargs="?", const=LATEST, default=None,
+                    help="the latest dated external checkout (adoption tier): alone, the newest dated clone listed in PINS.txt; or a "
+                         "path; default: that newest listed clone when --clone is not given and it is not the pin itself")
     ap.add_argument("--clone-python", type=Path, default=OPPONENTS / "venv" / "bin" / "python")
     ap.add_argument("--candidate", default="agent.versions.code_only", help="the build under test, in sim/draft_eval.py spelling")
     ap.add_argument("--seed", type=int, default=1)
@@ -437,9 +488,12 @@ def parse_args(argv: list[str] | None = None):
     args = build_parser().parse_args(argv)
     if args.clone is None:  # both default from the opponents directory; an explicit --clone keeps --clone-latest explicit too
         args.clone = pinned_clone()
-        latest = newest_clone()
-        if args.adoption and args.clone_latest is None and args.clone is not None and latest is not None and latest != args.clone:
-            args.clone_latest = latest
+        if args.adoption and args.clone_latest is None:
+            args.clone_latest = LATEST
+    if args.clone_latest == LATEST:
+        newest = newest_clone()
+        same = newest is not None and args.clone is not None and Path(newest).resolve() == Path(args.clone).expanduser().resolve()
+        args.clone_latest = None if same else newest  # the newest listed clone is the pin itself: adoption:clone covers it
     for name in ("clone", "clone_latest", "clone_python"):
         value = getattr(args, name)
         if value is not None:
@@ -459,6 +513,9 @@ def parse_args(argv: list[str] | None = None):
 def print_plan(args, series: list[Series]) -> None:
     stamp = "<stamp>"
     print(f"ship gate dry run: commit {args.commit}, base {args.base}, kind {args.kind}, seed {args.seed}")
+    pins = getattr(args, "clone_pins", None) or clone_pins(args)
+    print(f"clones: pinned {args.clone} ({pins['pinned']}); latest {args.clone_latest or newest_clone()} ({pins['latest']})"
+          + ("" if args.clone_latest or not args.adoption else "; no adoption:latest series (the newest listed clone is the pin, or --clone was given)"))
     if not args.skip_checks:
         for stage, cmd in check_commands(args):
             print(f"[{stage}] {' '.join(cmd)}")
@@ -489,6 +546,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     os.chdir(ROOT)
     args.commit = commit_of(ROOT)
+    args.clone_pins = clone_pins(args)
     log_path = Path(args.log).expanduser()
     if args.record_deploy is not None:
         row = {"ts": time.time(), "ts_text": time.strftime("%Y-%m-%d %H:%M"), "stage": "deploy", "commit": args.commit,

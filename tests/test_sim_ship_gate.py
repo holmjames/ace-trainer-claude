@@ -35,6 +35,7 @@ def gate(tmp_path, monkeypatch):
     patterns.write_text(f"# patterns\n{FAKE_PATTERN}\n")
     paths.update(python=python, patterns=patterns, log=tmp_path / "gate.jsonl", lock=tmp_path / "LOCK", work=tmp_path / "work")
     monkeypatch.setattr(ship_gate, "running_simulators", lambda: [])
+    monkeypatch.setattr(ship_gate, "OPPONENTS", tmp_path / "no-opponents")  # never read the real clones from a test
     return paths
 
 
@@ -222,11 +223,16 @@ def test_the_pinned_clone_is_the_first_pin_and_the_latest_is_the_newest(tmp_path
     assert ship_gate.pinned_clone() == opponents / "x-2026-10-01" and ship_gate.newest_clone() == opponents / "x-2026-10-02"
     (opponents / "PINS.txt").write_text("abc1234 2026-10-02 x-2026-10-02\nzzz 2026-10-01 x-2026-10-01\n")
     assert ship_gate.pinned_clone() == opponents / "x-2026-10-02"  # the first pin wins, whatever the dates say
-    (opponents / "PINS.txt").write_text("abc1234 2026-10-01 x-2026-10-01\n")
+    (opponents / "PINS.txt").write_text("abc1234 2026-10-01 x-2026-10-01\ndef5678 2026-10-02 x-2026-10-02 (latest; a comment)\n")
     args = ship_gate.parse_args(["--adoption", "--clone-python", str(tmp_path / "py"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
     assert (args.clone, args.clone_latest) == (opponents / "x-2026-10-01", opponents / "x-2026-10-02")
     args = ship_gate.parse_args(["--adoption", "--clone", str(opponents / "x-2026-10-01"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
     assert args.clone_latest is None  # an explicit --clone never grows a --clone-latest by itself
+    # "latest" is the newest clone PINS.txt lists: a newer directory nobody pinned is not it, and when the newest listed
+    # clone is the pin itself there is no second adoption series
+    (opponents / "PINS.txt").write_text("abc1234 2026-10-01 x-2026-10-01\n")
+    args = ship_gate.parse_args(["--adoption", "--clone-python", str(tmp_path / "py"), "--log", str(tmp_path / "l"), "--lock", str(tmp_path / "k")])
+    assert (args.clone, args.clone_latest) == (opponents / "x-2026-10-01", None)
 
 
 OK_ROWS = [{"kind": "turn", "latency_ms": 9000, "fallback": False, "attempts": 1, "model": "m"}] * 10 + [
@@ -291,3 +297,66 @@ def test_greps_find_secrets_and_name_patterns_in_the_diff_and_the_messages(gate,
     args = ship_gate.parse_args(base_args(g, "--adoption", "--base", "HEAD"))
     args.commit = "test"
     assert all(r["pass"] for r in ship_gate.grep_rows(args))
+
+
+def _opponents(tmp_path: Path) -> Path:
+    """A fake opponents directory: dated clones and a PINS.txt with comments, two clones on one date, an older clone
+    listed last, a listed clone that is not checked out and a newer directory nobody pinned."""
+    opponents = tmp_path / "opponents"
+    for name in ("x-2026-10-01", "x-2026-10-02b", "x-2026-10-02c", "x-2026-09-30", "x-2026-10-09"):
+        (opponents / name / "agent").mkdir(parents=True)
+        (opponents / name / "agent" / "agent.py").write_text("")
+    (opponents / "PINS.txt").write_text(
+        "aaa1111 2026-10-01 x-2026-10-01\n"
+        "bbb2222 2026-10-02 x-2026-10-02b (latest; a draft fix)\n"
+        "ccc3333 2026-10-02 x-2026-10-02c (latest, evening)\n"
+        "\n# a comment line\n"
+        "ddd4444 2026-09-30 x-2026-09-30 (an older clone, listed last)\n"
+        "eee5555 2026-10-03 x-2026-10-03 (listed, not checked out)\n")
+    return opponents
+
+
+def test_clone_latest_alone_picks_the_newest_dated_pin_in_a_dry_run(gate, tmp_path, monkeypatch, capsys):
+    g = gate
+    opponents = _opponents(tmp_path)
+    monkeypatch.setattr(ship_gate, "OPPONENTS", opponents)
+
+    def boom(*_a, **_k):
+        raise AssertionError("a stage ran during --dry-run")
+
+    monkeypatch.setattr(ship_gate, "run_logged", boom)
+    monkeypatch.setattr(ship_gate, "running_simulators", boom)
+    assert ship_gate.newest_clone() == opponents / "x-2026-10-02c" and ship_gate.pinned_clone() == opponents / "x-2026-10-01"
+    common = ["--clone-python", str(g["python"]), "--log", str(g["log"]), "--lock", str(g["lock"]), "--work-dir", str(g["work"]),
+              "--skip-checks", "--skip-greps", "--dry-run"]
+    rc = ship_gate.main(["--adoption", "--clone-latest", *common])
+    out = capsys.readouterr().out
+    assert rc == 0 and not g["lock"].exists() and not g["log"].exists()
+    assert f"checkout:{opponents / 'x-2026-10-01'}:checkout_shim:{g['python']} --pairs 500" in out  # adoption:clone, the pin
+    assert f"checkout:{opponents / 'x-2026-10-02c'}:checkout_shim:{g['python']} --pairs 500" in out  # adoption:latest
+    assert "[adoption:latest]" in out and "(aaa1111)" in out and "(ccc3333)" in out
+    # with an explicit pin, --clone-latest alone still names the newest listed clone; a path still wins
+    rc = ship_gate.main(["--adoption", "--clone", str(opponents / "x-2026-09-30"), "--clone-latest", *common])
+    out = capsys.readouterr().out
+    assert rc == 0 and f"checkout:{opponents / 'x-2026-10-02c'}:checkout_shim" in out and "(ddd4444)" in out
+    rc = ship_gate.main(["--adoption", "--clone-latest", str(opponents / "x-2026-10-02b"), *common])
+    out = capsys.readouterr().out
+    assert rc == 0 and f"checkout:{opponents / 'x-2026-10-02b'}:checkout_shim" in out and "(bbb2222)" in out
+    assert f"checkout:{opponents / 'x-2026-10-02c'}:checkout_shim" not in out
+
+
+def test_every_series_row_records_both_clone_pins(gate, tmp_path, monkeypatch, capsys):
+    g = gate
+    opponents = _opponents(tmp_path)
+    monkeypatch.setattr(ship_gate, "OPPONENTS", opponents)
+    runner = FakeRunner({"x-2026-10-02c": (260, 500), "x-2026-10-01": (270, 500), "mirror": (300, 600), "old": (270, 300)})
+    monkeypatch.setattr(ship_gate, "run_logged", runner)
+    rc = ship_gate.main(["--quick", "--adoption", "--clone-latest", "--mirror", str(g["mirror"]), "--old", str(g["old"]),
+                         "--clone-python", str(g["python"]), "--log", str(g["log"]), "--lock", str(g["lock"]),
+                         "--work-dir", str(g["work"]), "--skip-checks", "--skip-greps", "--previous", "40"])
+    capsys.readouterr()
+    rows = {r["stage"]: r for r in ship_gate.load_log(g["log"])}
+    assert list(rows) == ["quick:mirror", "quick:clone", "quick:old", "adoption:clone", "adoption:latest"] and rc == 0
+    assert all(r["clone_pins"] == {"pinned": "aaa1111", "latest": "ccc3333"} for r in rows.values())
+    assert [rows[s]["clone_pin"] for s in ("quick:clone", "adoption:clone", "adoption:latest")] == ["aaa1111", "aaa1111", "ccc3333"]
+    assert rows["quick:mirror"]["clone_pin"] is None and rows["adoption:latest"]["spec"]["b"].startswith(f"checkout:{opponents / 'x-2026-10-02c'}:")
