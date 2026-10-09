@@ -21,7 +21,9 @@ from agent.agent import (DECISION_SECONDS, MIN_MODEL_SECONDS, PREVIEW_DECISION_S
                          expected_remaining_turns)
 
 CTX = DecisionContext(session_id="clock-1", tournament_id=None, game_type="pokemon_vgc_doubles_draft", agent_id="agent-a", seat_position=0)
-ANSWER = {"slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 1}, "win_condition": "w", "reasoning_summary": "attack."}
+# A synthetic position has no cards and so no rows: the answer proposes the joint action as an override (legal here).
+ANSWER = {"row": 0, "override": {"use": True, "slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 1}},
+          "opponent_prediction": {"their_slot_1": "attack", "their_slot_2": "attack", "why": "w"}, "win_condition": "w", "reasoning_summary": "attack."}
 
 
 class RecordingProvider:
@@ -88,9 +90,9 @@ def test_deadline_spends_only_the_bank_above_the_gate_spread_over_the_turns_left
 
 def test_team_preview_gets_its_own_allowance_and_cap():
     preview = _clock_budget({"decision_seconds_left": 85, "bank_seconds_left": 420}, kind="lineup")
-    assert preview.deadline == 23.57 or abs(preview.deadline - (420 - 90) / 14) < 0.01  # the bank term binds first
-    assert _clock_budget({"decision_seconds_left": 85, "bank_seconds_left": 2000}, kind="lineup").deadline == 60.0
-    assert _clock_budget(None, kind="lineup").deadline == min(85 - 8, (420 - 90) / 14, 60) if False else True
+    assert preview.deadline == 60.0 and preview.reason == "cap"  # 77 from the decision, 66 (a fifth of the bank above the gate), 60 is the cap
+    assert _clock_budget({"decision_seconds_left": 85, "bank_seconds_left": 300}, kind="lineup").deadline == 42.0
+    assert _clock_budget(None, kind="lineup").deadline == 60.0
     no_clock = _clock_budget(None)
     assert no_clock.deadline == 20.0 and no_clock.decision_left is None  # live allowances assumed without a clock
 
@@ -121,7 +123,7 @@ def test_every_call_gets_what_is_left_of_the_deadline_and_the_kinds_effort(tmp_p
     agent._efforts["turn"] = "medium"
 
     def build(answer):
-        if answer["slot_0"]["option"] == 9:
+        if (answer.get("slot_0") or {}).get("option") == 9:
             raise agent_mod.InvalidChoice("no option 9")
         return dict(answer)
 
@@ -196,7 +198,7 @@ def test_agent_effort_env_is_read_once_at_startup_and_logged(monkeypatch, tmp_pa
     agent = PokemonAgent(chain, version="clock", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
     agent._log_for(CTX)
     config = json.loads(next(Path(tmp_path).glob("*.jsonl")).read_text().splitlines()[0])
-    assert config["effort"] == {"provider_default": "medium", "turn": None, "lineup": None, "AGENT_EFFORT": "high"}
+    assert config["effort"] == {"provider_default": "medium", "turn": None, "lineup": "high", "AGENT_EFFORT": "high"}
     assert "sk-ant" not in json.dumps(config)
     monkeypatch.delenv("AGENT_EFFORT")
     assert provider_from_env().effort == "low"  # the code default stays low

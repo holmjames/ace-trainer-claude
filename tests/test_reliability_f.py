@@ -210,7 +210,7 @@ def test_catalog_knowledge_never_overwrites_a_drafted_card():
         assert chomp.get("moves") == ["earthquake"] and chomp.get("types") == ["DRAGON", "GROUND"]
     memory.observe_battle({"turn": 5, "opponent_active_pokemon": [{"species": "incineroar"}, {"species": "Not A Pokemon", "moves": ["tackle"]}],
                            "active_pokemon": [{"species": "rillaboom"}]})
-    assert memory.opp_cards["notapokemon"].get("moves") == ["tackle"] and "source" not in memory.opp_cards["notapokemon"]
+    assert memory.opp_cards["notapokemon"].get("moves") == ["tackle"] and memory.opp_cards["notapokemon"].get("source") == "placeholder"
 
 
 def test_catalog_covers_live_sessions():
@@ -362,7 +362,7 @@ class _FakeProvider:
         self.calls: list[tuple] = []
 
     def complete_structured(self, messages, schema_name, schema):
-        self.calls.append((messages, schema_name, schema))
+        self.calls.append(([dict(m) for m in messages], schema_name, schema))
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -442,7 +442,8 @@ def test_match_summary_counts_turns_by_model_and_prints_once_when_the_match_ends
     from examples.llm.providers import ProviderError
 
     lines: list[str] = []
-    good = {"slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 1}, "win_condition": "w", "reasoning_summary": "attack"}
+    good = {"row": 0, "override": {"use": True, "slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 1}},
+            "opponent_prediction": {"their_slot_1": "attack", "their_slot_2": "attack", "why": "w"}, "win_condition": "w", "reasoning_summary": "attack"}
     provider = _FakeProvider(good, good, ProviderError("every model failed: x"))
     agent = PokemonAgent(provider, version="f3", log_dir=tmp_path, capture_dir="", log=lines.append)
     agent.choose_action(_doubles(GOOD_SLOTS), CTX)  # primary answers
@@ -780,7 +781,8 @@ def test_clean_reason_strips_the_debris_seen_live_and_keeps_whole_sentences():
 
 
 def test_the_public_reason_the_runtime_sends_is_cleaned(tmp_path):
-    answer = {"slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 1}, "win_condition": "w",
+    answer = {"row": 0, "override": {"use": True, "slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 1}},
+              "opponent_prediction": {"their_slot_1": "attack", "their_slot_2": "attack", "why": "w"}, "win_condition": "w",
               "reasoning_summary": "Fake Out OPPONENT a, Wood Hammer OPPONENT b.]\n"}
     agent = PokemonAgent(_FakeProvider(answer), version="reason", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
     decision = agent.choose_action(_doubles(GOOD_SLOTS), CTX)
@@ -847,15 +849,26 @@ def test_recheck_fires_when_the_priority_move_cannot_ko_the_threat_bcbaabe2_t13(
     assert _lethal_recheck(protect, sheet, memory=agent.memory, template=template) is None
 
 
-def test_recheck_skips_on_a_protect_streak_with_no_safe_switch_bcbaabe2_t14():
+def test_recheck_defers_to_the_sheet_on_a_protect_streak_bcbaabe2_t14():
     """A turn later Arcanine Protected last turn (1 in 3) and the only switch-in, Wo-Chien, is KO'd on entry 57% of
-    the time: attacking is what is left, so the attacking answer is not sent back."""
+    the time. The streak rule would skip the recheck ("attacking is what is left"), but the sheet's best row is still
+    the Protect row (58.3 vs 30.9 for the attack): a 1-in-3 Protect beats a certain KO, so an attacking answer is sent
+    back with that row quoted. Model-piloted, this position was the one loss against code-only at effort low."""
     from agent.agent import _lethal_recheck
 
     agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 14)
+    for index, c in enumerate(sheet.candidates):
+        c["row"] = index
     assert agent.memory.protect_streak("arcanine", 1) == 1 and sheet.switch_ins["wochien"]["verdict"] == "ko_on_entry"
+    assert sheet.candidates[0]["name"] == "protect_threatened"
     attack = _answer(build, (_index(template, 0, "bodypress"), 1), (_index(template, 1, "extremespeed"), 1))
     info: dict = {}
+    message = _lethal_recheck(attack, sheet, memory=agent.memory, template=template, info=info)
+    assert message and "slot 1 attacks with extremespeed" in message and "row 0 protect_threatened: slot 1 option" in message
+    assert info["recheck_skips"] == []
+    # With the Protect row gone from the top (the sheet itself prefers attacking), the streak rule applies again.
+    sheet.candidates = [c for c in sheet.candidates if c["name"] != "protect_threatened"]
+    info = {}
     assert _lethal_recheck(attack, sheet, memory=agent.memory, template=template, info=info) is None
     assert "Protect is on a streak of 1" in info["recheck_outcome"] and "no switch-in is safe" in info["recheck_outcome"]
 
@@ -921,8 +934,10 @@ def test_recheck_skips_when_a_fake_out_that_goes_first_flinches_the_threat_d9405
     dire_claw = _answer(build, (_index(template, 0, "direclaw"), 1), (_index(template, 1, "protect"), 0))
     info = {}
     message = _lethal_recheck(dire_claw, sheet, memory=agent.memory, template=template, info=info)
-    # Triggers are listed in sheet order; the core lane's double-target fix now lists DOUBLE-TARGET before the LETHAL Extreme Speed here.
-    assert message and "slot 0 attacks with direclaw although:" in message and ("LETHAL: dragonite's extremespeed" in message or "DOUBLE-TARGET" in message) and info["recheck_skips"] == []
+    # Triggers are listed in sheet order (the double-target fix may list DOUBLE-TARGET first); the recheck must still
+    # fire on this Dire Claw line and name Dragonite among its problems.
+    assert message and "slot 0 attacks with direclaw although:" in message and info["recheck_skips"] == []
+    assert any("dragonite" in p for p in info["recheck_problems"])
 
 
 def test_recheck_triggers_on_exposed_and_double_target_too():
@@ -967,3 +982,190 @@ def test_a_failed_or_invalid_recheck_call_keeps_the_valid_first_answer(tmp_path)
 
 
 MATCH_BCBAABE2 = "bcbaabe2"
+
+
+# -- E4: the constrained answer, the prompt, the payload, Team Preview at effort high -------------------------------
+
+
+def _turn_answer(row: int = 0, *, override=None, prediction=("attack", "attack")) -> dict:
+    return {"row": row, "override": {"use": override is not None, "slot_0": (override or {}).get("slot_0", {"option": 0, "target": 0}),
+                                     "slot_1": (override or {}).get("slot_1", {"option": 0, "target": 0})},
+            "opponent_prediction": {"their_slot_1": prediction[0], "their_slot_2": prediction[1], "why": "test"},
+            "win_condition": "w", "reasoning_summary": "Test answer."}
+
+
+def test_prompt_carries_the_procedure_the_class_rules_and_the_override_lessons():
+    from agent.pokemon.prompts import KNOWN_SETS_PREAMBLE, LINEUP_INSTRUCTIONS, SYSTEM_PROMPT
+
+    for needle in ("The Protect procedure, in this order", "1. A priority escape THAT KOS", "2. Protect, only when its streak is 0",
+                   "3. A safe switch", "4. Attack for position", "Never Protect on a streak without a listed stall reason",
+                   "search_bot", "6 times in 10", "4 in 10", "never Protects twice in a row", "generic_llm", "random or dead",
+                   "Against a slow opponent in a long, level game prefer the low-variance row",
+                   "Never send both attacks into a target whose Protect is fresh and whose HP is low",
+                   "Do not switch a Pokémon into a slot the sheet marks \"KO'd on entry\"",
+                   "row: the number of the candidate_turns row", "override: use=true only", "opponent_prediction:", "win_condition:"):
+        assert needle in SYSTEM_PROMPT, needle
+    for needle in ("preview_table", "lead veto", "flinch-proof", "justify it against the table"):
+        assert needle in LINEUP_INSTRUCTIONS, needle
+    assert KNOWN_SETS_PREAMBLE.startswith("known_sets")
+
+
+def test_a_row_answer_plays_that_row_and_the_payload_carries_rows_prediction_digest_and_tendencies(tmp_path):
+    agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 13)
+    protect_row = next(i for i, c in enumerate(sheet.candidates) if c["name"] == "protect_threatened")
+    provider = _FakeProvider(_turn_answer(row=protect_row), _turn_answer(row=protect_row))
+    live = PokemonAgent(provider, version="e4", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
+    live.memory = agent.memory
+    folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(MATCH_BCBAABE2))
+    path = next(p for p in _sequence(folder, 0) if p.name == "moving-00014-seat0.json")
+    raw = json.loads(path.read_text())
+    state = GameState.from_mcp_state(raw)
+    decision = live.choose_action(state, _context(folder, raw, 0))
+    messages = provider.calls[0][0]
+    assert [m["role"] for m in messages] == ["system", "system", "user"] and messages[1]["content"].startswith("known_sets")
+    payload = json.loads(messages[2]["content"])
+    rows = payload["turn_sheet"]["candidate_turns"]
+    assert [r["row"] for r in rows] == list(range(len(rows))) and "known_sets" not in payload
+    assert payload["opponent_model"]["class"] == "search_bot" and set(payload["opponent_model"]["prediction"]) == {1, 2} or set(payload["opponent_model"]["prediction"]) == {"1", "2"}
+    assert payload["last_turns"].startswith("T10:") or payload["last_turns"].startswith("T1")
+    assert "protects_when_threatened" in payload["tendencies"]
+    assert payload["observation"]["opponent_team"]["p2: Dragonite"]["moves"] == "see known_sets"
+    chosen = rows[protect_row]
+    option = template["slots"][1]["options"][chosen["slot_1"]["option"]]
+    assert decision.action["slot_1"]["move_id"] == option.get("move_id") == "protect" and chosen["name"] == "protect_threatened"
+    row = _last_turn_row(tmp_path)
+    assert row["resolution"] == {"row": protect_row, "row_name": "protect_threatened", "row_score": chosen["score"], "resolution": "row"}
+    assert row["payload_chars"] == len(messages[2]["content"]) and row["payload_chars"] < 17000, row["payload_chars"]  # was ~23k before E4
+    assert "active_pokemon" not in payload["observation"] and "base_stats" not in payload["observation"]["team"]["p1: Archaludon"]
+    assert payload["slots"][0]["active"] == {"species": "archaludon", "hp_pct": payload["slots"][0]["active"]["hp_pct"]}
+    assert len(rows) <= 8
+    assert row["opponent_class"] == "search_bot" and row["code_prediction"]["source"] == "priors"
+
+
+def test_an_override_is_scored_against_the_rows_and_rejected_beyond_the_margin_unless_the_read_matches(tmp_path):
+    from agent.agent import override_value
+
+    agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 13)
+    for index, c in enumerate(sheet.candidates):
+        c["row"] = index
+    prediction = {"top_column": {1: "attack", 2: "attack"}}
+    # 1. the override repeats a listed row: accepted with that row's score
+    row2 = sheet.candidates[2]
+    meta: dict = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=0, override={"slot_0": row2["slot_0"], "slot_1": row2["slot_1"]}), sheet, _adapter(build), prediction, meta)
+    assert meta["resolution"].startswith("override accepted (same as a row)") and meta["override_value"] == row2["score"]
+    # 2. a weak override (Snarl + Snarl-like status into nothing): rejected, the chosen row plays
+    snarl = {"option": _index(template, 1, "snarl"), "target": 0}  # a spread move: no target
+    weak = {"slot_0": {"option": _index(template, 0, "flashcannon"), "target": 2}, "slot_1": snarl}
+    meta = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=1, override=weak, prediction=("protect", "switch")), sheet, _adapter(build), prediction, meta)
+    assert meta["resolution"].startswith("override rejected") and meta["row"] == 1
+    # the chosen row 1 itself trails row 0 beyond the margin here, so the margin rule for rows plays row 0
+    assert "row 1 rejected" in meta["resolution"] and meta["row_played"] == 0
+    assert value["slot_1"]["move_id"] == template["slots"][1]["options"][sheet.candidates[0]["slot_1"]["option"]]["move_id"]
+    assert meta["override_value"] < meta["best_row_score"] - meta["margin"] and meta["prediction_matches_code"] is False
+    # 3. the same weak override with an opponent read that matches the code's top column: it stands
+    meta = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=1, override=weak, prediction=("attack", "attack")), sheet, _adapter(build),
+                                       {"top_column": {1: "attack", 2: "attack"}}, meta)
+    assert meta["resolution"] == "override accepted on the opponent read" and value["slot_1"]["move_id"] == "snarl"
+    # 4. an illegal override (target 9) is an invalid answer (retried by _ask), a bad row too
+    from examples.llm.base import InvalidChoice
+
+    with pytest.raises(InvalidChoice):
+        agent._resolve_turn_answer(_turn_answer(row=0, override={"slot_0": {"option": 0, "target": 9}, "slot_1": snarl}), sheet, _adapter(build), prediction, {})
+    with pytest.raises(InvalidChoice):
+        agent._resolve_turn_answer(_turn_answer(row=99), sheet, _adapter(build), prediction, {})
+    # the scorer: a Body Press into Rillaboom (a KO) is worth about the best_attacks row's damage share
+    bp = build({"slot_0": {"option": 0, "target": 2}, "slot_1": {"option": _index(template, 1, "protect"), "target": 0}})
+    assert override_value(bp, sheet, agent.params) > 100
+
+
+def _adapter(build):
+    from examples.llm.base import Choice
+
+    return Choice(kind="doubles_turn", prompt={}, schema={}, build=build, fallback=lambda: None)
+
+
+def test_recheck_quotes_the_alternative_by_row_number():
+    from agent.agent import _lethal_recheck
+
+    agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 13)
+    for index, c in enumerate(sheet.candidates):
+        c["row"] = index
+    attack = _answer(build, (_index(template, 0, "bodypress"), 2), (_index(template, 1, "extremespeed"), 1))
+    message = _lethal_recheck(attack, sheet, memory=agent.memory, template=template)
+    quoted = next(i for i, c in enumerate(sheet.candidates) if c["name"] in ("protect_threatened", "switch_threatened", "switch_weak_slot")
+                  and (template["slots"][1]["options"][c["slot_1"]["option"]].get("move_id") == "protect" or template["slots"][1]["options"][c["slot_1"]["option"]].get("type") == "switch"))
+    assert message and f"row {quoted} {sheet.candidates[quoted]['name']}: slot 1 option" in message, message
+
+
+def test_team_preview_asks_at_effort_high_with_the_table_and_the_lead_rules(tmp_path):
+    from agent.agent import DEFAULT_REMAINING_TURNS
+
+    folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(MATCH_BCBAABE2))
+    provider = _FakeProvider({"bring": ["archaludon", "arcanine", "milotic", "wochien"], "leads": ["archaludon", "arcanine"], "reasoning_summary": "Lead Archaludon."})
+    agent = PokemonAgent(provider, version="e4", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
+    seen_preview = False
+    for path in _sequence(folder, 0):
+        raw = json.loads(path.read_text())
+        state = GameState.from_mcp_state(raw)
+        if not state.legal_actions:
+            continue
+        agent.choose_action(state, _context(folder, raw, 0))
+        if state.phase == "team_preview":
+            seen_preview = True
+            break
+    assert seen_preview and provider.calls
+    messages, schema_name, schema = provider.calls[-1]
+    assert schema_name == "select_lineup" and messages[1]["content"].startswith("known_sets")
+    payload = json.loads(messages[-1]["content"])
+    assert "Best hit % of max HP" in payload["preview_table"] and "lead veto" in payload["instructions"]
+    assert payload["opponent_class"]["class"] in ("search_bot", "generic_llm", "random")
+    rows = _rows(tmp_path)
+    lineup = [r for r in rows if r["kind"] == "lineup"][-1]
+    assert lineup["effort"] == "high" and lineup["clock"]["deadline_s"] == 60.0 and lineup["attempt_log"][0]["effort"] == "high"
+    assert lineup["preview_table"] == payload["preview_table"]
+
+
+def test_placeholder_card_is_loud_and_never_blank(tmp_path):
+    lines: list[str] = []
+    agent = PokemonAgent(None, version="e4", log_dir=tmp_path, capture_dir="", log=lines.append)
+    obs = {"turn": 2, "team": {"p1: Garchomp": {"species": "garchomp"}}, "protocol_log": ["|poke|p2|Not A Pokemon, L50|", "|turn|1", "|turn|2"],
+           "active_pokemon": [{"species": "garchomp"}, None], "opponent_active_pokemon": [{"species": "notapokemon", "moves": ["tackle"]}, None]}
+    agent.memory.observe_battle(obs)
+    card = agent.memory.opp_cards["notapokemon"]
+    assert card["source"] == "placeholder" and card["moves"] == ["tackle"]
+    assert len([line for line in lines if "CATALOG GAP" in line and "notapokemon" in line.lower()]) == 1
+    agent.memory.observe_battle({**obs, "turn": 3})
+    assert len([line for line in lines if "CATALOG GAP" in line]) == 1  # once per card per match
+
+
+def test_a_row_that_trails_the_best_row_beyond_the_margin_plays_the_best_row_bcbaabe2_t14():
+    """E2 for rows: at T14 the rows are protect_threatened 58.3 and best_attacks 30.9. The model picked the attack row
+    (and kept it through the recheck) in two of three real calls at low; a 47% gap plays row 0 unless the reply
+    table rates the row at least as well against the predicted column (it does not exist with the mixture off)."""
+    agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 14)
+    for index, c in enumerate(sheet.candidates):
+        c["row"] = index
+    assert [c["name"] for c in sheet.candidates[:2]] == ["protect_threatened", "best_attacks"]
+    attack_row = 1
+    meta: dict = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=attack_row, prediction=("attack", "none")), sheet, _adapter(build), {"top_column": {1: "attack"}}, meta)
+    assert meta["resolution"].startswith("row 1 rejected") and meta["row_played"] == 0 and meta["prediction_matches_code"] is True
+    assert value["slot_1"]["move_id"] == "protect"
+    # a row within the margin stands; the top row always stands
+    sheet.candidates[1]["score"] = round(sheet.candidates[0]["score"] * 0.9, 1)
+    meta = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=attack_row), sheet, _adapter(build), {"top_column": {1: "attack"}}, meta)
+    assert meta["resolution"] == "row" and value["slot_1"]["move_id"] == "extremespeed"
+    sheet.candidates[1]["score"] = 30.9
+    meta = {}
+    agent._resolve_turn_answer(_turn_answer(row=0), sheet, _adapter(build), {"top_column": {1: "attack"}}, meta)
+    assert meta["resolution"] == "row"
+    # the reply-table hook: when core's mixture rates the row at least as well, the read lets it stand
+    sheet.reply = {"rows": [{"name": "protect_threatened", "value": 40.0}, {"name": "best_attacks", "value": 41.0}]}
+    meta = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=attack_row, prediction=("attack", "none")), sheet, _adapter(build), {"top_column": {1: "attack"}}, meta)
+    assert meta["resolution"].startswith("row 1 stands on the opponent read") and value["slot_1"]["move_id"] == "extremespeed"
+    sheet.reply = {}

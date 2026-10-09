@@ -44,7 +44,7 @@ class FakeProvider:
         return answer
 
     def prompt(self, index=0) -> dict:
-        return json.loads(self.calls[index]["messages"][1]["content"])
+        return json.loads(self.calls[index]["messages"][-1]["content"])  # the user payload (system blocks come first)
 
 
 def _state(*legal: dict, observation=None, version=3) -> GameState:
@@ -178,7 +178,9 @@ def test_lineup_uses_the_model_and_validates_the_answer(tmp_path):
     assert decision == {"type": "select_lineup", "bring": ROSTER[:4], "leads": ROSTER[:2]}
     prompt = provider.prompt()
     assert prompt["decision"] == "select_lineup"
-    assert "known_sets" in prompt and "opponent" in prompt["known_sets"]
+    assert "known_sets" not in prompt  # E4 (ops): the known sets travel in a cached system block, not the per-turn payload
+    known = provider.calls[0]["messages"][1]["content"]
+    assert known.startswith("known_sets") and "garchomp" in known.lower()
     assert agent.memory.my_lineup == ROSTER[:4]
     assert agent.memory.opp_cards[species_key("garchomp")]["types"] == ["DRAGON", "GROUND"]
 
@@ -220,9 +222,14 @@ def test_doubles_turn_builds_a_valid_payload_from_the_models_choice(tmp_path):
                                         {"target": 2, "side": "opponent", "species": "amoonguss"}]),
               _move("protect", [])]
     slot_1 = [_move("woodhammer", [1, 2]), {"type": "switch", "species": "urshifu"}]
-    provider = FakeProvider({"slot_0": {"option": 1, "target": 0}, "slot_1": {"option": 0, "target": 2},
-                             "reasoning_summary": "Protect and hit Amoonguss."})
+    # E2/E4 (ops lane): the model answers with a ROW of the sheet; an override is a proposed joint action the code
+    # scores first. Here the model proposes Protect + Wood Hammer into Amoonguss as an override and predicts attacks.
+    answer = {"row": 0, "override": {"use": True, "slot_0": {"option": 1, "target": 0}, "slot_1": {"option": 0, "target": 2}},
+              "opponent_prediction": {"their_slot_1": "attack", "their_slot_2": "attack", "why": "both attack"},
+              "win_condition": "keep slot 0 healthy", "reasoning_summary": "Protect and hit Amoonguss."}
+    provider = FakeProvider(answer)
     agent = _agent(provider, tmp_path)
+    agent.params["override_margin"] = 1.0  # any legal override stands here: the margin rule has its own tests
     obs = {"phase": "moving", "turn": 3, "weather": None, "team": {}, "opponent_team": {"p2: Garchomp": {"species": "garchomp"}}}
 
     decision = _unwrap(agent.choose_action(_state(_doubles_action(slot_0, slot_1), observation=obs), CONTEXT))
@@ -231,15 +238,25 @@ def test_doubles_turn_builds_a_valid_payload_from_the_models_choice(tmp_path):
                         "slot_0": {"type": "move", "move_id": "protect"},
                         "slot_1": {"type": "move", "move_id": "woodhammer", "target": 2}}
     schema = provider.calls[0]["schema"]
-    assert schema["properties"]["slot_0"]["properties"]["target"] == {"type": "integer"}  # no nullable unions
+    assert schema["properties"]["override"]["properties"]["slot_0"]["properties"]["target"] == {"type": "integer"}  # no nullable unions
+    assert schema["properties"]["row"] == {"type": "integer"} and "attack" in schema["properties"]["opponent_prediction"]["properties"]["their_slot_1"]["enum"]
     assert agent.memory.opp_lineup_seen == ["garchomp"]
     assert agent.memory.turns[0]["turn"] == 3
+    # This synthetic position has no cards, so the sheet lists no rows: the override is accepted as such, and a plain
+    # row answer is invalid (retried, then the computed fallback plays). Live positions always have rows.
+    rows_logged = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines() if line.strip()]
+    assert rows_logged[-1]["resolution"]["resolution"] == "override accepted (no rows)"
+    provider = FakeProvider({**answer, "override": {**answer["override"], "use": False}}, {**answer, "override": {**answer["override"], "use": False}})
+    agent = _agent(provider, tmp_path)
+    decision = _unwrap(agent.choose_action(_state(_doubles_action(slot_0, slot_1), observation=obs), CONTEXT))
+    assert len(provider.calls) == 2 and decision["slot_0"] == {"type": "move", "move_id": "fakeout", "target": 1}
 
 
 def test_bad_target_is_retried_then_falls_back_to_smoke_move(tmp_path):
     slot_0 = [_move("fakeout", [1, 2])]
     slot_1 = [PASS]
-    bad = {"slot_0": {"option": 0, "target": 5}, "slot_1": {"option": 0, "target": 0}, "reasoning_summary": "x"}
+    bad = {"row": 0, "override": {"use": True, "slot_0": {"option": 0, "target": 5}, "slot_1": {"option": 0, "target": 0}},
+           "opponent_prediction": {"their_slot_1": "attack", "their_slot_2": "none", "why": "x"}, "win_condition": "x", "reasoning_summary": "x"}
     provider = FakeProvider(bad, bad)
     agent = _agent(provider, tmp_path)
 

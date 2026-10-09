@@ -97,6 +97,8 @@ DEFAULTS: dict[str, float] = {
     "reply_chip_w": 0.35,
     "reply_next_w": 0.4,           # the mixture's one-ply next-turn term: next turn's KOs each side can take, discounted by this
     "reply_protect_tempo": 8.0,    # the mixture's charge per Protect of ours: the turn it gives away
+    # model layer (ops lane)
+    "override_margin": 0.15,       # E2: a free-form override whose value trails the best row by more than this share of the top value is rejected, unless the model's opponent prediction matches the code's top column
 }
 
 

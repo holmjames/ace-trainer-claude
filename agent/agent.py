@@ -52,8 +52,9 @@ from agent.pokemon import data
 from agent.pokemon import draft as draft_rules
 from agent.pokemon import lineup as lineup_rules
 from agent.pokemon.log import DecisionLog, git_commit
+from agent.pokemon import opponent as opponent_model
 from agent.pokemon.memory import MatchMemory, observation_dict, species_key
-from agent.pokemon.prompts import LINEUP_INSTRUCTIONS, SYSTEM_PROMPT
+from agent.pokemon.prompts import KNOWN_SETS_PREAMBLE, LINEUP_INSTRUCTIONS, SYSTEM_PROMPT
 from agent.pokemon.tuning import DEFAULTS
 
 VERSION = os.environ.get("AGENT_VERSION") or "m3"
@@ -111,7 +112,9 @@ def _clock_budget(clock: dict | None, *, remaining_turns: int | None = None, kin
     deadline = allowance - DECISION_SAFETY_SECONDS
     reason = "decision"
     if bank_left is not None:
-        per_turn = (bank_left - MIN_BANK_SECONDS_FOR_MODEL) / turns
+        # Team Preview is one decision: it may spend a fifth of the bank above the gate (66 s of a full bank), the
+        # battle turns share the rest.
+        per_turn = (bank_left - MIN_BANK_SECONDS_FOR_MODEL) * (0.2 if kind == "lineup" else 1.0 / turns)
         if per_turn < deadline:
             deadline, reason = per_turn, "bank"
     cap = MODEL_DEADLINE_CAP.get(kind, MODEL_DEADLINE_CAP["turn"])
@@ -130,7 +133,18 @@ _BATTLE_KEYS = ("turn", "weather", "fields", "field", "side_conditions", "oppone
 # output is happiest with plain types, so we ask for an integer and tell the
 # model to send 0 when a move takes no target (build() ignores it then).
 _SLOT_SCHEMA = object_schema({"option": {"type": "integer"}, "target": {"type": "integer"}}, reasoning=False)
-_TURN_SCHEMA = object_schema({"win_condition": {"type": "string"}, "slot_0": _SLOT_SCHEMA, "slot_1": _SLOT_SCHEMA})
+_PREDICTION_KINDS = ["attack", "protect", "switch", "setup", "fakeout", "none"]
+# E2: the model answers with a ROW of the sheet (the code's candidate list; the reply table once the core lane's mixture
+# is on), its own opponent prediction, and at most one proposed joint action the code scores before it may play.
+_TURN_SCHEMA = object_schema({
+    "win_condition": {"type": "string"},
+    "opponent_prediction": object_schema({"their_slot_1": {"type": "string", "enum": _PREDICTION_KINDS},
+                                          "their_slot_2": {"type": "string", "enum": _PREDICTION_KINDS},
+                                          "why": {"type": "string"}}, reasoning=False),
+    "row": {"type": "integer"},
+    "override": object_schema({"use": {"type": "boolean"}, "slot_0": _SLOT_SCHEMA, "slot_1": _SLOT_SCHEMA}, reasoning=False),
+})
+PREVIEW_EFFORT = "high"  # Team Preview: one call on an 85 s clock, worth the thinking (per-call effort, one provider)
 
 
 _PROTECT_MOVES = {"protect", "detect", "wideguard", "quickguard", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "kingsshield", "obstruct"}
@@ -301,6 +315,11 @@ class _SheetFacts:
                 removal.append((p, f"both hits land before {threat_key} moves and together KO it ({lo:.1f}-{hi:.1f}%, {int(p * 100)}%)"))
         if removal:
             return max(removal, key=lambda r: r[0])[1]
+        if self.top_row_covers(number):
+            # The sheet's own best row still Protects or switches this slot (a 1-in-3 Protect beats a certain KO):
+            # attacking is not "what is left", whatever the streak says. bcbaabe2 T14: the model took the attack row
+            # (30.9) over the Protect row (58.3) and the skip let it stand.
+            return None
         species = self.ours.get(number)
         streak = self.memory.protect_streak(species, number) if (self.memory is not None and species) else 0
         safe = self.safe_switches(number)
@@ -309,6 +328,16 @@ class _SheetFacts:
         if self.pierces_protect(threat, their_hit) and not safe:
             return f"{threat_key}'s {trigger['move']} goes through Protect and no switch-in is safe: attacking is what is left"
         return None
+
+    def top_row_covers(self, number: int) -> bool:
+        """Does the sheet's best row take this slot out of the line of fire (Protect or a switch)?"""
+        rows = getattr(self.sheet, "candidates", None) or []
+        if not rows:
+            return False
+        option = self.option_by_index(number, (rows[0].get(f"slot_{number}") or {}).get("option"))
+        if not option:
+            return False
+        return option.get("type") == "switch" or (option.get("type") == "move" and _move_key(option.get("move_id")) in _PROTECT_MOVES)
 
     def flinchable(self, threat: dict, number: int) -> bool:
         ability = data.to_id(threat.get("ability"))
@@ -337,7 +366,7 @@ class _SheetFacts:
 
     def alternative(self, number: int) -> str | None:
         """The top protect_threatened / switch_threatened candidate that takes this slot out of the line of fire."""
-        for cand in getattr(self.sheet, "candidates", None) or []:
+        for index, cand in enumerate(getattr(self.sheet, "candidates", None) or []):
             if cand.get("name") not in ("protect_threatened", "switch_threatened", "switch_weak_slot"):
                 continue
             mine = cand.get(f"slot_{number}") or {}
@@ -351,7 +380,8 @@ class _SheetFacts:
             other = 1 - number
             theirs = cand.get(f"slot_{other}") or {}
             what = f"option {mine.get('option')} ({'switch to ' + str(option.get('species')) if is_switch else option.get('move_id')})"
-            return (f"{cand.get('name')}: slot {number} {what}, slot {other} option {theirs.get('option')} target {theirs.get('target')} "
+            row = cand.get("row", index)
+            return (f"row {row} {cand.get('name')}: slot {number} {what}, slot {other} option {theirs.get('option')} target {theirs.get('target')} "
                     f"— {str(cand.get('why'))[:160]}")
         return None
 
@@ -384,7 +414,8 @@ class PokemonAgent:
         self.memory = MatchMemory()
         self.decision_log: DecisionLog | None = None
         self._all_failed = 0  # decisions on which every model failed (the ALL MODELS FAILED banner)
-        self._efforts: dict[str, str | None] = {"turn": None, "lineup": None}  # per decision kind; None = the provider's default
+        self._efforts: dict[str, str | None] = {"turn": None, "lineup": PREVIEW_EFFORT}  # per decision kind; None = the provider's default
+        self.memory.say = self._say
         self._provider_kwargs: set[str] | None = None  # which per-call parameters the provider accepts (looked up once)
         self._decision_started = time.monotonic()
         self._breaker_skips = 0  # decisions the circuit breaker kept away from the model
@@ -531,6 +562,12 @@ class PokemonAgent:
                 choice = Choice(choice.kind, choice.prompt, choice.schema, choice.build, lambda: computed)
             except InvalidChoice:
                 pass
+        table = ""
+        try:
+            table = lineup_rules.preview_table(self.memory.my_cards, self.memory.opp_cards, candidates, params=self.params) or ""
+        except Exception as exc:  # noqa: BLE001 — the table is advice; the call goes out without it
+            self._say(f"[agent] preview_table failed ({type(exc).__name__}: {exc}); Team Preview goes without it")
+        known_sets = {"mine": self.memory.known_sets("mine"), "opponent": self.memory.known_sets("opponent")}
         payload = {
             "decision": "select_lineup",
             **choice.prompt,
@@ -539,15 +576,17 @@ class PokemonAgent:
                 {"rank": i + 1, "bring": c.bring, "leads": c.leads, "score": c.score, "notes": c.notes}
                 for i, c in enumerate(candidates)
             ],
-            "known_sets": {"mine": self.memory.known_sets("mine"), "opponent": self.memory.known_sets("opponent")},
+            "preview_table": table,
+            "opponent_class": self._opponent_class_view(),
             "observation": _compact(_preview_view(obs), ("your_roster", "opponent_roster", "battle_format")),
         }
-        value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"), remaining_turns=DEFAULT_REMAINING_TURNS)
+        value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"), remaining_turns=DEFAULT_REMAINING_TURNS,
+                                        system_extra=KNOWN_SETS_PREAMBLE + json.dumps(known_sets, ensure_ascii=False, default=str))
         self._lineup_model = info.get("model")
         if isinstance(value, dict):
             self.memory.my_lineup = list(value.get("bring") or [])
         log.write("lineup", state_version=state.state_version, payload=_payload(value),
-                  candidates=payload["computed_candidates"], known_sets=payload["known_sets"], wall_ms=self._wall_ms(), **info)
+                  candidates=payload["computed_candidates"], known_sets=known_sets, preview_table=table, wall_ms=self._wall_ms(), **info)
         summary = (answer or {}).get("reasoning_summary") or f"Bringing {value.get('bring')}, leading {value.get('leads')}."
         return value, str(summary)
 
@@ -568,39 +607,128 @@ class PokemonAgent:
             fallback = (lambda value=computed: value)
             break
         sheet.candidates = [c for c in sheet.candidates if "invalid" not in c]
-        choice = Choice(kind=base.kind, prompt=base.prompt, schema=_TURN_SCHEMA, build=base.build, fallback=fallback)
+        for index, candidate in enumerate(sheet.candidates):
+            candidate["row"] = index
         roster = battle_roster(obs, template, self.memory)
+        prediction = opponent_model.predict(sheet, self.memory, roster=roster, turn=obs.get("turn"))
+        meta: dict[str, Any] = {}  # how the answer was resolved (row / override accepted / override rejected), for the log
+
+        def build(answer: dict) -> Any:
+            """E2: a row index, or a proposed joint action the code scores first."""
+            return self._resolve_turn_answer(answer, sheet, base, prediction, meta)
+
+        choice = Choice(kind=base.kind, prompt=base.prompt, schema=_TURN_SCHEMA, build=build, fallback=fallback)
+        known_sets = {"mine": self.memory.known_sets("mine", only=roster["ours"]["in_this_battle"]),
+                      "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])}
+        evidence = self.memory.opponent_evidence()
+        klass = evidence["class"]
         payload = {
             "decision": "doubles_turn",
             **choice.prompt,
             "answer_format": (
-                "slot_0 and slot_1 each need {option: <index from that slot's options>, target: <integer>}. "
-                "If the chosen option's targets list is non-empty, target must be one of those integers; "
-                "if the list is empty (or the option is a switch/pass), send target 0."
+                "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. To propose a joint "
+                "action that is not a row, set override.use=true and give both slots as {option: <index from that slot's "
+                "options>, target: <integer>}; the code scores it against the rows before it may play. If the chosen option's "
+                "targets list is non-empty, target must be one of those integers; otherwise send target 0."
             ),
             "battle_roster": roster,
             "turn_sheet": sheet.as_prompt(),
-            "known_sets": {"mine": self.memory.known_sets("mine", only=roster["ours"]["in_this_battle"]),
-                           "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])},
+            "opponent_model": {"class": klass, "evidence": {k: evidence[k] for k in ("draft_reason_mean_chars", "slow_turns", "turns_seen",
+                                                                                      "repeat_protects", "voluntary_switches") if k in evidence},
+                               "prediction": prediction["per_slot"], "top_column": prediction["top_column"],
+                               "their_bank": self.memory.opponent_bank_estimate()},
+            "last_turns": self.memory.last_turns(3),
+            "tendencies": self.memory.opp_tendencies(),
             "observation": _compact(_battle_view(obs, roster, self.memory), _BATTLE_KEYS),
         }
+        _trim_turn_payload(payload)
         remaining = expected_remaining_turns(roster["ours"].get("remaining"), roster["theirs"].get("remaining"))
         recheck_info: dict[str, Any] = {}
         value, answer, info = self._ask(choice, payload, kind="turn",
                                         recheck=lambda v: _lethal_recheck(v, sheet, memory=self.memory, template=template, info=recheck_info),
-                                        clock=obs.get("clock"), remaining_turns=remaining)
+                                        clock=obs.get("clock"), remaining_turns=remaining,
+                                        system_extra=KNOWN_SETS_PREAMBLE + json.dumps(known_sets, ensure_ascii=False, default=str))
         forced = any(slot.get("force_switch") for slot in template.get("slots") or [])
-        self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced)
+        self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced,
+                                threatened=_threatened_by_us(sheet), doubled=list(getattr(sheet, "focus_threats", None) or []))
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
-                  win_condition=(answer or {}).get("win_condition"), battle_roster=roster, turn_sheet=sheet.as_prompt(),
+                  win_condition=(answer or {}).get("win_condition"), opponent_prediction=(answer or {}).get("opponent_prediction"),
+                  resolution=meta, code_prediction=prediction, battle_roster=roster, turn_sheet=sheet.as_prompt(),
+                  last_turns=payload["last_turns"], tendencies=payload["tendencies"], opponent_class=klass,
                   wall_ms=self._wall_ms(), recheck_outcome=recheck_info.get("recheck_outcome"), **info)
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 
+    def _resolve_turn_answer(self, answer: dict, sheet: Any, base: Choice, prediction: dict, meta: dict) -> Any:
+        """The constrained answer (E2). A row plays as the sheet listed it. An override is validated like any payload,
+        scored with the same scorer as the rows (``override_value``), and rejected when its value trails the best
+        row by more than ``override_margin`` of the top value, unless the model's opponent prediction matches the
+        code's top column: then the read is the reason and it stands. A rejected override plays the chosen row."""
+        rows = list(sheet.candidates)
+        row = answer.get("row")
+        row_ok = isinstance(row, int) and not isinstance(row, bool) and 0 <= row < len(rows)
+        override = answer.get("override") if isinstance(answer.get("override"), dict) else {}
+        meta.clear()
+        if row_ok:
+            meta.update({"row": row, "row_name": rows[row].get("name"), "row_score": rows[row].get("score")})
+        if override.get("use"):
+            proposed = base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})  # InvalidChoice if illegal
+            best = float(rows[0].get("score") or 0.0) if rows else 0.0
+            value = override_value(proposed, sheet, self.params)
+            same = next((r for r in rows if r.get("slot_0") == override.get("slot_0") and r.get("slot_1") == override.get("slot_1")), None)
+            if same is not None:
+                value = float(same.get("score") or value)
+            margin = float(self.params.get("override_margin", 0.15)) * max(best, 1.0)
+            matches = opponent_model.prediction_matches(answer.get("opponent_prediction"), prediction.get("top_column") or {})
+            meta.update({"override": {"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")}, "override_value": round(value, 1),
+                         "best_row_score": best, "margin": round(margin, 1), "prediction_matches_code": matches})
+            if not rows or value >= best - margin or matches:
+                meta["resolution"] = "override accepted" + (" (same as a row)" if same is not None else "") \
+                    + (" on the opponent read" if rows and value < best - margin else "") + ("" if rows else " (no rows)")
+                return proposed
+            if not row_ok:
+                raise InvalidChoice(f"override rejected (value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}) and row "
+                                    f"{row!r} is not a candidate_turns row number 0..{len(rows) - 1}")
+            meta["resolution"] = f"override rejected: value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}; row {row} plays"
+            self._say(f"[agent] override rejected ({meta['resolution']})")
+        else:
+            meta["resolution"] = "row"
+        if not row_ok:
+            raise InvalidChoice(f"row must be a candidate_turns row number 0..{max(len(rows) - 1, 0)}, got {row!r}"
+                                + ("" if rows else "; this position has no rows: propose a joint action with override.use=true"))
+        # The same margin rule for a row pick (the review's E2): a row whose value trails the best row by more than the
+        # margin plays the best row instead, unless the model's opponent read matches the code's top column AND the
+        # reply table (core's mixture) rates the row at least as well against that column. With the mixture off there
+        # is no such cell, so a trailing row is simply rejected: at bcbaabe2 T14 the model took the attack row (30.9)
+        # over the Protect row (58.3) twice in three calls and kept it through the recheck.
+        if row > 0:
+            best = float(rows[0].get("score") or 0.0)
+            value = float(rows[row].get("score") or 0.0)
+            margin = float(self.params.get("override_margin", 0.15)) * max(best, 1.0)
+            if value < best - margin:
+                matches = opponent_model.prediction_matches(answer.get("opponent_prediction"), prediction.get("top_column") or {})
+                cell = _reply_cell_beats_best(sheet, rows[row], rows[0]) if matches else False
+                meta.update({"row_value": value, "best_row_score": best, "margin": round(margin, 1), "prediction_matches_code": matches})
+                earlier = meta["resolution"] + "; " if meta.get("resolution") not in (None, "row") else ""
+                if not cell:
+                    meta["resolution"] = earlier + f"row {row} rejected: {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}; row 0 plays"
+                    meta["row_played"] = 0
+                    self._say(f"[agent] {meta['resolution']}")
+                    return base.build({"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]})
+                meta["resolution"] = earlier + f"row {row} stands on the opponent read (the reply table rates it at least as well against the predicted column)"
+        return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
+
+    def _opponent_class_view(self) -> dict:
+        try:
+            evidence = self.memory.opponent_evidence()
+        except Exception:  # noqa: BLE001
+            return {"class": "search_bot", "evidence": {}}
+        return {"class": evidence["class"], "evidence": {k: evidence.get(k) for k in ("draft_reason_mean_chars", "draft_reasons", "mean_seconds_per_pick")}}
+
     # -- the model call, with retry-once and deterministic fallback ---------------------
 
     def _ask(self, choice: Choice, payload: dict, *, kind: str, recheck: Any = None,
-             clock: dict | None = None, remaining_turns: int | None = None) -> tuple[Any, dict | None, dict]:
+             clock: dict | None = None, remaining_turns: int | None = None, system_extra: str | None = None) -> tuple[Any, dict | None, dict]:
         """Ask the model, retry once on an invalid answer, fall back to the computed move if it still fails.
         ``recheck(value)`` may return a message for a valid-but-suspicious first answer (e.g. attacking with a slot the
         sheet marks LETHAL); the model is then asked once more with that message and its second answer stands.
@@ -640,10 +768,11 @@ class PokemonAgent:
                       "consecutive failures (code plays #1); retrying on the next decision")
             return choice.fallback(), None, info
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
-        ]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if system_extra:
+            messages.append({"role": "system", "content": system_extra})  # the match's known sets: cached across turns
+        messages.append({"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)})
+        info["payload_chars"] = len(messages[-1]["content"])
         info["attempt_log"] = []
         info["model_latency_ms"] = 0
         first_valid: tuple[Any, dict] | None = None  # a valid first answer under recheck: never discarded for a failed second call
@@ -685,6 +814,9 @@ class PokemonAgent:
             info["model"] = getattr(self._provider, "last_model", None) or getattr(self._provider, "model", None)
             info["latency_ms"] = getattr(self._provider, "last_latency_ms", None)
             info["usage"] = getattr(self._provider, "last_usage", None)
+            thinking = getattr(self._provider, "last_thinking", None)
+            if thinking:
+                info["thinking"] = str(thinking)[:1500]  # the model's own summary of its reasoning, for post-mortems
             # Why earlier models in the chain failed (e.g. Fable timed out and Sonnet answered). Empty when the first model answered.
             info["provider_errors"] = list(getattr(self._provider, "last_errors", None) or [])
             record.update(model=info["model"], latency_ms=int((time.monotonic() - call_started) * 1000), outcome="answered",
@@ -953,6 +1085,122 @@ def minimal_legal_payload(state: GameState) -> Any:
     return first
 
 
+def override_value(payload: dict, sheet: Any, params: dict | None = None) -> float:
+    """The value of a proposed joint action on the rows' scale: the per-slot row values the sheet's scorer uses
+    (``battle._expected`` for a damaging move into its target, capped at what each foe has left, one KO bonus per foe;
+    the Protect bonus for a slot under a LETHAL/HIGH RISK warning; a switch-in's preview score). The same arithmetic
+    as the candidate generators for an attack row; a listed row keeps its own score. Replaced by the reply table's
+    cell values once the core lane's mixture is on."""
+    P = params or DEFAULTS
+    by_slot = {e.get("slot"): e for e in getattr(sheet, "our_options", None) or []}
+    warnings = [str(w) for w in getattr(sheet, "warnings", None) or []]
+    per_foe: dict[str, list[tuple[float, float]]] = {}
+    extra = 0.0
+    for number in (0, 1):
+        choice = payload.get(f"slot_{number}") or {}
+        kind = choice.get("type")
+        if kind == "switch":
+            preview = (getattr(sheet, "switch_ins", None) or {}).get(species_key(choice.get("species"))) or {}
+            extra += float(preview.get("score") or 0.0) if isinstance(preview, dict) else 0.0
+            continue
+        if kind != "move":
+            continue
+        move = _move_key(choice.get("move_id"))
+        if move in _PROTECT_MOVES:
+            threatened = any(f"slot {number} (" in w and (w.startswith("LETHAL") or w.startswith("HIGH RISK")) for w in warnings)
+            extra += float(P.get("protect_bonus_guaranteed", 45.0)) if threatened else 0.0
+            continue
+        option = next((o for o in (by_slot.get(number) or {}).get("options") or [] if _move_key(o.get("move")) == move), None)
+        if not option:
+            continue
+        rows = [r for r in option.get("targets") or [] if r.get("side") == "theirs"
+                and (r.get("target") in (0, None) or choice.get("target") in (0, None) or r.get("target") == choice.get("target"))]
+        if not rows:
+            extra += 10.0  # a status move the sheet does not value: a small, honest credit
+            continue
+        for r in rows:
+            dmg = r.get("damage_pct_of_current_hp") or [0, 0]
+            per_foe.setdefault(species_key(r.get("species")), []).append((float(dmg[0]), float(dmg[1])))
+    total = extra
+    for hits in per_foe.values():
+        lo, hi = sum(h[0] for h in hits), sum(h[1] for h in hits)
+        total += min((lo + hi) / 2, 100.0) + (float(P.get("ko_bonus_guaranteed", 25.0)) if lo >= 100 else (float(P.get("ko_bonus_possible", 10.0)) if hi >= 100 else 0.0))
+    return total
+
+
+MAX_ROWS_SHOWN = 8  # top rows only: the model chooses among the best; the rest is noise and tokens
+_TEAM_ENTRY_KEYS = ("species", "current_hp", "max_hp", "current_hp_fraction", "status", "ability", "item", "boosts", "fainted", "active",
+                    "revealed_moves", "moves", "is_terastallized")
+
+
+def _trim_turn_payload(payload: dict) -> None:
+    """Take out what the model sees elsewhere: each active Pokémon's full summary appears in the server's slots, in
+    active_pokemon and in team (keep it once, in team), typing and base stats live in the known_sets block, and only
+    the top rows are shown. Measured on the Oct 8 positions: ~23k chars -> ~13k."""
+    for slot in payload.get("slots") or []:
+        active = slot.get("active")
+        if isinstance(active, dict):
+            slot["active"] = {"species": active.get("species"), "hp_pct": _hp_pct(active)}
+    # The adapter's own instructions describe the old slot_0/slot_1 answer and repeat the server's how-to-submit text:
+    # the answer format is answer_format and the system prompt now.
+    if "instructions" in payload:
+        payload["instructions"] = "See answer_format: answer with a row, an opponent_prediction and a win_condition (override only with a reason)."
+    sheet = payload.get("turn_sheet") or {}
+    rows = sheet.get("candidate_turns")
+    if isinstance(rows, list) and len(rows) > MAX_ROWS_SHOWN:
+        sheet["candidate_turns"] = rows[:MAX_ROWS_SHOWN]
+    for entry in sheet.get("our_damage_estimates") or []:
+        for option in entry.get("options") or []:
+            if not option.get("spread"):  # a single-target move's row into our own ally is never the plan
+                option["targets"] = [r for r in option.get("targets") or [] if r.get("side") != "mine"]
+    observation = payload.get("observation")
+    if not isinstance(observation, dict):
+        return
+    observation.pop("active_pokemon", None)
+    observation.pop("opponent_active_pokemon", None)
+    for key in ("team", "opponent_team"):
+        entries = observation.get(key)
+        if isinstance(entries, dict):
+            observation[key] = {name: (_trim_team_entry(entry) if isinstance(entry, dict) else entry) for name, entry in entries.items()}
+
+
+def _trim_team_entry(entry: dict) -> dict:
+    out = {k: v for k, v in entry.items() if k in _TEAM_ENTRY_KEYS}
+    if isinstance(out.get("boosts"), dict):
+        out["boosts"] = {k: v for k, v in out["boosts"].items() if v}  # only the stages that are not 0
+    if out.get("current_hp_fraction") is not None:
+        out.pop("current_hp", None)
+        out.pop("max_hp", None)
+    if not out.get("is_terastallized"):
+        out.pop("is_terastallized", None)
+    return out
+
+
+def _reply_cell_beats_best(sheet: Any, row: dict, best: dict) -> bool:
+    """Does the reply table (core's mixture, when it ran this turn) rate ``row`` at least as well as ``best`` against
+    the predicted column? The table currently publishes per-row values and the best reply, not per-column cells, so
+    this is the hook: a row carrying ``value`` >= the best row's ``value`` counts; anything else does not."""
+    table = getattr(sheet, "reply", None) or {}
+    by_name = {r.get("name"): r for r in table.get("rows") or [] if isinstance(r, dict)}
+    mine, top = by_name.get(row.get("name")), by_name.get(best.get("name"))
+    if not mine or not top or mine.get("value") is None or top.get("value") is None:
+        return False
+    return float(mine["value"]) >= float(top["value"])
+
+
+def _threatened_by_us(sheet: Any) -> list[str]:
+    """Their species one of our listed options KOs at least half the time: what the tendency tally checks them against."""
+    out = []
+    for entry in getattr(sheet, "our_options", None) or []:
+        for option in entry.get("options") or []:
+            for row in option.get("targets") or []:
+                if row.get("side") == "theirs" and battle_rules.ko_probability({"damage_pct_of_current_hp": row.get("damage_pct_of_current_hp") or [0, 0]}) >= 0.5:
+                    key = species_key(row.get("species"))
+                    if key and key not in out:
+                        out.append(key)
+    return out
+
+
 def _find_card_list(config: Any, depth: int = 0) -> list[dict]:
     """The first list of card-shaped dicts (card_id + species + moves) anywhere in a game config, two levels deep."""
     if depth > 3:
@@ -1098,8 +1346,9 @@ def _battle_view(obs: dict, roster: dict, memory: MatchMemory | None = None) -> 
                 item_view = f"{card.get('item')} (from its card; not revealed yet)"
             else:
                 item_view = item
+            # The full set lives in the known_sets block (sent once per match, cached): here only what the battle has shown.
             return {**summary, "item": item_view, "ability": summary.get("ability") or card.get("ability"),
-                    "moves": list(card.get("moves") or []), "revealed_moves": list(summary.get("moves") or [])}
+                    "moves": "see known_sets", "revealed_moves": list(summary.get("moves") or [])}
 
         if isinstance(obs.get("opponent_team"), dict):
             out["opponent_team"] = {k: fill(v) for k, v in obs["opponent_team"].items()}
