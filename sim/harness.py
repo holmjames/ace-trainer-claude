@@ -7,7 +7,9 @@
 Players: ``code`` (agent/versions/code_only.py), ``fable`` (agent/agent.py with the model chain from .env),
 ``random`` (random legal choices, random draft), or any ``module[:factory]`` spec. Seats swap every game so
 neither side always drafts first. Each game writes the agents' decision logs under logs/sim/<player>/ and
-one summary line to logs/sim/results.jsonl; the end-of-run table shows wins per player.
+one summary line to logs/sim/results.jsonl; the end-of-run table shows wins per player. ``--clock`` enforces the
+live clock (sim/clock.py): a late Team Preview or battle decision becomes a random legal move, an empty bank forfeits,
+and every result line carries the clock events.
 
 Requires Node and ``npm install`` in sim/ (done once).
 """
@@ -37,6 +39,7 @@ from altruagent.agent_loader import load_agent_factory  # noqa: E402
 
 from agent.pokemon import data  # noqa: E402
 from sim import translate  # noqa: E402
+from sim.clock import Clock  # noqa: E402
 
 CARDS = json.loads((ROOT / "sim" / "cards.json").read_text())
 MAX_TURNS = 120
@@ -153,6 +156,26 @@ def unwrap(decision):
     return decision.action if isinstance(decision, WithReasoning) else decision
 
 
+def timed_decision(player, state, context, game_id: str, side: str, phase: str, clock: Clock | None, rng: random.Random, *, turn: int):
+    """One decision with its wall time measured. Under the live clock a late answer becomes a random legal move and an
+    empty bank forfeits; the verdict is "ok", "timeout" or "forfeit"."""
+    now = clock.now if clock else time.monotonic
+    t0 = now()
+    decision = unwrap(player.choose_action(state, context))
+    elapsed = now() - t0
+    if elapsed > 60:
+        print(f"   [{game_id}] SLOW decision by {side}: {int(elapsed)} s", file=sys.stderr, flush=True)
+    if clock is None:
+        return decision, "ok"
+    verdict = clock.settle(side, phase, elapsed, turn=turn)
+    if verdict == "timeout":
+        print(f"   [{game_id}] CLOCK: {side} took {elapsed:.1f} s at {phase} turn {turn}; a random legal move is played", file=sys.stderr, flush=True)
+        decision = unwrap(RandomPlayer(rng).choose_action(state, context))
+    elif verdict == "forfeit":
+        print(f"   [{game_id}] CLOCK: {side} forfeits on an empty bank at {phase} turn {turn}", file=sys.stderr, flush=True)
+    return decision, verdict
+
+
 def seat_ids(game_id: str) -> dict[str, str]:
     """Agent ids for the two seats. Live, seats, rosters, picks and current_actor are keyed by the agents' UUIDs;
     deterministic per game so seeded runs stay reproducible (and no draw from the game's rng)."""
@@ -160,11 +183,12 @@ def seat_ids(game_id: str) -> dict[str, str]:
 
 
 def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: dict[str, str], rng: random.Random, *, verbose: bool,
-              fixed_rosters: dict[str, list[dict]] | None = None) -> dict:
+              fixed_rosters: dict[str, list[dict]] | None = None, clock: Clock | None = None) -> dict:
     """One match the way the live server runs it: draft (seat 0 is Showdown's p1), Team Preview over all six drafted
     Pokémon, then the doubles battle. Every state the agents see is built by sim/translate.py in the live format.
     ``fixed_rosters`` ({"p1": six cards, "p2": six cards}) skips the draft: replay a real match's teams to ask how
-    winnable the draft left it (scripts/draft_eval.py)."""
+    winnable the draft left it (scripts/draft_eval.py). ``clock`` (sim/clock.py) times Team Preview and battle decisions
+    the way the live server does: late answers become random legal moves, an empty bank forfeits."""
     seats = seat_ids(game_id)
     ctx = {side: DecisionContext(session_id=game_id, tournament_id=None, game_type="pokemon_vgc_doubles_draft", agent_id=seats[side],
                                  seat_position=0 if side == "p1" else 1) for side in ("p1", "p2")}
@@ -206,31 +230,38 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
     snap = reply["state"]
     choices: dict[str, str] = {}
     lineups: dict[str, list[int]] = {}
+    forfeit: str | None = None
     for side in ("p1", "p2"):
-        state = translate.preview_state(game_id, snap, side, version=0, agent_id=seats[side])
+        state = translate.preview_state(game_id, snap, side, version=0, agent_id=seats[side],
+                                        clock=clock.state(side, "team_preview") if clock else None)
         if state is None:
             raise RuntimeError(f"no Team Preview request for {side}")
-        decision = unwrap(players[side].choose_action(state, ctx[side]))
+        decision, verdict = timed_decision(players[side], state, ctx[side], game_id, side, "team_preview", clock, rng, turn=0)
+        if verdict == "forfeit":
+            forfeit = side
+            break
         roster = state.legal_actions[0].input["action"]["roster"]
         choices[side], lineups[side] = translate.preview_choice(decision["bring"], decision["leads"], roster)
-    for side in ("p1", "p2"):
-        reply = bridge.call(cmd="choose", id=game_id, side=side, choice=choices[side])
-        if not reply.get("ok"):
-            raise RuntimeError(reply.get("error"))
-        snap = reply["state"]
+    if forfeit is None:
+        for side in ("p1", "p2"):
+            reply = bridge.call(cmd="choose", id=game_id, side=side, choice=choices[side])
+            if not reply.get("ok"):
+                raise RuntimeError(reply.get("error"))
+            snap = reply["state"]
     # ---- battle (state_version counts each seat's decisions; Team Preview was 0)
     versions = {"p1": 1, "p2": 1}
     rejected = {"p1": 0, "p2": 0}
-    while not snap["ended"] and snap["turn"] <= MAX_TURNS:
+    while forfeit is None and not snap["ended"] and snap["turn"] <= MAX_TURNS:
         progressed = False
         for side in ("p1", "p2"):
-            state = translate.battle_state(game_id, snap, side, versions[side], agent_id=seats[side])
+            state = translate.battle_state(game_id, snap, side, versions[side], agent_id=seats[side],
+                                           clock=clock.state(side, "moving") if clock else None)
             if state is None:
                 continue
-            t_dec = time.monotonic()
-            decision = unwrap(players[side].choose_action(state, ctx[side]))
-            if time.monotonic() - t_dec > 60:
-                print(f"   [{game_id}] SLOW decision by {side}: {int(time.monotonic() - t_dec)} s", file=sys.stderr, flush=True)
+            decision, verdict = timed_decision(players[side], state, ctx[side], game_id, side, "moving", clock, rng, turn=snap["turn"])
+            if verdict == "forfeit":
+                forfeit = side
+                break
             choice = translate.to_choice(decision)
             reply = bridge.call(cmd="choose", id=game_id, side=side, choice=choice)
             if not reply.get("ok"):
@@ -249,16 +280,18 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
             snap = reply["state"]
             versions[side] += 1
             progressed = True
-        if not progressed:
+        if forfeit is None and not progressed:
             raise RuntimeError(f"no side had a decision at turn {snap['turn']}")
     bridge.call(cmd="close", id=game_id)
     winner_side = None
-    if snap["winner"]:
+    if forfeit:
+        winner_side = "p2" if forfeit == "p1" else "p1"
+    elif snap["winner"]:
         winner_side = "p1" if snap["winner"] == showdown_names["p1"] else "p2"
     return {"game": game_id, "turns": snap["turn"], "winner_side": winner_side, "winner": names.get(winner_side) if winner_side else None,
-            "first_drafter": first, "rejected": rejected,
+            "first_drafter": first, "rejected": rejected, "forfeit": forfeit, "clock": clock.summary() if clock else None,
             "versions": {s: getattr(players[s], "_version", getattr(players[s], "name", names[s])) for s in ("p1", "p2")},
-            "teams": {s: [rosters[seats[s]][i]["species"] for i in lineups[s]] for s in ("p1", "p2")},
+            "teams": {s: [rosters[seats[s]][i]["species"] for i in lineups.get(s, [])] for s in ("p1", "p2")},
             "rosters": {s: [c["species"] for c in rosters[seats[s]]] for s in ("p1", "p2")}, "picks": pick_log}
 
 
@@ -269,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--p2", default="random")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--clock", action="store_true", help="the live clock: 85 s / 50 s per decision from a 420 s bank; late = random move, empty = forfeit")
     args = parser.parse_args(argv)
     rng = random.Random(args.seed)
     out_dir = ROOT / "logs" / "sim"
@@ -294,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             game_id = f"sim-{int(time.time())}-{g}"
             t0 = time.monotonic()
             try:
-                result = play_game(bridge, game_id, players, names, rng, verbose=args.verbose)
+                result = play_game(bridge, game_id, players, names, rng, verbose=args.verbose, clock=Clock() if args.clock else None)
             except Exception as exc:  # noqa: BLE001
                 print(f"game {g + 1}: ERROR {type(exc).__name__}: {exc}")
                 continue
@@ -303,6 +337,10 @@ def main(argv: list[str] | None = None) -> int:
                 wins[result["winner"]] = wins.get(result["winner"], 0) + 1
             print(f"game {g + 1}: {names['p1']} vs {names['p2']} -> winner {result['winner']} in {result['turns']} turns "
                   f"({result['seconds']:.1f} s; rejected choices {result['rejected']})")
+            if result.get("clock"):
+                events = [f"{side} {e['kind']} at {e['phase']} turn {e['turn']} ({e['seconds']} s)" for side, c in result["clock"].items() for e in c["events"]]
+                print(f"   clock: bank left p1 {result['clock']['p1']['bank_left']} s, p2 {result['clock']['p2']['bank_left']} s"
+                      + (f"; {'; '.join(events)}" if events else ""))
             with (out_dir / "results.jsonl").open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps({"ts": time.time(), "p1": names["p1"], "p2": names["p2"], **result}) + "\n")
     finally:

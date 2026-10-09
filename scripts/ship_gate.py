@@ -21,8 +21,11 @@ from ``git rev-parse HEAD`` — a worktree's decision logs carry no commit of th
      (point ≥ 85).
   4. --adoption (overnight): 500 pairs vs the pinned clone at a 15 s preview budget, seeded (Wilson lower bound ≥ the
      previous deployed build's point: --previous, else the log's last ``deploy`` entry); 500 pairs vs the latest
-     dated clone when --clone-latest is given (tripwire vs the previous adoption number for that pin).
-  5. a pass/fail table; exit status 1 on any failure, 3 when it refused to start.
+     dated clone when --clone-latest is given (tripwire vs the previous adoption number for that pin); with
+     --opus-games N, N paired model-piloted games (the ``fable`` player, the .env of this checkout) vs the pinned
+     clone, judged on their decision logs: model p95 latency < 20 s and no all-models-failed decision.
+  5. a pass/fail table; exit status 1 on any failure, 3 when it refused to start. Every series row carries
+     games_per_minute.
 Decision logs are off for every series (sim/draft_eval.py keeps them off). --dry-run prints every command and bar
 without running anything or touching the lock.
 """
@@ -159,6 +162,8 @@ class Series:
     env: dict = field(default_factory=dict)
     budgets: dict = field(default_factory=dict)
     opponent_commit: str = "unknown"
+    extra: list = field(default_factory=list)   # more sim/draft_eval.py arguments
+    log_dir: Path | None = None                 # where the in-process agents' decision logs land (the Opus stage)
 
 
 def within(points: float, target: float, tolerance: float) -> bool:
@@ -204,6 +209,43 @@ def judge_adoption(previous: float | None):
     return judge
 
 
+def judge_opus(row: dict, _rows: list[dict]) -> tuple[bool | None, str]:
+    calls, failed, p95 = row.get("model_calls") or 0, row.get("model_fallbacks") or 0, row.get("p95_latency_s")
+    if not calls:
+        return False, "no model answered any decision (is .env present in this checkout?)"
+    ok = p95 is not None and p95 < 20.0 and failed == 0
+    return ok, f"p95 {p95:.1f} s < 20 and all-models-failed {failed} == 0 over {calls} model calls"
+
+
+def decision_log_stats(log_dir: Path) -> dict:
+    """Latency and fallback counts over every decision log under ``log_dir`` (agent/pokemon/log.py rows)."""
+    latencies: list[float] = []
+    calls = failed = clock_short = decisions = 0
+    for path in sorted(Path(log_dir).glob("*.jsonl")) if Path(log_dir).is_dir() else []:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if row.get("kind") not in ("turn", "lineup"):
+                continue
+            decisions += 1
+            if row.get("model"):
+                calls += 1
+            if row.get("latency_ms") is not None:
+                latencies.append(float(row["latency_ms"]) / 1000.0)
+            if row.get("fallback"):
+                if int(row.get("attempts") or 0) >= 1:
+                    failed += 1
+                else:
+                    clock_short += 1
+    latencies.sort()
+    p95 = latencies[int(round(0.95 * (len(latencies) - 1)))] if latencies else None
+    return {"decisions": decisions, "model_calls": calls, "model_fallbacks": failed, "clock_fallbacks": clock_short,
+            "p95_latency_s": round(p95, 2) if p95 is not None else None,
+            "mean_latency_s": round(sum(latencies) / len(latencies), 2) if latencies else None}
+
+
 def shim_env(args, stage: str, preview_budget: float) -> dict:
     return {"SHIM_PREVIEW_BUDGET_S": f"{preview_budget:g}", "SHIM_SEED": str(args.seed),
             "SHIM_LOG_DIR": str(Path(args.work_dir) / f"shim-{stage.replace(':', '-')}")}
@@ -235,12 +277,19 @@ def plan(args) -> list[Series]:
                                  "point >= previous adoption number for this pin - 3", judge_tripwire("adoption:latest"),
                                  env=shim_env(args, "adoption:latest", ADOPTION_PREVIEW_BUDGET), budgets={"preview": ADOPTION_PREVIEW_BUDGET},
                                  opponent_commit=commit_of(args.clone_latest)))
+        if args.opus_games:
+            log_dir = Path(args.work_dir) / "opus-decisions"
+            series.append(Series("adoption:opus", "fable", clone_spec(args.clone, args.clone_python), max(1, (args.opus_games + 1) // 2),
+                                 "model p95 latency < 20 s, no all-models-failed decision", judge_opus,
+                                 env=shim_env(args, "adoption:opus", ADOPTION_PREVIEW_BUDGET), budgets={"preview": ADOPTION_PREVIEW_BUDGET},
+                                 opponent_commit=commit_of(args.clone), extra=["--log-dir", str(log_dir)] + (["--clock"] if args.opus_clock else []),
+                                 log_dir=log_dir))
     return series
 
 
 def series_command(s: Series, args, out_path: Path) -> list[str]:
     return [args.python, "sim/draft_eval.py", "match", s.a, s.b, "--pairs", str(s.pairs), "--seed", str(args.seed),
-            "--out", str(out_path), "--progress", "25"]
+            "--out", str(out_path), "--progress", "25", *s.extra]
 
 
 def tally(out_path: Path, a: str) -> tuple[int, int, float | None]:
@@ -270,6 +319,8 @@ def run_series(s: Series, args, rows: list[dict], stamp: str) -> dict:
     if s.env.get("SHIM_LOG_DIR"):
         shutil.rmtree(s.env["SHIM_LOG_DIR"], ignore_errors=True)
         Path(s.env["SHIM_LOG_DIR"]).mkdir(parents=True, exist_ok=True)
+    if s.log_dir:
+        shutil.rmtree(s.log_dir, ignore_errors=True)
     rc, seconds, tail = run_logged(cmd, work / f"{s.stage.replace(':', '-')}-{stamp}.log", env=env)
     if s.env.get("SHIM_LOG_DIR"):
         shutil.rmtree(s.env["SHIM_LOG_DIR"], ignore_errors=True)
@@ -280,7 +331,11 @@ def run_series(s: Series, args, rows: list[dict], stamp: str) -> dict:
            "clone_pin": s.opponent_commit if "clone" in s.stage or "latest" in s.stage else None,
            "budgets": {"preview": s.budgets.get("preview"), "turn": s.budgets.get("turn")}, "seed": args.seed, "pairs": s.pairs,
            "games": games, "wins": wins, "point": round(100 * p, 2), "lo": round(100 * lo, 2), "hi": round(100 * hi, 2),
-           "seconds_per_game": per_game, "seconds": round(seconds, 1), "exit": rc, "bar": s.bar, "out": str(out_path)}
+           "seconds_per_game": per_game, "seconds": round(seconds, 1), "games_per_minute": round(60 * games / seconds, 2) if seconds > 0 else None,
+           "exit": rc, "bar": s.bar, "out": str(out_path)}
+    if s.log_dir:
+        row.update(decision_log_stats(s.log_dir))
+        row["decision_logs"] = str(s.log_dir)
     if games == 0:
         row["pass"], row["note"] = False, f"no decided games (exit {rc}); see the stage log"
     else:
@@ -362,6 +417,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--pairs-old", type=int, default=150)
     ap.add_argument("--pairs-adoption", type=int, default=500)
     ap.add_argument("--previous", type=float, default=None, help="the deployed build's point estimate vs the pinned clone (adoption bar)")
+    ap.add_argument("--opus-games", type=int, default=0, help="adoption tier: this many paired model-piloted (fable) games vs the pinned clone")
+    ap.add_argument("--opus-clock", action="store_true", help="play the model-piloted games under the live clock (--clock)")
     ap.add_argument("--log", default=str(DATA / "gate.jsonl"))
     ap.add_argument("--lock", default=str(DATA / "SIM_LOCK"))
     ap.add_argument("--name-patterns", default=str(DATA / "name-patterns.txt"))
@@ -418,7 +475,8 @@ def print_table(rows: list[dict]) -> None:
         verdict = {True: "PASS", False: "FAIL", None: "BASELINE"}[row.get("pass")]
         if "games" in row:
             detail = (f"{row['point']:.1f}% [{row['lo']:.1f}, {row['hi']:.1f}] over {row['games']} games, "
-                      f"{row['seconds_per_game'] if row['seconds_per_game'] is not None else '?'} s/game; {row['note']}")
+                      f"{row['seconds_per_game'] if row['seconds_per_game'] is not None else '?'} s/game, "
+                      f"{row.get('games_per_minute') if row.get('games_per_minute') is not None else '?'} games/min; {row['note']}")
         else:
             detail = row.get("note", "")
         print(f"{row['stage']:22s} {verdict:8s} {detail}")
