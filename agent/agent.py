@@ -1241,6 +1241,13 @@ def _hp_pct(summary: dict) -> int | None:
     return int(round(100 * float(frac))) if frac is not None else None
 
 
+def _status_field(summary: dict) -> dict:
+    """{"status": "slp"} for a Pokémon with a status condition (the observation's "SLP"), {} otherwise: the roster
+    dropped it, and the model planned around a sleeping Archaludon as if it would act (Oct 8 evening loss)."""
+    status = data.to_id(summary.get("status"))
+    return {"status": status} if status and status != "fnt" else {}
+
+
 def battle_roster(obs: dict, template: dict, memory: MatchMemory) -> dict:
     """Who is where, in plain words, for both sides.
 
@@ -1256,7 +1263,8 @@ def battle_roster(obs: dict, template: dict, memory: MatchMemory) -> dict:
         active = slot.get("active")
         species = active.get("species") if isinstance(active, dict) else active
         if species and not (by_key.get(key(species)) or {}).get("fainted"):
-            on_field.append({"slot": slot.get("slot", 0), "species": key(species), "hp_pct": _hp_pct(by_key.get(key(species)) or {})})
+            on_field.append({"slot": slot.get("slot", 0), "species": key(species), "hp_pct": _hp_pct(by_key.get(key(species)) or {}),
+                             **_status_field(by_key.get(key(species)) or {})})
     field_keys = {m["species"] for m in on_field}
     fainted = sorted(k for k, s in by_key.items() if s.get("fainted"))
     switchable = {key(o.get("species")) for slot in template.get("slots") or [] for o in slot.get("options") or []
@@ -1276,7 +1284,7 @@ def battle_roster(obs: dict, template: dict, memory: MatchMemory) -> dict:
     not_here = sorted(set(by_key) - field_keys - set(bench) - set(fainted))
     ours = {
         "on_field": on_field,
-        "in_back_can_switch_in": [{"species": k, "hp_pct": _hp_pct(by_key.get(k) or {})} for k in bench],
+        "in_back_can_switch_in": [{"species": k, "hp_pct": _hp_pct(by_key.get(k) or {}), **_status_field(by_key.get(k) or {})} for k in bench],
         "fainted": fainted,
         "NOT_IN_THIS_BATTLE": not_here,
         "remaining": len(on_field) + len(bench),

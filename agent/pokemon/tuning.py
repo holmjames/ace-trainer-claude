@@ -97,6 +97,8 @@ DEFAULTS: dict[str, float] = {
     "reply_chip_w": 0.35,
     "reply_next_w": 0.4,           # the mixture's one-ply next-turn term: next turn's KOs each side can take, discounted by this
     "reply_protect_tempo": 8.0,    # the mixture's charge per Protect of ours: the turn it gives away
+    "sleep_future_w": 0.5,         # Part 3: weight of a later turn's action against this turn's (the turns a sleep move takes, a Taunt blocks)
+    "sleep_use_prior": 0.6,        # Part 3: chance a sleep user with a target uses its sleep move this turn (aimed 0.8 at the slot that loses most)
     # model layer (ops lane)
     "override_margin": 0.15,       # E2: a free-form override whose value trails the best row by more than this share of the top value is rejected, unless the model's opponent prediction matches the code's top column
 }

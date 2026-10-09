@@ -391,12 +391,17 @@ class _Context:
         return seen
 
     def _their_bench(self) -> list[battle.Mon]:
+        """Their cards that can still come in: not on the field, not fainted (the observation's team, or the sheet's copy
+        of it: battle.rank_candidates passes no observation, and m4 T7's worst reply was a switch into the fainted
+        Gholdengo), priced by the chance an unseen card was brought at all, at the HP and status the battle shows."""
         memory = self.memory
         if memory is None:
             return []
         active = {species_key(m.species) for m in self.theirs.values()}
         seen = list(getattr(memory, "opp_lineup_seen", None) or [])
         fainted = {species_key(s.get("species")) for s in (self.obs_team or {}).values() if isinstance(s, dict) and s.get("fainted")}
+        team = getattr(self.sheet, "opp_team", None) or {}
+        fainted |= {k for k, v in team.items() if v.get("fainted")}
         unseen_slots = max(0, 4 - len(seen))
         unseen_pool = [k for k in memory.opp_cards if k not in seen]
         self.bench_prob = {}
@@ -410,7 +415,9 @@ class _Context:
                 self.bench_prob[key] = unseen_slots / max(1, len(unseen_pool))  # could be in the back: priced by that chance
             else:
                 self.bench_prob[key] = 1.0
-            mon = battle.build_mon({"species": card.get("species") or key, "current_hp_fraction": 1.0}, card, side="theirs", position=None,
+            known = team.get(key) or {}
+            mon = battle.build_mon({"species": card.get("species") or key, "current_hp_fraction": known.get("hp", 1.0) or 1.0,
+                                    "status": known.get("status")}, card, side="theirs", position=None,
                                    item_lost=key in (getattr(memory, "opp_items_lost", None) or []))
             if mon is not None and not mon.fainted:
                 out.append(mon)
@@ -1017,7 +1024,7 @@ class _Context:
             row = next((r for r in (opt or {}).get("targets") or [] if r.get("target") == pos), None)
             if row:
                 parts.append((float(row.get("hit_chance", 1.0)), row))
-        return len(parts) == 2 and battle._outcome(parts)[1] >= 0.5
+        return len(parts) == 2 and battle._outcome(parts, self.theirs.get(pos))[1] >= 0.5
 
     def protect_column(self, cols: list[_JointColumn], pos: int | None = None) -> _JointColumn | None:
         hit = next((c for c in cols if any(a.kind == "protect" and a.slot == pos for a in c.actions)), None)
@@ -1083,6 +1090,8 @@ class _Context:
             me_key = (a.side, a.slot)
             p_alive = self._alive_before(me_key, parts, a, order)
             p_act = p_alive * (1.0 - flinched.get(me_key, 0.0))
+            if a.side == "mine" and a.kind != "switch":
+                p_act *= self.sheet.wake.get(a.slot, 1.0)  # asleep: its move (and its Protect) happens only if it wakes
             if a.kind == "pass":
                 acts[me_key] = 0.0
                 continue
@@ -1171,14 +1180,20 @@ class _Context:
                     flinched[tgt_key] = 1.0 - (1.0 - flinched.get(tgt_key, 0.0)) * (1.0 - p_land)
             for ally_species, r in (a.ally_rows or {}).items():
                 ally = next(((("mine", n)) for n, m in self.ours.items() if m.species == ally_species), None)
-                if ally and not protected.get(ally):
-                    parts.setdefault(ally, []).append((p_act, r))
+                if not ally:
+                    continue
+                p_hit = p_act * (1.0 - protected.get(ally, 0.0))  # its Protect blocks our own Earthquake too
+                p_in = p_hit * gone.get(ally, 0.0)
+                if p_hit - p_in > 0:
+                    parts.setdefault(ally, []).append((p_hit - p_in, r))
+                if p_in > 0:
+                    parts.setdefault(("in",) + ally, []).append((p_in, r))  # the newcomer takes it (same share, an estimate)
             if a.side == "mine":
                 tempo += P["priority_w"] * a.priority * p_act
         # value: damage into each foe, KOs by the threat removed; our losses as material
         value = 0.0
         for pos, foe in self.theirs.items():
-            dmg, p_ko = battle._outcome(parts.get(("theirs", pos), []))
+            dmg, p_ko = battle._outcome(parts.get(("theirs", pos), []), foe)
             if P.get("hp_units", 0):
                 dmg *= foe.hp_fraction
             p_ko *= 1.0 - gone.get(("theirs", pos), 0.0)
@@ -1189,7 +1204,7 @@ class _Context:
                 value += dmg_in * (inc[0][1].get("hp_frac", 1.0) if P.get("hp_units", 0) else 1.0) + ko_in * P["ko_bonus_guaranteed"]
         for n, me in self.ours.items():
             key = ("mine", n)
-            dmg, p_ko = battle._outcome(parts.get(key, []))
+            dmg, p_ko = battle._outcome(parts.get(key, []), me)
             p_ko *= 1.0 - gone.get(key, 0.0)
             value -= P.get("reply_loss_w", 1.0) * p_ko * self.material[n]
             value -= P.get("reply_chip_w", 0.35) * dmg * me.hp_fraction * (1.0 - gone.get(key, 0.0))
@@ -1221,7 +1236,7 @@ class _Context:
 
         def state(key: tuple[str, int]) -> tuple[float, float]:
             """(chance it is still standing, remaining HP as a fraction of its HP at the start of the turn)."""
-            dmg, p_ko = battle._outcome(parts.get(key, []))
+            dmg, p_ko = battle._outcome(parts.get(key, []), self._mon_at(key))
             return (1.0 - p_ko), max(0.05, 1.0 - dmg / 100.0)
 
         protected_now = {a.slot for a in order if a.side == "mine" and a.kind == "protect"}
@@ -1295,8 +1310,14 @@ class _Context:
         hits = parts.get(key, [])
         if not hits:
             return 1.0
-        _, p_ko = battle._outcome(hits)
+        _, p_ko = battle._outcome(hits, self._mon_at(key))
         return 1.0 - p_ko
+
+    def _mon_at(self, key: tuple) -> battle.Mon | None:
+        """The Pokémon a parts key stands for (ours or theirs on the field; None for a newcomer)."""
+        if len(key) != 2:
+            return None
+        return (self.ours if key[0] == "mine" else self.theirs).get(key[1])
 
     def _row_into_switch_in(self, a: _Actor, tgt_key: tuple[str, int], incoming: object) -> dict | None:
         """The row of this hit into whatever replaced its target: our move into their switch-in, or their move into ours."""
