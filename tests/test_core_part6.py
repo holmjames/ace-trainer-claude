@@ -227,6 +227,22 @@ def test_no_value_next_to_a_partner_whose_status_move_outvalues_its_attack():
     assert _hand(sheet) == (None, (0.0, 0))
 
 
+def test_t3_heat_wave_does_not_already_ko_archaludon_behind_a_prankster_light_screen(tmp_path):
+    # Grimmsnarl's Prankster Light Screen (+1) goes up before Chi-Yu's Heat Wave: finish_the_other's "already KOs" was false
+    t3 = sheet_at("moving-00004-seat1.json", tmp_path)
+    ours, theirs = sides(t3)
+    grimmsnarl = next(m for m in theirs.values() if species_key(m.species) == "grimmsnarl")
+    assert data.to_id(grimmsnarl.ability) == "prankster" and "lightscreen" in [m["id"] for m in grimmsnarl.moves]
+    pos = next(p for p, m in theirs.items() if species_key(m.species) == "archaludon")
+    chiyu = next(n for n, m in ours.items() if species_key(m.species) == "chiyu")
+    heat_wave = next(o for e in t3.our_options if e["slot"] == chiyu for o in e["options"] if o["move"] == "heatwave")
+    row = next(r for r in heat_wave["targets"] if species_key(r["species"]) == "archaludon")
+    screened = battle.FieldState(**{**t3.field.__dict__, "their_side": t3.field.their_side | {"lightscreen"}})
+    behind = battle.hit_profile(ours[chiyu], {**data.move_info("heatwave"), "id": "heatwave"}, theirs[pos], field=screened, spread=True)
+    assert row["damage_pct_of_current_hp"][0] >= 100 > behind["damage_pct_of_current_hp"][0]
+    assert not [c for c in t3.candidates if "already KOs archaludon" in c["why"]], t3.candidates[:3]
+
+
 def test_the_prompt_says_redirection_ends_when_the_redirector_faints():
     from agent.pokemon.prompts import SYSTEM_PROMPT
 

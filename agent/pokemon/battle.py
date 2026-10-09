@@ -3267,6 +3267,23 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             + (f" ({', '.join(conditional)} fails if it Protects, switches or uses a status move instead)" if conditional else ""),
             joint_value([(n, o, r, v) for n, o, r, v in picks]) + P["focus_fire_bonus"] * combined_ko, covers=lethal[0]["into_slot"])
 
+    def screened_first(killer: int, opt: dict, pos: int) -> bool:
+        """Does a Prankster foe's Reflect / Light Screen (not up yet, the setter not Taunted) go up before our ``opt``
+        lands (+1 against our priority 0 or less) and leave its hit on the foe at ``pos`` short of a sure KO? Then it
+        does not 'already KO' it (07a3cb1f T3: Grimmsnarl's Light Screen held Heat Wave under the Archaludon it was said
+        to KO)."""
+        info = data.move_info(opt.get("move")) or {}
+        screen = {"Physical": "reflect", "Special": "lightscreen"}.get(info.get("category"))
+        fs = sheet.field
+        if not screen or fs is None or (opt.get("priority", 0) or 0) > 0 or {screen, "auroraveil"} & fs.their_side:
+            return False
+        if not any(data.to_id(f.ability) == "prankster" and species_key(f.species) not in sheet.taunted
+                   and any(m["id"] == screen for m in f.moves) for f in theirs.values()):
+            return False
+        screened = FieldState(**{**fs.__dict__, "their_side": set(fs.their_side) | {screen}})
+        prof = hit_profile(ours[killer], {**info, "id": opt["move"]}, theirs[pos], field=screened, spread=bool(opt.get("spread")))
+        return prof is not None and prof["damage_pct_of_current_hp"][0] < 100
+
     # 2b. Don't overkill: when one slot's best attack already guarantees a KO on a target, point the other slot at the
     # remaining foe. If that foe's Focus Sash gets broken by the first slot's spread hit (and it moves first), the second
     # hit is a full one, so recompute it against the HP that will actually be left.
@@ -3282,7 +3299,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             pos = r["target"] if r["target"] > 0 else pos_by_species.get(species_key(r["species"]))
             if pos in theirs and (k_row.get("target", 0) <= 0 or pos == k_row["target"]):
                 killer_rows.append({**r, "pos": pos})
-        kos = [r["pos"] for r in killer_rows if r["damage_pct_of_current_hp"][0] >= 100]
+        kos = [r["pos"] for r in killer_rows if r["damage_pct_of_current_hp"][0] >= 100 and not screened_first(killer, k_opt, r["pos"])]
         if not kos:
             continue
         remaining = [t for t in theirs if t not in kos]
