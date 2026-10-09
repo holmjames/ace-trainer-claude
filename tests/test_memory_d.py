@@ -237,3 +237,81 @@ def test_93a98b6f_failed_protect_streak_is_zero_at_t4_and_one_at_t5(tmp_path):
     notes = " ".join(n for r in rows if r.get("kind") == "turn" for n in r["turn_sheet"]["notes"])
     assert "fluttermane probably protected last turn" in notes.lower(), notes
     assert "1 in 27" not in notes and "1 in 9" not in notes
+
+
+# -- class signals, their clock, the digest and the tendency tally (E4 / A4) ----------------------------------------
+
+
+def _replay_memory(prefix: str) -> MatchMemory:
+    folder = _folder(prefix)
+    seat = sorted({p.name.split("-seat")[1][:1] for p in folder.glob("moving-*.json")})[0]
+    memory = MatchMemory()
+    for path in sorted(folder.glob(f"draft-*-seat{seat}.json")):
+        memory.observe_draft(observation_dict(GameState.from_mcp_state(json.loads(path.read_text()))), my_turn=True)
+    last = sorted(folder.glob(f"moving-*-seat{seat}.json"))[-1]
+    memory.observe_battle(observation_dict(GameState.from_mcp_state(json.loads(last.read_text()))))
+    return memory
+
+
+def test_opponent_class_from_name_free_signals_on_the_live_sessions():
+    """93a98b6f: 190-char free-text reasons, slow on 6 of 7 turns, two repeated Protects -> generic_llm.
+    bcbaabe2 and da9c168e: 36-48-char templates, never slow, 10 and 4 Protects with no repeat -> search_bot."""
+    llm = _replay_memory("93a98b6f")
+    label, evidence = llm.opponent_class()
+    assert label == "generic_llm" and evidence["draft_reason_mean_chars"] > 150 and evidence["slow_turns"] >= 5 and evidence["repeat_protects"] >= 1
+    for prefix in ("bcbaabe2", "da9c168e"):
+        bot = _replay_memory(prefix)
+        label, evidence = bot.opponent_class()
+        assert label == "search_bot", (prefix, evidence)
+        assert evidence["draft_reason_mean_chars"] < 60 and evidence["slow_turns"] == 0 and evidence["repeat_protects"] == 0
+    assert MatchMemory().opponent_class()[0] == "search_bot"  # nothing seen yet: the strongest class is assumed
+    # the core lane's reply mixture reads the same label through its own adapter
+    from agent.pokemon.opponent import class_of
+
+    assert class_of(llm) == "llm" and class_of(_replay_memory("bcbaabe2")) == "search"
+
+
+def test_their_bank_is_estimated_from_showdowns_warnings_about_their_clock():
+    llm = _replay_memory("93a98b6f")
+    bank = llm.opponent_bank_estimate()
+    assert bank["slow_turns"] == [2, 3, 4, 5, 6, 7] and 150 <= bank["bank_estimate_s"] <= 260  # ~230-250 s used in 7 turns live
+    bot = _replay_memory("bcbaabe2")
+    assert bot.opponent_bank_estimate()["slow_turns"] == [] and bot.opponent_bank_estimate()["bank_estimate_s"] > 300
+    memory = MatchMemory()
+    memory.observe_battle({**_log("|player|p1|able-p0-x 1|102|", "|player|p2|able-p1-x 1|102|", "|turn|1",
+                                  "|inactive|Time left: 55 sec this turn | 420 sec total", "|inactive|able-p1-x 1 has 30 seconds left.",
+                                  "|inactive|able-p1-x 1 has 20 seconds left.", "|inactive|able-p1-x 1 has 10 seconds left.", "|turn|2",
+                                  "|inactive|Time left: 55 sec this turn | 410 sec total"), "turn": 2})
+    assert memory.players == {"mine": "able-p0-x 1", "theirs": "able-p1-x 1"} and memory.their_slow_turns == {1: 10}
+    assert memory.opponent_bank_estimate() == {"bank_estimate_s": 375.0, "used_estimate_s": 45.0, "slow_turns": [1], "turns": 1, "our_bank_s": 410.0}
+
+
+def test_last_turns_digest_reads_both_sides_entries_kos_and_hp_from_a_live_session():
+    memory = _replay_memory("bcbaabe2")
+    digest = memory.last_turns(3)
+    assert digest.startswith("T14:") and "T16:" in digest and len(digest) <= 600  # the last capture is turn 17
+    assert "we:" in digest and "they:" in digest and "HP after:" in digest
+    memory = _replay_memory("93a98b6f")
+    digest = memory.last_turns(2)
+    assert "[failed]" in memory.last_turns(6) or "protect" in memory.last_turns(6)  # the failed Protect at T3 is marked
+    assert "KO:" in memory.last_turns(6)
+    assert MatchMemory().last_turns() == ""
+
+
+def test_tendency_tally_counts_protects_switches_doubles_and_setups_against_what_we_threatened():
+    memory = MatchMemory()
+    lines = ["|player|p1|me 1|1|", "|player|p2|them 1|1|", "|switch|p1a: Garchomp|Garchomp, L50|100/100", "|switch|p1b: Gyarados|Gyarados, L50|100/100",
+             "|switch|p2a: Dragonite|Dragonite, L50|100/100", "|switch|p2b: Amoonguss|Amoonguss, L50|100/100", "|turn|1",
+             "|move|p2a: Dragonite|Protect|p2a: Dragonite", "|-singleturn|p2a: Dragonite|Protect", "|move|p2b: Amoonguss|Spore|p1a: Garchomp",
+             "|move|p1a: Garchomp|Earthquake|p2a: Dragonite|[spread] p2a,p2b", "|turn|2",
+             "|switch|p2a: Kingambit|Kingambit, L50|100/100", "|move|p2b: Amoonguss|Pollen Puff|p1b: Gyarados", "|move|p1b: Gyarados|Waterfall|p2b: Amoonguss", "|turn|3",
+             "|move|p2a: Kingambit|Swords Dance|p2a: Kingambit", "|move|p2b: Amoonguss|Pollen Puff|p1b: Gyarados", "|turn|4"]
+    for t in (1, 2, 3):
+        memory.observe_battle({**_log(*lines[:lines.index(f"|turn|{t}") + 1]), "turn": t, "active_pokemon": [{"species": "garchomp"}, {"species": "gyarados"}]})
+        memory.record_turn(turn=t, payload={"type": "doubles_turn"}, threatened=["dragonite"] if t <= 2 else [], doubled=[])
+    memory.observe_battle({**_log(*lines), "turn": 4, "active_pokemon": [{"species": "garchomp"}, {"species": "gyarados"}]})
+    tally = memory.opp_tendencies()
+    assert tally["protects_when_threatened"] == "1/2"  # T1 Protect; T2 it left instead
+    assert tally["switches_out_of_ko"] == "1/2" and memory.their_voluntary_switches == [2]
+    assert tally["doubles_into_one_slot"] == "0/2"  # two turns with two attacks from them, never both into one of ours
+    assert tally["setups_on_a_free_turn"].startswith("1/") and tally["repeat_protects"] == 0

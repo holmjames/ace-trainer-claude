@@ -88,6 +88,7 @@ class AnthropicProvider:
         self.last_usage: dict | None = None
         self.last_effort: str | None = None
         self.last_timeout: float | None = None
+        self.last_thinking: str | None = None
 
     def __repr__(self) -> str:
         return f"AnthropicProvider(model={self.model!r}, timeout={self.timeout}, effort={self.effort!r})"
@@ -114,7 +115,7 @@ class AnthropicProvider:
         """One structured call. ``timeout`` (seconds) bounds this request instead of the instance default: the game
         clock is per decision, so the agent passes what it can still afford. ``effort`` overrides the instance's
         effort for this call (Team Preview and a battle turn may differ)."""
-        system_text = "\n\n".join(str(m.get("content", "")) for m in messages if m.get("role") == "system")
+        system_blocks = [str(m.get("content", "")) for m in messages if m.get("role") == "system" and str(m.get("content", "")).strip()]
         chat = [m for m in messages if m.get("role") != "system"]
         limit = float(timeout) if timeout is not None else float(self.timeout)
         self.last_effort = effort or self.effort
@@ -130,10 +131,11 @@ class AnthropicProvider:
         }
         if timeout is not None:
             request["timeout"] = limit  # the SDK's per-request timeout (the instance default otherwise)
-        if system_text:
-            # The system prompt is identical every turn, so mark it cacheable:
-            # repeated turns pay a fraction of its input price.
-            request["system"] = [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
+        if system_blocks:
+            # One cacheable block per system message: the rules are identical every turn and the known sets are
+            # identical every turn of a match, so repeated turns pay a fraction of their input price (the API allows
+            # four cache breakpoints; the agent sends at most two system messages).
+            request["system"] = [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}} for text in system_blocks[:4]]
 
         started = time.monotonic()
         try:
@@ -164,6 +166,10 @@ class AnthropicProvider:
             raise ProviderError(f"{self.model}: answer cut off at max_tokens={self.max_tokens}")
 
         text = next((block.text for block in response.content if getattr(block, "type", None) == "text"), None)
+        # The model's thinking, when the API returns it (summarized or full): kept for post-mortems, never sent anywhere.
+        thinking = [str(getattr(block, "thinking", None) or getattr(block, "summary", None) or "")
+                    for block in response.content if getattr(block, "type", None) in ("thinking", "redacted_thinking")]
+        self.last_thinking = "\n".join(t for t in thinking if t)[:1500] or None
         if text is None:
             raise ProviderError(f"{self.model}: response had no text block")
         try:
@@ -238,6 +244,7 @@ class FallbackProvider:
             self.last_model = provider.model
             self.last_latency_ms = getattr(provider, "last_latency_ms", None)
             self.last_usage = getattr(provider, "last_usage", None)
+            self.last_thinking = getattr(provider, "last_thinking", None)
             self.last_attempts.append({"model": provider.model, "effort": effort or getattr(provider, "effort", None),
                                        "timeout_s": round(timeout, 1) if timeout is not None else getattr(provider, "timeout", None),
                                        "latency_ms": self.last_latency_ms, "outcome": "ok", "usage": self.last_usage})
