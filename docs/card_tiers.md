@@ -1,6 +1,6 @@
 # Card tiers (live catalog)
 
-Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base value per card. Rating = average worth on a team in 1/100 log-odds of winning (sim rating + a small prior where the code-only simulator is known to misplay the card). Rebuild after refitting `data/draft_model.json`. Iron Valiant, Iron Treads, Talonflame, Toxapex and Farigiraf (first seen live Oct 8) carry their matchup part only.
+Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base value per card. Rating = average worth on a team in 1/100 log-odds of winning (sim rating + a small prior where the code-only simulator is known to misplay the card). Rebuild after refitting `data/draft_model.json`. Iron Valiant, Iron Treads, Talonflame, Toxapex, Farigiraf, Chi-Yu and Urshifu-Rapid-Strike (first seen live Oct 8) carry their matchup part only.
 
 | Tier | Card | Rating | Sim | Why | Flag / live |
 |---|---|---:|---:|---|---|
@@ -12,11 +12,13 @@ Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base
 | A | Gyarados | +18 | +18 | wins 26/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Intimidate, spread |  |
 | A | Porygon2 | +16 | +16 | wins 16/40 1-on-1s (best: Torkoal, Tornadus); countered by Gholdengo, Iron Hands; Trick Room | engine sets Trick Room whether or not its own team wants it |
 | A | Kingambit | +16 | +16 | wins 22/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Archaludon, Torkoal; priority |  |
+| A | Chi-Yu | +16 | +16 | wins 28/47 1-on-1s (best: Archaludon, Gholdengo); countered by Iron Hands, Gyarados; spread; not in the fitted model (first seen live Oct 8): matchup part only | not in the fitted model (first seen live Oct 8); Beads of Ruin (Sp. Def x0.75 for every other Pokémon), which the damage math does credit |
 | A | Milotic | +14 | +14 | wins 13/40 1-on-1s (best: Torkoal, Incineroar); countered by Archaludon, Iron Hands; wins more in simulated games than its matchups explain |  |
 | A | Sylveon | +14 | +14 | wins 22/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Gyarados, Kingambit; spread | the Oct 7 opponent took it 2/2 |
 | A | Dragonite | +13 | -4 | wins 21/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Flutter Mane; Tailwind, priority; wins less in simulated games than its matchups suggest | engine spends Tailwind as a flat-value move; Multiscale + Extreme Speed under Tailwind is the real plan; the Oct 7 opponent took it 2/2 |
 | A | Incineroar | +13 | -12 | wins 15/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Iron Hands; Fake Out, Intimidate | engine rarely pivots, so Parting Shot / repeat Intimidates go unused; the Oct 7 opponent took it 3/3 at pick 1-2 |
 | B | Tornadus | +10 | +0 | wins 3/40 1-on-1s (best: Great Tusk, Amoonguss); countered by Archaludon, Gholdengo; Tailwind, spread; wins more in simulated games than its matchups explain | Prankster Tailwind / Taunt valued by fixed constants in the engine |
+| B | Urshifu-Rapid-Strike | +10 | +10 | wins 24/47 1-on-1s (best: Torkoal, Gyarados); countered by Archaludon, Flutter Mane; priority; not in the fitted model (first seen live Oct 8): matchup part only | not in the fitted model (first seen live Oct 8); Unseen Fist goes through Protect, which the draft value does not credit (its races have no Protect; the battle engine reads it) |
 | B | Arcanine | +9 | +9 | wins 12/40 1-on-1s (best: Gholdengo, Flutter Mane); countered by Archaludon, Gyarados; Intimidate, spread, priority |  |
 | B | Garchomp | +8 | +8 | wins 13/40 1-on-1s (best: Gholdengo, Torkoal); countered by Archaludon, Porygon2; spread |  |
 | B | Great Tusk | +7 | +7 | wins 19/40 1-on-1s (best: Torkoal, Iron Hands); countered by Gholdengo, Flutter Mane; spread |  |
