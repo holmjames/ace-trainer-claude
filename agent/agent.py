@@ -28,8 +28,10 @@ Run it (after keys are in ``.env``):
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -57,6 +59,7 @@ MAX_ATTEMPTS = 2  # first answer + one retry carrying the validation error
 SECOND_CALL_CUTOFF_SECONDS = 10.0  # a retry/recheck after this many seconds could push a decision past Showdown's 55 s clock
 MIN_DECISION_SECONDS_FOR_MODEL = 25.0  # below this the model chain (worst case ~30 s) could run the decision out: play the computed move
 MIN_BANK_SECONDS_FOR_MODEL = 90.0      # a nearly empty bank forfeits the battle; stop spending it on model calls
+BREAKER_FAILURES = 2  # consecutive decisions on which every model failed before one decision skips the model entirely
 
 
 def _clock_budget(clock: dict | None) -> tuple[float | None, float | None, float]:
@@ -137,32 +140,95 @@ class PokemonAgent:
         self._print = log if log is not None else _stderr
         self.memory = MatchMemory()
         self.decision_log: DecisionLog | None = None
+        self._all_failed = 0  # decisions on which every model failed (the ALL MODELS FAILED banner)
+        self._breaker_skips = 0  # decisions the circuit breaker kept away from the model
+        self._consecutive_failures = 0  # all-model failures in a row (reset by any model answer)
+        self._breaker_open = False  # the next decision skips the model
+        self._lineup_model: str | None = None  # who answered Team Preview (None: code)
+        self._summarized = False
+
+    # -- end of match: one summary line -------------------------------------------------
+
+    def on_action_result(self, result: Any, context: DecisionContext) -> None:
+        """The runner reports every play_action result; the one that ends the match (or a result whose state is
+        terminal) triggers the per-match summary line. Never raises (the runner would turn that into an error)."""
+        try:
+            if not isinstance(result, dict):
+                return
+            state = result.get("state") if isinstance(result.get("state"), dict) else {}
+            if result.get("is_terminal") is True or result.get("status") == "completed" or state.get("is_terminal") is True:
+                self.print_match_summary(context)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def match_summary(self) -> str:
+        """Turns decided by the primary model / the fallback model / code only, with the failure counters."""
+        primary = getattr(self._provider, "model", None)
+        turns = list(self.memory.turns)
+        by_primary = sum(1 for t in turns if t.get("model") and t.get("model") == primary)
+        by_fallback = sum(1 for t in turns if t.get("model") and t.get("model") != primary)
+        code_only = len(turns) - by_primary - by_fallback
+        preview = "model" if self._lineup_model == primary and primary else ("fallback model" if self._lineup_model else "code")
+        return (f"[agent] match summary: {len(turns)} battle decisions: {by_primary} by {primary or 'no model'}, "
+                f"{by_fallback} by the fallback model, {code_only} code-only; Team Preview by {preview}; "
+                f"model calls {self.memory.llm_calls}, all-models-failed {self._all_failed}, "
+                f"breaker skips {self._breaker_skips}, fallbacks {self.memory.fallbacks}")
+
+    def print_match_summary(self, context: DecisionContext | None = None) -> None:
+        """Once per match, and only if something was decided (a worker that never got a game stays quiet)."""
+        if self._summarized or not (self.memory.turns or self.memory.llm_calls or self._lineup_model):
+            return
+        self._summarized = True
+        self._say(self.match_summary())
+        if context is not None:
+            self._safe_log_for(context).write("summary", line=self.match_summary(), memory=self.memory.summary())
 
     # -- the one method the runtime calls ----------------------------------------------
 
     def choose_action(self, state: GameState, context: DecisionContext):
-        log = self._log_for(context)
         started = time.monotonic()
+        log = self._safe_log_for(context)
         try:
             self._capture(state, context)
             decision, summary = self._decide(state, context, log)
         except Exception as exc:  # noqa: BLE001 — a bug must never forfeit the match
-            self.memory.fallbacks += 1
-            log.write(
-                "error",
-                phase=state.phase,
-                state_version=state.state_version,
-                error=f"{type(exc).__name__}: {exc}",
-                traceback=traceback.format_exc()[-3000:],
-            )
-            self._print(f"[agent] ERROR in decision logic ({type(exc).__name__}); playing the safe fallback move")
-            fallback = smoke_agent.choose_action(state, context)
-            log.write("fallback", phase=state.phase, payload=_payload(fallback), reason="exception in decision logic")
-            return WithReasoning(fallback, "Fallback: played a safe legal move after an internal error.")
+            return self._last_resort(state, context, log, exc)
         elapsed_ms = int((time.monotonic() - started) * 1000)
         self.memory.latencies_ms.append(elapsed_ms)
-        self._print(f"[agent] {state.phase}: {summary} ({elapsed_ms} ms)")
-        return WithReasoning(decision, summary[:REASONING_CHAR_LIMIT])
+        self._say(f"[agent] {state.phase}: {summary} ({elapsed_ms} ms)")
+        return WithReasoning(decision, clean_reason(summary))
+
+    def _last_resort(self, state: GameState, context: DecisionContext, log: "_SafeLog", exc: BaseException):
+        """The guard's own guard. A crash here would hand the runner a DecisionError: the worker dies, the seat sits
+        in a 60 s cooldown, the server auto-moves at random and the match memory is gone. So nothing in here may
+        raise: the log and the console are wrapped, the smoke agent is tried first, and if even that cannot read
+        the request a minimal legal payload is built by hand from the raw request."""
+        self.memory.fallbacks += 1
+        phase = getattr(state, "phase", None)
+        log.write("error", phase=phase, state_version=getattr(state, "state_version", None),
+                  error=f"{type(exc).__name__}: {exc}", traceback=traceback.format_exc()[-3000:])
+        self._say(f"[agent] ERROR in decision logic ({type(exc).__name__}); playing the safe fallback move")
+        reason = "exception in decision logic"
+        try:
+            fallback = smoke_agent.choose_action(state, context)
+        except Exception as smoke_exc:  # noqa: BLE001
+            log.write("error", phase=phase, error=f"smoke agent: {type(smoke_exc).__name__}: {smoke_exc}")
+            try:
+                fallback = minimal_legal_payload(state)
+                reason = "exception in decision logic and in the smoke agent; hand-built minimal payload"
+            except Exception as minimal_exc:  # noqa: BLE001 — nothing legal can be built: the runner must know
+                log.write("error", phase=phase, error=f"minimal payload: {type(minimal_exc).__name__}: {minimal_exc}")
+                self._say(f"[agent] no legal payload could be built from the request ({minimal_exc})")
+                raise exc
+        log.write("fallback", phase=phase, payload=_payload(fallback), reason=reason)
+        return WithReasoning(fallback, "Fallback: played a safe legal move after an internal error.")
+
+    def _say(self, line: str) -> None:
+        """Console chatter that cannot cost a move (a closed stderr raises on write)."""
+        try:
+            self._print(line)
+        except Exception:  # noqa: BLE001
+            pass
 
     # -- routing -------------------------------------------------------------------------
 
@@ -230,6 +296,7 @@ class PokemonAgent:
             "observation": _compact(_preview_view(obs), ("your_roster", "opponent_roster", "battle_format")),
         }
         value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"))
+        self._lineup_model = info.get("model")
         if isinstance(value, dict):
             self.memory.my_lineup = list(value.get("bring") or [])
         log.write("lineup", state_version=state.state_version, payload=_payload(value),
@@ -306,6 +373,20 @@ class PokemonAgent:
             info["fallback"] = True
             self.memory.fallbacks += 1
             return choice.fallback(), None, info
+        if self._breaker_open:
+            # Two decisions in a row on which every model failed (timeouts, 5xx, a dead key): each costs the whole
+            # chain's timeouts (~30 s of a 50 s decision). Skip the model once, play the computed move at once, then
+            # try the model again on the next decision.
+            self._breaker_open = False
+            self._breaker_skips += 1
+            info["errors"].append(f"circuit breaker: {self._consecutive_failures} consecutive all-model failures; "
+                                  "skipping the model this decision, retrying on the next")
+            info["fallback"] = True
+            info["breaker"] = "skipped"
+            self.memory.fallbacks += 1
+            self._say(f"[agent] circuit breaker: SKIPPING the model on this {kind} after {self._consecutive_failures} "
+                      "consecutive failures (code plays #1); retrying on the next decision")
+            return choice.fallback(), None, info
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -318,7 +399,22 @@ class PokemonAgent:
                 answer = self._provider.complete_structured(messages, choice.kind, choice.schema)
             except ProviderError as exc:
                 info["errors"].append(str(exc))
+                self._all_failed += 1
+                self._consecutive_failures += 1
+                # Loud on purpose: a dead key or a dead API plays the whole match code-only, and the runtime log is
+                # the only place anyone would see it (the provider's own lines say "trying next provider").
+                self._say(f"[agent] !!! ALL MODELS FAILED on this {kind} ({self._all_failed} so far this match): {exc} "
+                          "— playing the computed move !!!")
+                if self._consecutive_failures >= BREAKER_FAILURES:
+                    self._breaker_open = True
+                    info["breaker"] = "open"
+                    self._say(f"[agent] circuit breaker OPEN after {self._consecutive_failures} consecutive all-model failures: "
+                              "the next decision skips the model")
                 break  # every model failed; retrying the same question won't help
+            if self._consecutive_failures:
+                self._say(f"[agent] circuit breaker CLOSED: the model answered again after {self._consecutive_failures} failure(s)")
+                info["breaker"] = "closed"
+                self._consecutive_failures = 0
             info["model"] = getattr(self._provider, "last_model", None) or getattr(self._provider, "model", None)
             info["latency_ms"] = getattr(self._provider, "last_latency_ms", None)
             info["usage"] = getattr(self._provider, "last_usage", None)
@@ -349,10 +445,17 @@ class PokemonAgent:
 
         info["fallback"] = True
         self.memory.fallbacks += 1
-        self._print(f"[agent] {kind}: FALLBACK to the deterministic move ({'; '.join(info['errors'])[:200]})")
+        self._say(f"[agent] {kind}: FALLBACK to the deterministic move ({'; '.join(info['errors'])[:200]})")
         return choice.fallback(), None, info
 
     # -- bookkeeping ------------------------------------------------------------------------
+
+    def _safe_log_for(self, context: DecisionContext) -> "_SafeLog":
+        try:
+            return _SafeLog(self._log_for(context))
+        except Exception as exc:  # noqa: BLE001 — a log that cannot be opened must never cost a move
+            self._say(f"[agent] decision log unavailable ({type(exc).__name__}: {exc}); playing on without it")
+            return _SafeLog(None)
 
     def _log_for(self, context: DecisionContext) -> DecisionLog:
         if self.decision_log is None:
@@ -379,6 +482,132 @@ class PokemonAgent:
             )
         except (OSError, TypeError, ValueError):
             pass
+
+
+_REASON_GLUED_JUNK = re.compile(r"(?<=[.!?])[a-z]{1,10}\.$")  # "...this turn.ewhere." -> "...this turn."
+# A sentence end: . ! or ? followed by whitespace, the end, or stray JSON/quote debris. A decimal point ("53.3]%",
+# "92.1%", "v2.1") is followed by a digit and never matches: code-only reasons are full of damage ranges.
+_REASON_SENTENCE_END = re.compile(r"""[.!?](?=[\s"'\]\[}{)]|$)""")
+_REASON_FRAGMENT_LIMIT = 24  # a tail this short after the last full sentence is debris ("'] Hmm", "}"), not a sentence
+_BRACKET_PAIRS = (("(", ")"), ("[", "]"), ("{", "}"))
+
+
+def _balanced(text: str) -> bool:
+    return all(text.count(open_) == text.count(close) for open_, close in _BRACKET_PAIRS)
+
+
+def _strip_debris(text: str) -> str:
+    """Trailing whitespace, unmatched closing brackets/braces and odd quotes: the tail of the model's JSON, never a
+    balanced "(KO at 92.1%)" or a closing quote that has its opening one."""
+    s = text.rstrip()
+    while s:
+        last = s[-1]
+        if last in (")", "]", "}") and any(last == close and s.count(open_) < s.count(close) for open_, close in _BRACKET_PAIRS):
+            s = s[:-1].rstrip()
+        elif last in ('"', "'") and s.count(last) % 2 == 1:
+            s = s[:-1].rstrip()
+        else:
+            break
+    return s
+
+
+def clean_reason(text: Any, limit: int = REASONING_CHAR_LIMIT) -> str:
+    """The public reasoning_summary, cleaned: the model's JSON is parsed by the provider but its text sometimes carries
+    the tail of the structured answer (4 of 19 answers in match bcbaabe2: ".ewhere.", ".]", ".)", a trailing newline).
+    Strips trailing non-sentence debris and whitespace, and ends at the last full sentence within ``limit`` chars,
+    keeping brackets balanced. Only the public text changes; the action is untouched."""
+    s = _strip_debris(re.sub(r"\s+", " ", str(text or "")).strip())
+    s = _REASON_GLUED_JUNK.sub("", s)
+    if len(s) > limit:
+        cut = s[:limit]
+        ends = [m.end() for m in _REASON_SENTENCE_END.finditer(cut) if _balanced(cut[:m.end()])]
+        if ends:
+            s = cut[:ends[-1]]
+        else:
+            words = cut.rsplit(" ", 1)[0].rstrip(",;:")
+            while words and " " in words and not _balanced(words):  # never cut inside a bracket
+                words = words.rsplit(" ", 1)[0].rstrip(",;:")
+            s = (words if words and _balanced(words) else cut.rsplit(" ", 1)[0]) + "…"
+    if s and s[-1] not in ".!?":
+        ends = [m.end() for m in _REASON_SENTENCE_END.finditer(s)]
+        if ends and len(s) - ends[-1] <= _REASON_FRAGMENT_LIMIT and _balanced(s[:ends[-1]]):
+            s = s[:ends[-1]]
+    return _strip_debris(s)
+
+
+class _SafeLog:
+    """A decision log that cannot raise. ``DecisionLog`` already swallows OSError; this covers everything else
+    (a log object a harness supplies, a serializer bug) and the absence of a log altogether."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+
+    def write(self, kind: str, **fields: Any) -> None:
+        if self.inner is None:
+            return
+        try:
+            self.inner.write(kind, **fields)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _minimal_slot(options: Any, taken: str | None) -> dict:
+    """The simplest legal choice for one doubles slot from its raw options: the first move (into the first opposing
+    target it lists), else the first switch the other slot did not take, else pass."""
+    options = [o for o in options if isinstance(o, dict)] if isinstance(options, list) else []
+    for option in options:
+        if option.get("type") == "move" and isinstance(option.get("move_id"), str) and option["move_id"]:
+            choice: dict[str, Any] = {"type": "move", "move_id": option["move_id"]}
+            targets = [t for t in (option.get("targets") or []) if isinstance(t, int) and not isinstance(t, bool)] \
+                if isinstance(option.get("targets"), list) else []
+            if targets:
+                choice["target"] = next((t for t in targets if t > 0), targets[0])
+            return choice
+    for option in options:
+        if option.get("type") == "switch" and isinstance(option.get("species"), str) and option["species"] and option["species"] != taken:
+            return {"type": "switch", "species": option["species"]}
+    return {"type": "pass"}
+
+
+def minimal_legal_payload(state: GameState) -> Any:
+    """A legal answer built by hand from the raw request, for when even the smoke agent cannot read it: a template
+    with a slot the smoke agent rejects still has a first legal move in the other slot. Doubles: per slot the first
+    move (first opposing target), else a switch, else pass. Team Preview: the first four of the roster, leading with
+    the first two. Anything else (a draft pick): the first legal action. Raises only when nothing legal exists."""
+    legal = list(getattr(state, "legal_actions", None) or [])
+    if not legal:
+        raise ValueError("the request offers no legal action")
+    first = legal[0]
+    action_id = getattr(first, "action_id", None)
+    template = (getattr(first, "input", None) or {}).get("action") if isinstance(getattr(first, "input", None), dict) else None
+    template = template if isinstance(template, dict) else {}
+    if action_id == "doubles_turn":
+        by_number: dict[int, Any] = {}
+        for index, slot in enumerate(template.get("slots") if isinstance(template.get("slots"), list) else []):
+            if isinstance(slot, dict):
+                number = slot.get("slot")
+                by_number.setdefault(number if number in (0, 1) else index, slot.get("options"))
+        payload: dict[str, Any] = {"type": "doubles_turn"}
+        taken = None
+        for number in (0, 1):
+            choice = _minimal_slot(by_number.get(number), taken)
+            if choice["type"] == "switch":
+                taken = choice["species"]
+            payload[f"slot_{number}"] = choice
+        return payload
+    if action_id == "select_lineup":
+        roster = [s for s in dict.fromkeys(template.get("roster") or []) if isinstance(s, str) and s] \
+            if isinstance(template.get("roster"), list) else []
+        if len(roster) < 4:
+            obs = observation_dict(state)
+            for entry in obs.get("your_roster") or []:
+                name = entry.get("species") if isinstance(entry, dict) else entry
+                if isinstance(name, str) and name and name not in roster:
+                    roster.append(name)
+        if len(roster) < 4:
+            raise ValueError(f"no roster of four to choose from: {roster!r}")
+        return {"type": "select_lineup", "bring": roster[:4], "leads": roster[:2]}
+    return first
 
 
 def _anthropic_sdk_version() -> str | None:
@@ -551,4 +780,8 @@ def create_agent() -> PokemonAgent:
         _stderr(f"[agent] model chain: {provider!r}")
     else:
         _stderr("[agent] WARNING: ANTHROPIC_API_KEY is not set — running in code-only mode (no model calls).")
-    return PokemonAgent(provider)
+    agent = PokemonAgent(provider)
+    # The runtime runs one worker process per match: when it exits, the match is over. The summary line also comes
+    # from on_action_result when our own move ended the game; this catches a game the opponent's move ended.
+    atexit.register(agent.print_match_summary)
+    return agent

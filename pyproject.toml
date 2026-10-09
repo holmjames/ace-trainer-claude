@@ -5,9 +5,11 @@ description = "Starter kit for building an agent for the AltruAgent competition 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "httpx>=0.27",
+    # Exact pins for the two libraries the model chain runs on: the versions every live match and the whole test
+    # suite ran on. `python -m agent --check-tournament` prints the installed versions and warns on a mismatch.
+    "httpx==0.28.1",
     "python-dotenv>=1.0",
-    "anthropic>=1.0",      # agent/llm/anthropic_provider.py: the Claude model chain behind lineup and battle decisions
+    "anthropic==1.12.0",   # agent/llm/anthropic_provider.py: the Claude model chain behind lineup and battle decisions
     "mcp>=1.12.0,<2.0.0",  # 2.x renames streamablehttp_client -> streamable_http_client;
                            # pinned to the 1.x line to match Agent_ACP's own gameapi
                            # dependency (mcp>=1.12.0, 1.28.1 actually installed there)
