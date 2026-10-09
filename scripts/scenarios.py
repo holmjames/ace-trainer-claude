@@ -112,13 +112,13 @@ def slot_of(payload: dict, species_id: str, actives: tuple[str, str]) -> str:
 
 SCENARIOS: list[Scenario] = [
     Scenario(
-        "fake_out_turn1", "Turn 1 with Fake Out + Prankster Tailwind available against a Scarf Urshifu.",
+        "fake_out_turn1", "Turn 1 with Fake Out + Prankster Tailwind available against Urshifu-RS (Unseen Fist) and Gyarados.",
         ("incineroar", "whimsicott"), ("gyarados", "urshifurapidstrike"), turn=1,
         accept=lambda p: move_of(p, "slot_0") == "fakeout" and move_of(p, "slot_1") in ("tailwind", "moonblast", "encore"),
         accept_text="Incineroar uses Fake Out; Whimsicott does something useful (Tailwind preferred).",
     ),
     Scenario(
-        "protect_vs_ko", "Flutter Mane at 35% next to a Scarf Urshifu whose Surging Strikes KOs it; Rillaboom beside it.",
+        "protect_vs_ko", "Flutter Mane at 35% next to Urshifu-RS, whose Surging Strikes (455-541%) and priority Aqua Jet (160-191%) KO it; Rillaboom beside it.",
         ("fluttermane", "rillaboom"), ("urshifurapidstrike", "gyarados"), my_hp={"fluttermane": 0.35},
         drop_moves={"rillaboom": {"fakeout"}},
         accept=lambda p: (p["slot_0"].get("type") == "switch" or move_of(p, "slot_0") == "protect")
@@ -191,20 +191,20 @@ HARD: list[Scenario] = [
         accept_text="Garchomp must Protect or pivot to Incineroar (Chien-Pao speed-ties/outspeeds it and Icicle Crash is 4x). Flutter Mane either breaks the sash with Moonblast or Shadow Ball, or, since Sword of Ruin makes Kingambit's Sucker Punch and Chien-Pao's Icicle Crash both lethal to it, Protects or pivots out. Attacking with Garchomp just loses it.",
     ),
     Scenario(
-        "fake_out_the_scarf_urshifu", "Turn 1: our Incineroar + Tornadus lead into Flutter Mane + Choice Scarf Urshifu (Unseen Fist). Surging Strikes KOs Incineroar before it moves and goes through Protect.",
+        "fake_out_the_scarf_urshifu", "Turn 1: our Incineroar + Tornadus lead into Flutter Mane + Urshifu-RS (Unseen Fist, Speed 149 vs Incineroar's 80). Surging Strikes KOs Incineroar (137-164%) before it moves and goes through Protect.",
         ("incineroar", "tornadus"), ("fluttermane", "urshifurapidstrike"), hard=True, turn=1, my_fresh=("incineroar", "tornadus"), their_fresh=("fluttermane", "urshifurapidstrike"),
         my_bench=("garchomp", "amoonguss"), mine=["incineroar", "tornadus", "garchomp", "amoonguss", "rillaboom", "whimsicott"],
         theirs=["fluttermane", "urshifurapidstrike", "sneasler", "kingambit", "pelipper", "dragonite"],
         accept=lambda p: move_of(p, "slot_0") == "fakeout" and p["slot_0"].get("target") == 2 and move_of(p, "slot_1") == "tailwind",
-        accept_text="Fake Out (+3 priority) flinches Urshifu, the one thing Protect cannot stop here, while Prankster Tailwind goes up; next turn everything we have outspeeds the Scarf. Switching Incineroar out gives up the Fake Out turn for nothing (lost Opus sparring game 5, Oct 7).",
+        accept_text="Fake Out (+3 priority) flinches Urshifu, the one thing Protect cannot stop here, while Prankster Tailwind goes up; next turn both of ours outspeed it (Incineroar 160 vs 149). Switching Incineroar out gives up the Fake Out turn for nothing (lost Opus sparring game 5, Oct 7).",
     ),
     Scenario(
-        "no_suicide_pivot", "Scarf Urshifu (59%) + Miraidon (29%) vs our sash-broken Garchomp + Scream Tail; only Iron Bundle on the bench. Unseen Fist pierces Protect, and Iron Bundle dies on entry to Close Combat.",
+        "no_suicide_pivot", "Urshifu-RS (59%) + Miraidon (29%) vs our sash-broken Garchomp + Scream Tail; only Iron Bundle on the bench. Unseen Fist pierces Protect, and Iron Bundle dies on entry to Close Combat (154.5-181.8%).",
         ("garchomp", "screamtail"), ("urshifurapidstrike", "miraidon"), hard=True, turn=2, my_hp={"garchomp": 0.6}, their_hp={"urshifurapidstrike": 0.59, "miraidon": 0.29},
         my_bench=("ironbundle",), mine=["garchomp", "screamtail", "ironbundle", "rillaboom", "amoonguss", "whimsicott"],
         theirs=["urshifurapidstrike", "miraidon", "kingambit", "pelipper", "dragonite", "gholdengo"],
         accept=lambda p: p["slot_0"].get("type") != "switch" and move_of(p, "slot_1") == "dazzlinggleam",
-        accept_text="Garchomp cannot be saved (slower than Scarf Urshifu, Protect is pierced) and Iron Bundle would be KO'd on entry, so switching only donates a Pokémon. Stay in and attack; Scream Tail's Dazzling Gleam KOs both weakened opponents if it moves (lost sparring game 7, Oct 7).",
+        accept_text="Garchomp cannot be saved (it now moves first, 169 vs 149, but Surging Strikes KOs it afterwards, 122-147%, and pierces Protect) and Iron Bundle would be KO'd on entry, so switching only donates a Pokémon. Stay in and attack; Scream Tail's Dazzling Gleam hits both weakened opponents, 69-83% and 73-90% of what they have left (lost sparring game 7, Oct 7).",
     ),
     Scenario(
         "repeat_protect_pinned", "Garchomp (90%, its sash spent) Protected LAST turn and Chien-Pao's 4x Icicle Crash still KOs it before it moves; Incineroar waits on the bench. A second Protect works 1 time in 3.",
@@ -221,7 +221,7 @@ HARD: list[Scenario] = [
         accept_text="Shut the boosted Gyarados down: Spore it, and/or bring Incineroar in for Intimidate.",
     ),
     Scenario(
-        "redirect_to_free_specs_attacker", "Flutter Mane (frail) beside Amoonguss vs Scarf Urshifu-RS (Surging Strikes KOs it) and Kingambit (Sucker Punch KOs it). Rage Powder soaks both single-target hits; Amoonguss resists Water and Sucker Punch fails on a non-attacker.",
+        "redirect_to_free_specs_attacker", "Flutter Mane (frail) beside Amoonguss vs Urshifu-RS (Surging Strikes KOs it) and Kingambit (Sucker Punch KOs it). Rage Powder soaks both single-target hits; Amoonguss resists Water and Sucker Punch fails on a non-attacker.",
         ("amoonguss", "fluttermane"), ("urshifurapidstrike", "kingambit"), hard=True, turn=2,
         accept=lambda p: move_of(p, "slot_0") == "ragepowder" and move_of(p, "slot_1") != "protect",
         accept_text="Amoonguss Rage Powder redirects both lethal single-target attacks; Flutter Mane then attacks freely (ideal) or pivots.",
@@ -241,11 +241,15 @@ HARD: list[Scenario] = [
         accept_text="Attack with the Fairy move: Dragonite's Extreme Speed (Normal) and Scale Shot (Dragon) cannot touch a Ghost/Fairy; Protect gains nothing.",
     ),
     Scenario(
-        "sash_does_not_stop_multihit", "Our Sneasler (full HP) and Zamazenta vs Scarf Urshifu-RS (Surging Strikes = 3 hits) and Iron Bundle. Urshifu outspeeds and KOs Sneasler; three hits mean even a Focus Sash would not save it.",
-        ("sneasler", "zamazenta"), ("urshifurapidstrike", "ironbundle"), hard=True, turn=2, drop_moves={"sneasler": {"fakeout"}},
-        mine=["sneasler", "zamazenta", "kingambit", "archaludon", "garchomp", "incineroar"], theirs=["urshifurapidstrike", "ironbundle", "garchomp", "gholdengo", "pelipper", "dragonite"],
+        # The live Urshifu-RS is Adamant with Mystic Water (Speed 149, not the old Scarf stand-in's 244) and the live Sneasler holds
+        # an Aguav Berry: the threatened slot is the live Focus Sash Chien-Pao (205), and their Tailwind (Urshifu 298) restores the order.
+        "sash_does_not_stop_multihit", "Our Chien-Pao (Focus Sash, full HP) and Zamazenta vs Urshifu-RS and Iron Bundle under their Tailwind "
+        "(Urshifu 298 vs Chien-Pao 205). The sash stops the single 4x Close Combat at 99%, but Surging Strikes is three hits (100.0-121.2%): "
+        "it breaks the sash and KOs Chien-Pao before it moves.",
+        ("chienpao", "zamazenta"), ("urshifurapidstrike", "ironbundle"), hard=True, turn=2, their_side=["Tailwind"],
+        mine=["chienpao", "zamazenta", "kingambit", "archaludon", "garchomp", "incineroar"], theirs=["urshifurapidstrike", "ironbundle", "garchomp", "gholdengo", "pelipper", "dragonite"],
         accept=lambda p: p["slot_0"].get("type") == "switch",
-        accept_text="Sneasler must switch out: Surging Strikes KOs it before it moves (three hits, so a Focus Sash would not help either) and Unseen Fist goes through Protect.",
+        accept_text="Chien-Pao must switch out: Surging Strikes breaks the sash and KOs it before it moves (their Tailwind), and Unseen Fist goes through Protect.",
     ),
     Scenario(
         "trust_the_boosted_numbers", "Miraidon at -2 Special Attack still KOs our Basculegion (the ranges already include the drop). Koraidon beside it.",

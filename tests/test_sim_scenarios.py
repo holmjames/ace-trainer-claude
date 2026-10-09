@@ -320,3 +320,52 @@ def test_p2_t4_ranges_include_the_exact_engine_rolls(p2_loss):
     assert landorus.stats["hp"] == 164
     waterfall = _hp_range(_threat(row, "gyarados", "waterfall", "landorustherian")["damage_pct_of_current_hp"], landorus)
     assert waterfall[0] - 0.5 <= 108 <= waterfall[1], waterfall
+
+
+# ---- the Urshifu-RS hand scenarios on the live card (Adamant, Mystic Water, Speed 149; the hand stand-in it replaced was
+# a Choice Scarf at 244): what each description and accept rule relies on, read off the sheet the agent builds, so the
+# next catalog change cannot break a premise silently (sash_does_not_stop_multihit lost its own on Oct 8).
+def _scenario_sheet(name: str) -> dict:
+    sc = next(s for s in scenarios.SCENARIOS + scenarios.HARD if s.name == name)
+    with tempfile.TemporaryDirectory() as tmp:
+        scenarios.run(sc, code_only=True, log_dir=Path(tmp))
+        rows = [json.loads(line) for f in Path(tmp).glob("*.jsonl") for line in f.read_text().splitlines() if line.strip()]
+    return rows[-1]["turn_sheet"]
+
+
+def _sheet_hit(sheet: dict, attacker: str, move: str, target: str) -> dict:
+    for th in sheet["opponent_threats"]:
+        if species_key(th["species"]) == attacker:
+            return next(h for h in th["hits"] if h["move"] == move and species_key(h["species"]) == target)
+    raise AssertionError(f"{attacker} {move} -> {target} not in the sheet")
+
+
+def _moves_first(sheet: dict, first: str, second: str) -> bool:
+    order = [species_key(m["species"]) for m in sheet["speed_order"]]
+    return order.index(first) < order.index(second)
+
+
+def test_the_sash_scenario_premise_holds_on_the_live_cards():
+    """Their Tailwind puts Urshifu ahead of our Chien-Pao, whose intact sash stops the single 4x Close Combat; the
+    three-hit Surging Strikes KOs through it."""
+    sheet = _scenario_sheet("sash_does_not_stop_multihit")
+    assert _moves_first(sheet, "urshifurapidstrike", "chienpao"), sheet["speed_order"]
+    assert any("Chien-Pao holds Focus Sash (intact" in n for n in sheet["notes"]), sheet["notes"]
+    multi = _sheet_hit(sheet, "urshifurapidstrike", "surgingstrikes", "chienpao")
+    assert multi.get("multi_hit") and battle.ko_probability(multi) >= 0.95, multi
+    single = _sheet_hit(sheet, "urshifurapidstrike", "closecombat", "chienpao")
+    assert battle.ko_probability(single) == 0.0 and single["damage_pct_of_current_hp"][1] <= 99.0, single
+
+
+def test_the_other_urshifu_scenarios_premises_hold_on_the_live_card():
+    sheet = _scenario_sheet("fake_out_the_scarf_urshifu")  # Urshifu moves before Incineroar and KOs it
+    assert _moves_first(sheet, "urshifurapidstrike", "incineroar")
+    assert battle.ko_probability(_sheet_hit(sheet, "urshifurapidstrike", "surgingstrikes", "incineroar")) >= 0.95
+    sheet = _scenario_sheet("protect_vs_ko")  # the 35% Flutter Mane outspeeds Urshifu, but the priority Aqua Jet KOs it
+    assert _moves_first(sheet, "fluttermane", "urshifurapidstrike")
+    jet = _sheet_hit(sheet, "urshifurapidstrike", "aquajet", "fluttermane")
+    assert jet["priority"] > 0 and battle.ko_probability(jet) >= 0.95, jet
+    sheet = _scenario_sheet("no_suicide_pivot")  # Garchomp now moves first but falls after; Iron Bundle dies on entry
+    assert _moves_first(sheet, "garchomp", "urshifurapidstrike")
+    assert battle.ko_probability(_sheet_hit(sheet, "urshifurapidstrike", "surgingstrikes", "garchomp")) >= 0.95
+    assert sheet["switch_ins"]["ironbundle"]["takes_worst"]["ko_chance"] >= 0.95
