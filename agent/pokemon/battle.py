@@ -1050,6 +1050,13 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
 
     sheet.turn = turn if isinstance(turn, int) else None
     _our_status(sheet, ours, obs)
+    for slot in slots:
+        me = ours.get(slot.get("slot", 0))
+        if me is not None and data.to_id(me.item) in CHOICE_ITEMS and any(
+                o.get("type") == "move" and data.to_id(o.get("move_id")) in PROTECT_OPTIONS for o in slot.get("options") or []) \
+                and len([o for o in slot.get("options") or [] if o.get("type") == "move"]) > 1:
+            sheet.notes.append(f"Our {me.species} holds a Choice item: Protect LOCKS it into Protect until it switches out (next turn "
+                               "only a 1-in-3 Protect or a switch, no attack).")
     _glaive_rush_carry(sheet, ours, memory)
     _flinch_risk(sheet, ours, theirs, fs, slots=slots, P=P)
     _sleep_threats(sheet, ours, theirs, fs, slots=slots, P=P)

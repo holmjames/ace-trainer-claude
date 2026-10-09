@@ -548,3 +548,57 @@ def test_an_eaten_lum_berry_is_no_sleep_cover_and_paralysis_or_freeze_cost_actio
     assert sheet.acts(0) == pytest.approx(0.75) and sheet.acts(1) == pytest.approx(0.2)
     rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
     assert battle.survival_factor(1, sheet, 0, rank) <= 0.2 + 1e-9
+
+
+# -- merge request 4: the review of stage 5714330 (reply model, behind reply_mixture) ----------------------------------
+
+
+def test_a_choice_holders_protect_is_charged_the_locked_turn():
+    # d9405f02 T4: Scarf Landorus-T's Protect locks it into Protect; the cell charges one lost action and no hit next turn.
+    ctx, rows, cols = _context("d9405f02", 4)
+    lando = next(n for n, m in ctx.ours.items() if species_key(m.species) == "landorustherian")
+    assert data.to_id(ctx.ours[lando].item) == "choicescarf"
+    row = next(r for r in rows if any(a.kind == "protect" and a.slot == lando for a in r.actions))
+    col = cols[0]
+    locked = ctx.cell(row, col)
+    scarf = ctx.ours[lando].item
+    ctx.ours[lando].item = None
+    try:
+        free = ctx.cell(row, col)
+    finally:
+        ctx.ours[lando].item = scarf
+    assert locked < free - 5, (locked, free)
+
+
+def test_the_worst_case_keeps_the_columns_the_tally_finds_plausible():
+    # 0a2b7c2a T3: the read put 0.95 on one column; the floor now keeps every column either prior gives >= 0.08.
+    ctx, rows, cols = _context(M4, 3)
+    matrix = [[ctx.cell(r, c) for c in cols] for r in rows]
+    tally = ctx.prior(cols)
+    read = replies._search_reply(matrix, tally, ctx.P)
+    kappa = ctx.P["reply_search_qr"]
+    blended = [(1 - kappa) * a + kappa * b for a, b in zip(tally, read)]
+    floor = [j for j in range(len(cols)) if max(blended[j], tally[j]) >= float(ctx.P.get("reply_floor_min_prior", 0.08))]
+    assert len(floor) >= 2 and max(blended) < 0.9, (floor, max(blended))
+
+
+def test_the_mixture_keeps_a_sleeper_in_rather_than_feed_spore_a_doomed_newcomer():
+    # 51c86e5c T5/T6: the sleeping Indeedee-F out to a Gyarados that Spore and Wild Charge both had was the top row at
+    # all 40 seeds; the menu now mirrors safe_switch.
+    for turn in (5, 6):
+        ctx, rows, cols = _context(S51, turn)
+        assert not [r for r in rows if any(a.kind == "switch" and species_key(a.species) == "gyarados" for a in r.actions)], turn
+
+
+def test_a_taunted_foe_has_no_protect_or_setup_column_and_spore_calls_are_scored():
+    sheet, template, obs, m = _synthetic(("Gyarados", "Archaludon"), ("Chien-Pao", "Amoonguss"), turn=3)
+    m.taunted = {"theirs:chienpao": 2, "theirs:amoonguss": 2}
+    sheet = battle.build_sheet(template, obs, m)
+    ours = {x.position: x for x in sheet.field.actives if x.side == "mine"}
+    theirs = {x.position: x for x in sheet.field.actives if x.side == "theirs"}
+    ctx = replies._Context(sheet, m, sorted(template["slots"], key=lambda s: s["slot"]), ours, theirs,
+                           tuning.merged({"reply_mixture": 1}), "search", 3, obs.get("opponent_team"))
+    cols = ctx.their_menu()
+    assert not [c for c in cols for a in c.actions if a.kind in ("protect", "setup", "sleep")], [c.name for c in cols]
+    m.opp_last_move = {"amoonguss": "spore", "chienpao": "iciclecrash"}
+    assert ctx.prediction_matched({"actions": [("Amoonguss", "sleep", "spore")]}) == 1.0
