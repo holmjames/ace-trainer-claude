@@ -1,12 +1,13 @@
 """The deep Team Preview in the shortlist and in the agent: ``lineup_sim_budget_s`` 0 is the stage2 preview exactly;
 above 0 the simulated plan leads the shortlist with its margins in the notes; the search keeps to its budget; and the
 Team Preview model call gets only the clock the search left (the agent's _lineup), code #1 when under
-``lineup_min_model_s``."""
+``lineup_min_model_s``. The clock tests fake the time spent by moving the decision's start back, not by waiting."""
 
 from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -15,6 +16,8 @@ from agent.pokemon.memory import species_key
 
 CATALOG = {c["species"]: c for c in json.loads((data.DATA_DIR / "cards.json").read_text())} if (data.DATA_DIR / "cards.json").exists() else {}
 pytestmark = pytest.mark.skipif(not CATALOG or not (data.DATA_DIR / "pokedex.json").exists(), reason="needs data/ tables")
+LIVE = Path(__file__).parent / "fixtures" / "live"
+REAL_SHORTLIST = lineup.shortlist
 
 # Oct 7 L2 (the review's better lead from this six: Gyarados + Archaludon) and Oct 7 L3.
 L2 = (["Iron Bundle", "Iron Hands", "Archaludon", "Gyarados", "Whimsicott", "Hatterene"],
@@ -124,3 +127,90 @@ def test_their_side_spreads_weight_over_their_likely_fours_and_every_lead_pair()
     # the four the Oct 7 opponent actually brought in L3 is among them
     names = {6 + j: s for j, s in enumerate(L3[1])}
     assert any({names[k] for k in four} == {"Incineroar", "Iron Hands", "Whimsicott", "Sylveon"} for _, four, _ in side)
+
+
+# -- the agent: the model gets only the clock the search left ---------------------------------------------------------
+
+
+class RecordingProvider:
+    model = "claude-primary"
+    effort = "high"
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.last_model, self.last_latency_ms, self.last_usage = "claude-primary", 5, {}
+        self.last_errors: list[str] = []
+        self.last_attempts: list[dict] = []
+
+    def complete_structured(self, messages, schema_name, schema, *, deadline=None, effort=None):
+        self.calls.append({"deadline": deadline, "schema_name": schema_name})
+        payload = json.loads(messages[-1]["content"])
+        first = payload["computed_candidates"][0]
+        return {"bring": first["bring"], "leads": first["leads"], "reasoning_summary": "code #1."}
+
+
+def preview_decision(tmp_path, monkeypatch, *, budget: float, spent: float, clock: dict | None):
+    """Team Preview of the Oct 8 win (bcbaabe2) through the agent, with the deep preview replaced by v2 plus ``spent``
+    seconds taken off the decision's clock (the decision's start moved back, as if the search had run that long)."""
+    from altruagent import DecisionContext
+    from altruagent.models import GameState
+
+    from agent.agent import PokemonAgent
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    raw = json.loads(next(LIVE.glob("bcbaabe2-*/team_preview-00000-seat0.json")).read_text())
+    if clock is None:
+        raw["observation"].pop("clock", None)
+    else:
+        raw["observation"]["clock"] = clock
+    provider = RecordingProvider()
+    agent = PokemonAgent(provider, version="preview-clock", log_dir=tmp_path, capture_dir="", log=lambda *_: None,
+                         params=tuning.merged({"lineup_sim_budget_s": budget}))
+    seen: dict = {}
+
+    def deep(*args, sim_budget_s=0.0, **kwargs):
+        seen["budget"] = sim_budget_s
+        agent._decision_started -= spent
+        return REAL_SHORTLIST(*args, **kwargs)
+
+    monkeypatch.setattr(lineup, "shortlist", deep)
+    ctx = DecisionContext(session_id="preview-clock", tournament_id=None, game_type="pokemon_vgc_doubles_draft",
+                          agent_id="me", seat_position=0)
+    decision = agent.choose_action(GameState.from_mcp_state(raw), ctx)
+    rows = [json.loads(line) for f in Path(tmp_path).glob("*.jsonl") for line in f.read_text().splitlines() if line.strip()]
+    row = next(r for r in reversed(rows) if "candidates" in r)
+    return getattr(decision, "action", decision), provider, row, seen
+
+
+def test_the_preview_model_gets_the_decision_time_the_search_left(tmp_path, monkeypatch):
+    payload, provider, row, seen = preview_decision(tmp_path, monkeypatch, budget=20.0, spent=25.0,
+                                                    clock={"decision_seconds_left": 85, "bank_seconds_left": 420})
+    assert seen["budget"] == 20.0
+    assert len(provider.calls) == 1
+    # min(60 cap, 85 - 25 - 8 = 52, bank (395 - 90) x 0.2 = 61): the decision term binds, less the real seconds the
+    # preview's own code took (v2 and the table: about one, three at most here)
+    assert 49.0 <= provider.calls[0]["deadline"] <= 52.0
+    assert row["clock"]["rule"] == "decision" and 57.0 <= row["clock"]["decision_seconds_left"] <= 60.0
+    assert payload["bring"] == row["candidates"][0]["bring"]
+
+
+def test_with_under_ten_seconds_left_code_one_is_played_without_the_model(tmp_path, monkeypatch):
+    payload, provider, row, _ = preview_decision(tmp_path, monkeypatch, budget=20.0, spent=70.0,
+                                                 clock={"decision_seconds_left": 85, "bank_seconds_left": 420})
+    assert provider.calls == []  # 85 - 70 - 8 = 7 s < lineup_min_model_s
+    assert row["fallback"] is True and row["model"] is None
+    assert any("clock too short for a Team Preview model call" in e for e in row["errors"])
+    first = row["candidates"][0]
+    assert sorted(payload["bring"]) == sorted(first["bring"]) and sorted(payload["leads"]) == sorted(first["leads"])
+    # no server clock at all (an old simulator): the 85 s Team Preview allowance is charged the same way
+    payload, provider, row, _ = preview_decision(tmp_path / "noclock", monkeypatch, budget=20.0, spent=70.0, clock=None)
+    assert provider.calls == [] and row["fallback"] is True
+
+
+def test_with_the_deep_preview_off_the_clock_goes_to_the_model_untouched(tmp_path, monkeypatch):
+    payload, provider, row, seen = preview_decision(tmp_path, monkeypatch, budget=0.0, spent=0.0,
+                                                    clock={"decision_seconds_left": 85, "bank_seconds_left": 420})
+    assert seen["budget"] == 0.0
+    assert provider.calls and provider.calls[0]["deadline"] == pytest.approx(60.0, abs=0.6)  # the stage2 cap
+    assert row["clock"] == {"decision_seconds_left": 85.0, "bank_seconds_left": 420.0, "deadline_s": 60.0,
+                            "remaining_turns": 14, "rule": "cap"}

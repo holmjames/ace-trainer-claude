@@ -552,7 +552,10 @@ class PokemonAgent:
     def _lineup(self, action: LegalAction, state: GameState, obs: dict, log: DecisionLog):
         choice = pokemon_adapters.lineup_choice(action, state)
         roster = list(choice.prompt.get("roster") or [])
-        candidates = lineup_rules.shortlist(self.memory.my_cards, self.memory.opp_cards, roster, params=self.params)
+        # The deep preview (lineup_sim_budget_s > 0) simulates openings for up to that many seconds of the 85 s clock.
+        sim_budget = float(self.params.get("lineup_sim_budget_s", 0.0))
+        candidates = lineup_rules.shortlist(self.memory.my_cards, self.memory.opp_cards, roster, params=self.params,
+                                            sim_budget_s=sim_budget)
         # The best computed lineup is the fallback (validated like any answer); the adapter's
         # own fallback (first four of the roster) only if even that fails.
         if candidates:
@@ -580,8 +583,31 @@ class PokemonAgent:
             "opponent_class": self._opponent_class_view(),
             "observation": _compact(_preview_view(obs), ("your_roster", "opponent_roster", "battle_format")),
         }
-        value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"), remaining_turns=DEFAULT_REMAINING_TURNS,
-                                        system_extra=KNOWN_SETS_PREAMBLE + json.dumps(known_sets, ensure_ascii=False, default=str))
+        clock = obs.get("clock")
+        if sim_budget > 0:
+            # The model gets only the time left after the search: the server's clock less what this decision has used,
+            # so its deadline is min(cap, decision_left - elapsed - 8); with less than lineup_min_model_s left, code #1.
+            elapsed = time.monotonic() - self._decision_started
+            clock = dict(clock) if isinstance(clock, dict) else {}
+            try:
+                left = float(clock["decision_seconds_left"]) if clock.get("decision_seconds_left") is not None else PREVIEW_DECISION_SECONDS
+                clock["decision_seconds_left"] = round(max(0.0, left - elapsed), 1)
+                if clock.get("bank_seconds_left") is not None:
+                    clock["bank_seconds_left"] = round(max(0.0, float(clock["bank_seconds_left"]) - elapsed), 1)
+            except (TypeError, ValueError):
+                clock = {"decision_seconds_left": round(max(0.0, PREVIEW_DECISION_SECONDS - elapsed), 1)}
+        budget = _clock_budget(clock, remaining_turns=DEFAULT_REMAINING_TURNS, kind="lineup")
+        if sim_budget > 0 and self._provider is not None and budget.deadline < float(self.params.get("lineup_min_model_s", 10.0)):
+            value, answer = choice.fallback(), None
+            info = {"model": None, "latency_ms": None, "attempts": 0, "fallback": True, "clock": budget.as_log(),
+                    "effort": self.effort_for("lineup"),
+                    "errors": [f"clock too short for a Team Preview model call after the deep preview (deadline {budget.deadline:.1f}s "
+                               f"from {budget.reason}); playing code #1"]}
+            self.memory.fallbacks += 1
+            self._say(f"[agent] lineup: only {budget.deadline:.1f}s left for the model after the deep preview; playing code #1")
+        else:
+            value, answer, info = self._ask(choice, payload, kind="lineup", clock=clock, remaining_turns=DEFAULT_REMAINING_TURNS,
+                                            system_extra=KNOWN_SETS_PREAMBLE + json.dumps(known_sets, ensure_ascii=False, default=str))
         self._lineup_model = info.get("model")
         if isinstance(value, dict):
             self.memory.my_lineup = list(value.get("bring") or [])
