@@ -1058,7 +1058,9 @@ def test_an_override_is_scored_against_the_rows_and_rejected_beyond_the_margin_u
     meta = {}
     value = agent._resolve_turn_answer(_turn_answer(row=1, override=weak, prediction=("protect", "switch")), sheet, _adapter(build), prediction, meta)
     assert meta["resolution"].startswith("override rejected") and meta["row"] == 1
-    assert value["slot_1"]["move_id"] == template["slots"][1]["options"][sheet.candidates[1]["slot_1"]["option"]]["move_id"]
+    # the chosen row 1 itself trails row 0 beyond the margin here, so the margin rule for rows plays row 0
+    assert "row 1 rejected" in meta["resolution"] and meta["row_played"] == 0
+    assert value["slot_1"]["move_id"] == template["slots"][1]["options"][sheet.candidates[0]["slot_1"]["option"]]["move_id"]
     assert meta["override_value"] < meta["best_row_score"] - meta["margin"] and meta["prediction_matches_code"] is False
     # 3. the same weak override with an opponent read that matches the code's top column: it stands
     meta = {}
@@ -1135,3 +1137,33 @@ def test_placeholder_card_is_loud_and_never_blank(tmp_path):
     assert len([line for line in lines if "CATALOG GAP" in line and "notapokemon" in line.lower()]) == 1
     agent.memory.observe_battle({**obs, "turn": 3})
     assert len([line for line in lines if "CATALOG GAP" in line]) == 1  # once per card per match
+
+
+def test_a_row_that_trails_the_best_row_beyond_the_margin_plays_the_best_row_bcbaabe2_t14():
+    """E2 for rows: at T14 the rows are protect_threatened 58.3 and best_attacks 30.9. The model picked the attack row
+    (and kept it through the recheck) in two of three real calls at low; a 47% gap plays row 0 unless the reply
+    table rates the row at least as well against the predicted column (it does not exist with the mixture off)."""
+    agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 14)
+    for index, c in enumerate(sheet.candidates):
+        c["row"] = index
+    assert [c["name"] for c in sheet.candidates[:2]] == ["protect_threatened", "best_attacks"]
+    attack_row = 1
+    meta: dict = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=attack_row, prediction=("attack", "none")), sheet, _adapter(build), {"top_column": {1: "attack"}}, meta)
+    assert meta["resolution"].startswith("row 1 rejected") and meta["row_played"] == 0 and meta["prediction_matches_code"] is True
+    assert value["slot_1"]["move_id"] == "protect"
+    # a row within the margin stands; the top row always stands
+    sheet.candidates[1]["score"] = round(sheet.candidates[0]["score"] * 0.9, 1)
+    meta = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=attack_row), sheet, _adapter(build), {"top_column": {1: "attack"}}, meta)
+    assert meta["resolution"] == "row" and value["slot_1"]["move_id"] == "extremespeed"
+    sheet.candidates[1]["score"] = 30.9
+    meta = {}
+    agent._resolve_turn_answer(_turn_answer(row=0), sheet, _adapter(build), {"top_column": {1: "attack"}}, meta)
+    assert meta["resolution"] == "row"
+    # the reply-table hook: when core's mixture rates the row at least as well, the read lets it stand
+    sheet.reply = {"rows": [{"name": "protect_threatened", "value": 40.0}, {"name": "best_attacks", "value": 41.0}]}
+    meta = {}
+    value = agent._resolve_turn_answer(_turn_answer(row=attack_row, prediction=("attack", "none")), sheet, _adapter(build), {"top_column": {1: "attack"}}, meta)
+    assert meta["resolution"].startswith("row 1 stands on the opponent read") and value["slot_1"]["move_id"] == "extremespeed"
+    sheet.reply = {}

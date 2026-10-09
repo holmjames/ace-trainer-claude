@@ -696,6 +696,26 @@ class PokemonAgent:
         if not row_ok:
             raise InvalidChoice(f"row must be a candidate_turns row number 0..{max(len(rows) - 1, 0)}, got {row!r}"
                                 + ("" if rows else "; this position has no rows: propose a joint action with override.use=true"))
+        # The same margin rule for a row pick (the review's E2): a row whose value trails the best row by more than the
+        # margin plays the best row instead, unless the model's opponent read matches the code's top column AND the
+        # reply table (core's mixture) rates the row at least as well against that column. With the mixture off there
+        # is no such cell, so a trailing row is simply rejected: at bcbaabe2 T14 the model took the attack row (30.9)
+        # over the Protect row (58.3) twice in three calls and kept it through the recheck.
+        if row > 0:
+            best = float(rows[0].get("score") or 0.0)
+            value = float(rows[row].get("score") or 0.0)
+            margin = float(self.params.get("override_margin", 0.15)) * max(best, 1.0)
+            if value < best - margin:
+                matches = opponent_model.prediction_matches(answer.get("opponent_prediction"), prediction.get("top_column") or {})
+                cell = _reply_cell_beats_best(sheet, rows[row], rows[0]) if matches else False
+                meta.update({"row_value": value, "best_row_score": best, "margin": round(margin, 1), "prediction_matches_code": matches})
+                earlier = meta["resolution"] + "; " if meta.get("resolution") not in (None, "row") else ""
+                if not cell:
+                    meta["resolution"] = earlier + f"row {row} rejected: {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}; row 0 plays"
+                    meta["row_played"] = 0
+                    self._say(f"[agent] {meta['resolution']}")
+                    return base.build({"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]})
+                meta["resolution"] = earlier + f"row {row} stands on the opponent read (the reply table rates it at least as well against the predicted column)"
         return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
 
     def _opponent_class_view(self) -> dict:
@@ -1154,6 +1174,18 @@ def _trim_team_entry(entry: dict) -> dict:
     if not out.get("is_terastallized"):
         out.pop("is_terastallized", None)
     return out
+
+
+def _reply_cell_beats_best(sheet: Any, row: dict, best: dict) -> bool:
+    """Does the reply table (core's mixture, when it ran this turn) rate ``row`` at least as well as ``best`` against
+    the predicted column? The table currently publishes per-row values and the best reply, not per-column cells, so
+    this is the hook: a row carrying ``value`` >= the best row's ``value`` counts; anything else does not."""
+    table = getattr(sheet, "reply", None) or {}
+    by_name = {r.get("name"): r for r in table.get("rows") or [] if isinstance(r, dict)}
+    mine, top = by_name.get(row.get("name")), by_name.get(best.get("name"))
+    if not mine or not top or mine.get("value") is None or top.get("value") is None:
+        return False
+    return float(mine["value"]) >= float(top["value"])
 
 
 def _threatened_by_us(sheet: Any) -> list[str]:
