@@ -47,9 +47,9 @@ ABSORB_ABILITIES = {"flashfire": "fire", "wellbakedbody": "fire", "waterabsorb":
                     "dryskin": "water", "voltabsorb": "electric", "lightningrod": "electric", "motordrive": "electric",
                     "sapsipper": "grass", "eartheater": "ground", "levitate": "ground"}
 MOLD_BREAKERS = {"moldbreaker", "teravolt", "turboblaze", "myceliummight"}
-RAIN_SURE_HIT = {"hurricane", "thunder", "bleakwindstorm", "wildboltstorm", "sandsearstorm"}
-WEIGHT_MOVES = {"lowkick", "grassknot"}  # power from the target's weight; the shared calculator reads their 0 as "no damage"
-DAMAGING_WITHOUT_POWER = WEIGHT_MOVES | {"ruination", "beatup", "heavyslam", "heatcrash"}
+RAIN_SURE_HIT = data.RAIN_SURE_HIT
+WEIGHT_MOVES = set(data.WEIGHT_MOVES)  # power from the target's weight; the shared calculator reads their 0 as "no damage"
+DAMAGING_WITHOUT_POWER = set(data.DAMAGING_WITHOUT_POWER) | {"ruination", "beatup"}
 
 # -- what moves and abilities do in a race -----------------------------------------------------------------------
 RECOIL = {"flareblitz": 1 / 3, "wavecrash": 1 / 3, "woodhammer": 1 / 3, "bravebird": 1 / 3, "doubleedge": 1 / 3,
@@ -170,8 +170,9 @@ def calc_hit(attacker: Mon, move: dict, defender: Mon, fs: FieldState | None, *,
     from the target's weight (the move table says 0, which reads as "no damage") and immunities from absorbing
     abilities (Flash Fire, Water Absorb, Volt Absorb...). Checked against @smogon/calc in tests/test_matchup.py.
     (min%, max%) of the defender's CURRENT HP, or None for a move that does no damage."""
-    if move.get("id") in WEIGHT_MOVES:
-        move = {**move, "base_power": weight_power(defender)}
+    power = data.weight_power(move, defender, attacker)  # Low Kick / Grass Knot, Heavy Slam / Heat Crash
+    if power is not None:
+        move = {**move, "base_power": power}
     if data.to_id(attacker.ability) not in MOLD_BREAKERS and move.get("category") in ("Physical", "Special"):
         absorbed = ABSORB_ABILITIES.get(data.to_id(defender.ability))
         if absorbed and data.to_id(effective_move(attacker, move, defender, fs).get("type")) == absorbed:
@@ -179,26 +180,14 @@ def calc_hit(attacker: Mon, move: dict, defender: Mon, fs: FieldState | None, *,
     return damage_percent(attacker, move, defender, field=fs, spread=spread)
 
 
-def weight_power(defender: Mon) -> int:
-    """Low Kick / Grass Knot power from the target's weight (kg)."""
-    info = data.species_info(defender.species) or {}
-    try:
-        kg = float(info.get("weightkg") or 0)
-    except (TypeError, ValueError):
-        kg = 0.0
-    for limit, power in ((200, 120), (100, 100), (50, 80), (25, 60), (10, 40)):
-        if kg >= limit:
-            return power
-    return 20
+def weight_power(defender: Mon, move: dict | None = None, attacker: Mon | None = None) -> int:
+    """Low Kick / Grass Knot power from the target's weight (``data.weight_power``, the mech lane's table)."""
+    return int(data.weight_power(move or {"id": "lowkick"}, defender, attacker) or 20)
 
 
 def accuracy(move: dict, weather: str | None) -> float:
-    acc = move.get("accuracy")
-    if acc is True or acc is None:
-        return 1.0
-    if weather == "rain" and move.get("id") in RAIN_SURE_HIT:
-        return 1.0
-    return max(0.0, min(1.0, float(acc) / 100.0))
+    """The move's chance to land (``data.hit_chance``: never-miss moves, rain / snow sure hits, sun halving)."""
+    return data.hit_chance(move, weather)
 
 
 def pair_field(a: Unit, b: Unit) -> tuple[str | None, str | None]:
@@ -257,12 +246,17 @@ class Duel:
     spread_b: float = 0.0
     ohko_a: bool = False  # A KOs B from full HP on turn 1 of the plain race, before B moves
     ohko_b: bool = False
+    hit_a: float = 0.0  # A's best single hit into B at full HP, max roll, % of B's max HP (immunities, Air Balloon, multi-hit)
+    hit_b: float = 0.0
+    hit_a_move: str | None = None
+    hit_b_move: str | None = None
 
     def flipped(self) -> "Duel":
         return Duel(margin=-self.margin, margin_tw_a=-self.margin_tw_b, margin_tw_b=-self.margin_tw_a, margin_tr=-self.margin_tr,
                     a_ko_turn=self.b_ko_turn, b_ko_turn=self.a_ko_turn, a_move=self.b_move, b_move=self.a_move,
                     first=-self.first, spread_a=self.spread_b, spread_b=self.spread_a,
-                    ohko_a=self.ohko_b, ohko_b=self.ohko_a)
+                    ohko_a=self.ohko_b, ohko_b=self.ohko_a, hit_a=self.hit_b, hit_b=self.hit_a,
+                    hit_a_move=self.hit_b_move, hit_b_move=self.hit_a_move)
 
 
 @dataclass
@@ -323,6 +317,26 @@ class _Race:
                 result = (mean * accuracy(move, self.weather), priority, data.expected_hits(move, item=a_mon.item))
         self.memo[key] = result
         return result
+
+    def max_hit(self, att: _Side, dfn: _Side) -> tuple[float, str | None]:
+        """A's best single attack into B at full HP: the max roll as % of B's max HP (a multi-hit move's strikes are
+        already summed by the calculator), with immunities and Air Balloon through ``calc_hit``; (0.0, None) when
+        nothing lands."""
+        best: tuple[float, str | None] = (0.0, None)
+        a_mon = replace(att.unit.mon, boosts=dict(att.stages), item=att.item or None, hp_fraction=1.0)
+        d_mon = replace(dfn.unit.mon, boosts=dict(dfn.stages), item=dfn.item or None, hp_fraction=1.0)
+        fs = FieldState(weather=self.weather, terrain=self.terrain, actives=[a_mon, d_mon])
+        a_mon.boosted_stat = paradox_boosted_stat(a_mon, fs)
+        d_mon.boosted_stat = paradox_boosted_stat(d_mon, fs)
+        for move in att.unit.attacks:
+            if move["id"] == "ruination":
+                value = 0.0 if data.effectiveness("dark", d_mon.types) == 0 else 50.0
+            else:
+                est = calc_hit(a_mon, move, d_mon, fs, spread=False)
+                value = est[1] if est else 0.0
+            if value > best[0]:
+                best = (value, move["id"])
+        return best
 
     def speed(self, side: _Side, mult: float) -> float:
         key = (side.unit.key, side.stages.get("spe", 0), side.item, side.status)
@@ -535,7 +549,7 @@ def duel(a: Unit, b: Unit) -> Duel:
         tw_a, _ = _solve(race, (2.0, 1.0), False)
         tw_b, _ = _solve(race, (1.0, 2.0), False)
         tr, _ = _solve(race, (1.0, 1.0), True)
-        spreads = []
+        spreads, hits = [], []
         for me, foe in ((a, b), (b, a)):
             side_me = _Side(me, stages=entry_stages(me, foe), item=me.item)
             side_foe = _Side(foe, stages=entry_stages(foe, me), item=foe.item)
@@ -545,10 +559,12 @@ def duel(a: Unit, b: Unit) -> Duel:
                     dmg, _, _ = race.hit(side_me, move, side_foe)
                     best = max(best, dmg)
             spreads.append(best)
+            hits.append(race.max_hit(side_me, side_foe))
         result = Duel(margin=round(base, 4), margin_tw_a=round(tw_a, 4), margin_tw_b=round(tw_b, 4), margin_tr=round(tr, 4),
                       a_ko_turn=plain.ko_turn[0], b_ko_turn=plain.ko_turn[1], a_move=plain.moves[0], b_move=plain.moves[1],
                       first=plain.first, spread_a=round(spreads[0], 1), spread_b=round(spreads[1], 1),
-                      ohko_a=plain.ohko[0], ohko_b=plain.ohko[1])
+                      ohko_a=plain.ohko[0], ohko_b=plain.ohko[1], hit_a=round(hits[0][0], 1), hit_b=round(hits[1][0], 1),
+                      hit_a_move=hits[0][1], hit_b_move=hits[1][1])
     _DUELS[(a.key, b.key)] = result
     _DUELS[(b.key, a.key)] = result.flipped()
     return result
@@ -911,6 +927,26 @@ class _Opening:
             m.hp = min(100.0, m.hp + 6.25)
 
 
+def opening_plan(ours: list[Unit], theirs: list[Unit]) -> list[str]:
+    """What the opening model has each lead do on turn 1 (our two first, then theirs), as 'Species: move -> target'
+    lines: the turn-1 line Team Preview can show the model."""
+    sim = _Opening(ours, theirs)
+    lines = []
+    for m in sim.mons:
+        kind, move, target = sim.decide(m, 1)
+        if move is None:
+            lines.append(f"{m.unit.species}: nothing")
+            continue
+        what = move["id"]
+        if kind == "attack" and target is None and move.get("target") in SPREAD_TARGETS:
+            lines.append(f"{m.unit.species}: {what} (spread)")
+        elif target is not None:
+            lines.append(f"{m.unit.species}: {what} -> {target.unit.species}")
+        else:
+            lines.append(f"{m.unit.species}: {what}")
+    return lines
+
+
 _OPENINGS: dict[tuple, Opening] = {}
 
 
@@ -977,6 +1013,7 @@ def fake_out_exposed(ours: list[Unit], theirs: list[Unit]) -> list[tuple[str, st
 
 MODEL_PATH = data.DATA_DIR / "draft_model.json"
 TIERS_PATH = data.DATA_DIR / "card_tiers.json"
+HOLE_THRESHOLD = 40.0  # % of max HP: below this from every card of ours, an opposing card is a coverage hole
 
 # Role counts are capped: a second Fake Out user helps, a third does not.
 ROLE_CAPS = {"fakeout": 2, "redirect": 1, "intimidate": 2, "tailwind": 1, "trickroom": 1, "speed_drop": 1, "screens": 1,
@@ -1064,6 +1101,20 @@ def load_tiers(path: str | Path | None = None) -> dict[str, dict]:
     return _TIERS_CACHE[target]
 
 
+UNSEEN_PERCENTILE = 0.25
+
+
+def unseen_strength(cards: dict) -> float:
+    """The per-card strength a card outside the fitted table gets: the 25th percentile of the fitted values
+    (-0.079 on the Oct 8 fit), so an unknown card is assumed below average rather than average."""
+    values = sorted(float((entry or {}).get("s", 0.0)) for entry in cards.values())
+    if not values:
+        return 0.0
+    pos = UNSEEN_PERCENTILE * (len(values) - 1)
+    lo, hi = int(pos), min(int(pos) + 1, len(values) - 1)
+    return values[lo] + (pos - lo) * (values[hi] - values[lo])
+
+
 class Board:
     """Every pairwise race among a fixed set of cards, laid out by index so a draft search can score thousands of
     team pairs per second. ``score(us, them)`` takes index lists and returns the log-odds that ``us`` wins."""
@@ -1082,6 +1133,8 @@ class Board:
         self.tr = [[0.0] * n for _ in range(n)]
         self.spread = [[0.0] * n for _ in range(n)]  # i's best spread hit into j, % of j's HP
         self.ohko = [[False] * n for _ in range(n)]  # i knocks j out from full HP on turn 1 before j moves
+        self.hit = [[0.0] * n for _ in range(n)]  # i's best single hit into j (max roll, % of j's max HP; 0 = cannot damage)
+        self.hit_move = [[None] * n for _ in range(n)]
         for i, a in enumerate(self.units):
             for j, b in enumerate(self.units):
                 if i == j:
@@ -1090,6 +1143,7 @@ class Board:
                 self.base[i][j], self.tw_a[i][j], self.tw_b[i][j], self.tr[i][j] = d.margin, d.margin_tw_a, d.margin_tw_b, d.margin_tr
                 self.spread[i][j] = d.spread_a
                 self.ohko[i][j] = d.ohko_a
+                self.hit[i][j], self.hit_move[i][j] = d.hit_a, d.hit_a_move
         self.roles = [u.roles for u in self.units]
         self.items = [u.item for u in self.units]
         self.has_tw = [("tailwind" in r) for r in self.roles]
@@ -1099,9 +1153,13 @@ class Board:
         # its matchups explain") plus the tier list's written-down adjustment, while the matchup features below add
         # the reactions to this particular opponent. card_weight scales the fitted per-card part only (0 = matchups,
         # roles and the written-down adjustments); tier_adjust scales the adjustments only (0 = the fit as it is).
+        # A card the fit never saw gets the 25th-percentile strength, never 0: at 0 (the median) an unseen Iron
+        # Valiant was the first pick of da9c168e by 0.7 points of win chance, stayed home at Team Preview, and the game
+        # was lost (Oct 8).
+        unseen = unseen_strength(cards)
         self.resid = []
         for u in self.units:
-            term = card_weight * float((cards.get(u.key) or {}).get("s", 0.0))
+            term = card_weight * float((cards.get(u.key) or {}).get("s", unseen))
             tier = tiers.get(u.key)
             if tier:
                 term += tier_adjust * (float(tier.get("rating", 0.0)) - float(tier.get("sim_rating", 0.0))) / 100.0
@@ -1117,6 +1175,12 @@ class Board:
             if u.key == key:
                 return i
         raise KeyError(key)
+
+    def holes(self, us: list[int], them: list[int], threshold: float = HOLE_THRESHOLD) -> list[int]:
+        """Their cards none of ``us`` hits for at least ``threshold`` % of max HP with its best single attack
+        (immunities and Air Balloon included): the coverage holes a Protecting, switching opponent never lets a
+        two-turn plan around (Oct 7 L1: six cards with <= 18% into Air Balloon Gholdengo but one)."""
+        return [j for j in them if not any(self.hit[i][j] >= threshold for i in us)]
 
     def margins(self, us: list[int], them: list[int]) -> tuple[list[list[float]], float, float]:
         """Effective race margins (rows: ours, columns: theirs) once each side's speed control is counted, plus the

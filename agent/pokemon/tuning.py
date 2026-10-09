@@ -39,6 +39,12 @@ DEFAULTS: dict[str, float] = {
     "draft_counter_prior": 0.02,   # v2: our tier rating (data/card_tiers.json, 1/100 log-odds) x this, added to the counter-picker's score as its strength prior when it picks their replies (0.02: adds the L1 reply Gholdengo to its top three; 0.03+ pushed Incineroar below 5th at L4 pick 1, Oct 8)
     "draft_four_eval": 1.0,        # v2: value a finished draft by the four we would bring (Team Preview's criterion, preview weights) instead of all six (Oct 8: early picks stayed home in four live games); 0 = six against six
     "draft_their_fours": 3.0,      # v2: how many of their likeliest fours that value is taken against (the mean / worst blend uses lineup_v2_robust)
+    "draft_first_pick_w": 1.0,     # B1: weight on the first-pick policy (draft.first_pick_bonus) at our first pick, half at our second, 0 after; 0 = search only
+    "draft_first_strength_w": 1.0,   # B1: x the candidate's mean duel margin over the remaining pool
+    "draft_first_scarcity_w": 0.5,   # B1: x role scarcity (1 / holders in the pool, summed over Fake Out, Intimidate, speed control, redirection, Ghost); 0.5 lifts Incineroar to 5th / 4th at pick 1 on L2 / L3 (0.3: 5th / 7th)
+    "draft_first_exposure_w": 0.2,   # B1: x (pool cards that beat the candidate by >= 0.2) / 6: the counters the opponent can still take
+    "draft_first_guard_w": 0.1,      # B1: x the hand guard list for the live catalog (+1 / -1 / 0)
+    "draft_hole_w": 0.5,           # B4: log-odds per coverage hole in the finished-draft value (their card none of our four hits for 40% of its HP with its best real attack; immunities and Air Balloon count); 0 = off
     "draft_tiebreak_eps": 0.01,    # picks whose finished-draft win chance is within this of the best are a tie, broken by the match's secret seed (0 = always the best)
     "lineup_tiebreak_eps": 0.01,   # same for the four we bring and the lead pair (win chance of the candidate value / the lead value)
     # lineup
@@ -60,6 +66,7 @@ DEFAULTS: dict[str, float] = {
     "lineup_v2_template": 0.5,     # v2: share of their predicted leads taken from the "Fake Out / speed control + best spread attacker" template
     "lineup_v2_lead_robust": 0.0,  # v2: weight on our lead pair's worst opening against any plausible lead of theirs (vs the expected one)
     "lineup_v2_four_template": 0.0,  # v2: share of their predicted FOUR from the same template (off: on the Oct 7 opponent's live lineups M1 38->34%, M4 24->0%, M2 unchanged)
+    "lineup_hole_w": 0.5,          # B4: per coverage hole, in Team Preview v2's pairing (log-odds) and the old scorer's score_four (points); 0 = off
     "lead_veto_w": 0.5,            # v2 lead veto: a pair that loses a lead on turn 1 (or leads an exposed speed-control setter) against their two likeliest openings is never chosen while a pair of the same four is safe; with no safe pair, this much per lead lost (half for an exposed setter). 0 = off
     # battle
     "ko_bonus_guaranteed": 25.0,

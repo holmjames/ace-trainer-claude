@@ -121,6 +121,15 @@ def score_four(four: list[Profile], theirs: list[Profile], params: dict | None =
         notes.append("too few attackers")
     score += sum(p.bst for p in four) / 200.0
 
+    # Coverage holes (B4): one of their cards that none of our four hits for 40% of its HP with its best real attack
+    # (damage_percent: immunities, Air Balloon) is a card we cannot answer; a Protecting, switching opponent never
+    # allows the two-turn "pop the Balloon, then Earthquake" plan.
+    if theirs and P.get("lineup_hole_w", 0):
+        gaps = coverage_holes(four, theirs)
+        if gaps:
+            score -= P["lineup_hole_w"] * len(gaps)
+            notes.append(f"coverage hole: nothing hits {gaps[:3]} for 40%")
+
     # Known 4x weaknesses: a brought Pokémon that takes 4x from one of their actual moves is a liability.
     if theirs:
         quad = sum(1 for me in four for opp in theirs for mv in opp.attacks if data.effectiveness(mv.get("type") or "", me.types) >= 4)
@@ -139,6 +148,21 @@ def score_four(four: list[Profile], theirs: list[Profile], params: dict | None =
 
 
 INTIMIDATE_IMMUNE = {"innerfocus", "owntempo", "oblivious", "scrappy", "guarddog", "clearbody", "whitesmoke", "fullmetalbody"}
+
+
+def coverage_holes(four: list[Profile], theirs: list[Profile]) -> list[str]:
+    """Their cards none of ``four`` hits for matchup.HOLE_THRESHOLD % of max HP with its best single real attack."""
+    from . import matchup
+
+    ours = [matchup.unit(p.card) for p in four if p.card.get("moves")]
+    out = []
+    for opp in theirs:
+        if not opp.card.get("moves"):
+            continue
+        target = matchup.unit(opp.card)
+        if not any(matchup.duel(me, target).hit_a >= matchup.HOLE_THRESHOLD for me in ours):
+            out.append(opp.species)
+    return out
 
 
 def lead_ohkos(pair: list[Profile], theirs: list[Profile]) -> list[str]:
@@ -346,10 +370,11 @@ class PreviewModel:
     """Scores four-against-four pairings and lead pairs on one ``matchup.Board`` (our six first, then theirs).
     A lead pair's score is the fitted weight times the margin of its opening (``matchup.opening``: turns 1-2)."""
 
-    def __init__(self, mine: list[dict], theirs: list[dict], *, tier_adjust: float = 1.0) -> None:
+    def __init__(self, mine: list[dict], theirs: list[dict], *, tier_adjust: float = 1.0, hole_w: float = 0.0) -> None:
         from . import matchup
 
         self.matchup = matchup
+        self.hole_w = float(hole_w)
         model = matchup.load_model(section="preview", clamp=False)  # as fitted: see matchup.load_model
         self.board = matchup.Board([matchup.unit(c) for c in mine + theirs], model, tier_adjust=tier_adjust)
         self.opening_w = float(model.get("opening_weight", 0.35))
@@ -434,9 +459,11 @@ class PreviewModel:
         return mix
 
     def pairing(self, four: tuple[int, ...], other: tuple[int, ...]) -> float:
-        """Log-odds that ``four`` beats ``other``, with both sides leading as well as they can."""
+        """Log-odds that ``four`` beats ``other``, with both sides leading as well as they can, less ``hole_w`` per
+        coverage hole (Board.holes) either way."""
         _, _, _, _, lead_value = self.lead_game(four, other)
-        return self.board.score(list(four), list(other)) + lead_value
+        holes = self.hole_w * (len(self.board.holes(list(four), list(other))) - len(self.board.holes(list(other), list(four)))) if self.hole_w else 0.0
+        return self.board.score(list(four), list(other)) + lead_value - holes
 
     def likely_leads(self, four: tuple[int, ...], likely: list[tuple[float, int]], their_fours: list[tuple[int, ...]],
                      template: float) -> dict[tuple, float]:
@@ -528,7 +555,8 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
     """Our best fours (first = the one we bring if the model does not answer) and their leads. ``seed`` (the match's
     secret tie-break seed, draft.tiebreak_seed) decides among fours and lead pairs the model cannot tell apart."""
     P = params or DEFAULTS
-    model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)))
+    model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)),
+                         hole_w=float(P.get("lineup_hole_w", 0.0)))
     win = model.matchup.win_probability
     names = {i: p.species for i, p in enumerate(mine)}
     names.update({len(mine) + j: p.species for j, p in enumerate(theirs)})
@@ -580,3 +608,85 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
             out[0].notes.append(f"tie-break seed {seed:#x}" + (f": this four over {[c.bring for c in out[1:] if abs(win(c.score) - win(out[0].score)) <= eps]}"
                                                                if first else ""))
     return out
+
+
+# -- the Team Preview payload table (C4) -----------------------------------------------------------------------------
+#
+# A compact text table for the Team Preview prompt: what the model needs to judge a lineup against the numbers rather
+# than from memory. Kept under ~2,500 characters.
+
+
+def _short(name: str, width: int = 8) -> str:
+    return name[:width]
+
+
+def preview_table(my_cards: dict[str, dict], opp_cards: dict[str, dict], candidates: list[Candidate],
+                  params: dict | None = None) -> str:
+    """The 6x6 best-hit table both ways (max roll % of max HP; ! = one-hit KO, x = cannot damage, > = we move first),
+    spread damage into pairs of our four, their Fake Out / Intimidate / priority users and speed-control setters,
+    our Fake Out-immune leads, the predicted four and leads with the reasons, our turn-1 line and which of their six
+    each of our four cannot damage. ``candidates`` is the shortlist (first = the lineup we bring)."""
+    from . import matchup
+
+    P = params or DEFAULTS
+    mine = [c for c in my_cards.values() if c.get("moves")]
+    theirs = [c for c in opp_cards.values() if c.get("moves")]
+    if len(mine) < 2 or len(theirs) < 2 or not candidates:
+        return ""
+    units = [matchup.unit(c) for c in mine + theirs]
+    board = matchup.Board(units, matchup.load_model(section="preview", clamp=False), tier_adjust=float(P.get("draft_tier_adjust", 0.0)))
+    ours, others = list(range(len(mine))), list(range(len(mine), len(units)))
+    name = lambda i: units[i].species  # noqa: E731
+    speed = lambda i: units[i].mon.stat("spe")  # noqa: E731
+
+    def cell(i: int, j: int) -> str:
+        pct = board.hit[i][j]
+        if pct <= 0:
+            return "x"
+        mark = "!" if pct >= 100 else ""
+        return f"{pct:.0f}{mark}{'>' if speed(i) > speed(j) else ''}"
+
+    lines = [f"Best hit % of max HP (max roll, Balloon/immunities in). !=OHKO x=none >=mover first. Ours: {', '.join(name(i) for i in ours)}. "
+             f"Theirs: {', '.join(name(j) for j in others)}.",
+             "OURS->THEIRS " + " ".join(f"{_short(name(j)):>8s}" for j in others)]
+    for i in ours:
+        lines.append(f"{_short(name(i), 12):12s} " + " ".join(f"{cell(i, j):>8s}" for j in others))
+    lines.append("THEIRS->OURS " + " ".join(f"{_short(name(i)):>8s}" for i in ours))
+    for j in others:
+        lines.append(f"{_short(name(j), 12):12s} " + " ".join(f"{cell(j, i):>8s}" for i in ours))
+    best = candidates[0]
+    bring = [i for i in ours if data.to_id(name(i)) in {data.to_id(b) for b in best.bring}] or ours[:BRING]
+    leads = [i for i in ours if data.to_id(name(i)) in {data.to_id(b) for b in best.leads}] or bring[:LEADS]
+    # their spread damage into pairs of our four (0.75x applied): the two biggest per spread attacker
+    spread_lines = []
+    for j in others:
+        hits = sorted(((board.spread[j][i], i) for i in bring if board.spread[j][i] > 0), reverse=True)
+        if len(hits) >= 2:
+            spread_lines.append(f"{name(j)} {hits[0][0]:.0f}/{hits[1][0]:.0f} into {_short(name(hits[0][1]))}+{_short(name(hits[1][1]))}")
+    if spread_lines:
+        lines.append("Their spread into our pairs: " + "; ".join(spread_lines[:4]))
+    roles = []
+    for label, role in (("Fake Out", "fakeout"), ("Intimidate", "intimidate"), ("priority", "priority")):
+        who = [name(j) for j in others if role in units[j].roles]
+        if who:
+            roles.append(f"{label}: {', '.join(who)}")
+    setters = [f"{name(j)} ({'/'.join(sorted(units[j].roles & {'tailwind', 'trickroom', 'speed_drop'}))})" for j in others
+               if units[j].roles & {"tailwind", "trickroom", "speed_drop"}]
+    lines.append("Theirs: " + ("; ".join(roles) if roles else "no Fake Out / Intimidate / priority") + (f"; speed control: {', '.join(setters)}" if setters else ""))
+    our_setters = [name(i) for i in bring if units[i].roles & {"tailwind", "trickroom", "speed_drop"}]
+    immune = [name(i) for i in bring if "ghost" in units[i].types or units[i].ability in ("innerfocus", "shielddust") or units[i].item == "covertcloak"]
+    lines.append(f"Ours: Fake Out-immune leads: {', '.join(immune) if immune else 'none'}"
+                 + (f"; speed control: {', '.join(our_setters)}" if our_setters else ""))
+    reasons = [n for n in best.notes if n.startswith(("v2:", "their likely leads", "opening vs", "lead veto", "no lead pair", "leads lose nothing", "coverage hole"))]
+    lines.append("Predicted: " + " | ".join(reasons)[:600])
+    lines.append(f"We bring {', '.join(name(i) for i in bring)}; lead {' + '.join(name(i) for i in leads)}.")
+    likely = next((n for n in best.notes if n.startswith("their likely leads: ")), "")
+    if likely and len(leads) == LEADS:
+        first = likely[len("their likely leads: "):].split(";")[0].rsplit(" ", 1)[0]
+        pair = [j for j in others if name(j) in {x.strip() for x in first.split(" + ")}]
+        if len(pair) == LEADS:
+            plan = matchup.opening_plan([units[i] for i in leads], [units[j] for j in pair])
+            lines.append(f"Turn 1 vs {name(pair[0])} + {name(pair[1])}: " + "; ".join(plan[:2]) + " || they: " + "; ".join(plan[2:4]))
+    gaps = [f"{name(i)}: {', '.join(name(j) for j in others if board.hit[i][j] <= 0) or 'none'}" for i in bring]
+    lines.append("Cannot damage: " + "; ".join(gaps))
+    return "\n".join(lines)

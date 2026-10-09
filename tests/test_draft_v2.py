@@ -94,11 +94,14 @@ def test_v2_last_pick_is_the_best_finisher():
     memory = memory_for(pool, mine=mine, theirs=theirs)
     legal = offered(memory)
     pick = draft.choose_pick(legal, memory, V2)
-    board = matchup.Board([matchup.unit(CATALOG[s]) for s in pool], card_weight=V2["draft_card_w"], tier_adjust=V2["draft_tier_adjust"])
+    board = draft._board_for([CATALOG[s] for s in pool], V2["draft_card_w"], V2["draft_tier_adjust"])
     idx = lambda s: board.index(matchup.unit(CATALOG[s]).key)  # noqa: E731
     us, them = [idx(s) for s in mine], [idx(s) for s in theirs]
-    best = max((board.score(us + [idx(CATALOG_BY_ID[draft.card_id_of(a)])], them), draft.card_id_of(a)) for a in legal)
-    assert pick.card_id == best[1]
+    search = draft.DraftSearch(board, four_eval=bool(V2["draft_four_eval"]), their_fours=int(V2["draft_their_fours"]),
+                               robust=V2["lineup_v2_robust"], hole_w=V2["draft_hole_w"])
+    # The last pick is the card that finishes the best four (the draft's own finished value, Oct 8), tie-break window aside.
+    values = {draft.card_id_of(a): search.finished(us + [idx(CATALOG_BY_ID[draft.card_id_of(a)])], them, idx(CATALOG_BY_ID[draft.card_id_of(a)]))[0] for a in legal}
+    assert matchup.win_probability(max(values.values())) - matchup.win_probability(values[pick.card_id]) <= V2["draft_tiebreak_eps"]
 
 
 CATALOG_BY_ID = {c["card_id"]: c["species"] for c in CATALOG.values()}

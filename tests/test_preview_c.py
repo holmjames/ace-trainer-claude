@@ -292,3 +292,61 @@ def test_without_the_preview_card_terms_an_iron_hands_four_ranks_first_on_both_o
     assert ranked[0][0] != brought and next(k for k, (four, _) in enumerate(ranked, 1) if four == brought) == 8, ranked[:3]
     best = lineup.shortlist(*rosters(LIVE["W bcbaabe2"][0], LIVE["W bcbaabe2"][1]), top=1, params=V2)[0]
     assert "ironhands" in best.bring
+
+
+# -- C4: the Team Preview payload table ---------------------------------------------------------------------------
+
+
+def preview_for(our_six, their_six):
+    mine, theirs, roster = rosters(our_six, their_six)
+    cands = lineup.shortlist(mine, theirs, roster, params=V2)
+    return mine, theirs, cands, lineup.preview_table(mine, theirs, cands, V2)
+
+
+def test_the_preview_table_fits_and_carries_the_numbers_for_todays_first_win():
+    our_six, their_six, _, _ = LIVE["W bcbaabe2"]
+    mine, theirs, cands, table = preview_for(our_six, their_six)
+    assert 0 < len(table) <= 2500, len(table)
+    lines = table.splitlines()
+    assert lines[1].startswith("OURS->THEIRS") and lines[8].startswith("THEIRS->OURS") and len(lines) >= 17
+    assert sum(1 for line in lines[2:8]) == 6 and sum(1 for line in lines[9:15]) == 6  # 6x6 both ways
+    hands = next(line for line in lines[2:8] if line.startswith("Iron Hands"))
+    assert "102!" in hands  # Close Combat one-shots Incineroar
+    basc = next(line for line in lines[9:15] if line.startswith("Basculegion"))
+    assert "172!>" in basc  # Adaptability Wave Crash one-shots Arcanine, and Basculegion moves first
+    assert "Fake Out: Incineroar, Rillaboom" in table and "Intimidate: Incineroar, Salamence" in table
+    assert "speed control: Dragonite (tailwind), Salamence (tailwind)" in table
+    assert "Fake Out-immune leads: Scream Tail" in table  # Covert Cloak
+    assert "their likely leads:" in table and "Predicted: v2:" in table
+    best = cands[0]
+    bring_line = next(line for line in lines if line.startswith("We bring "))
+    for b in best.bring:
+        assert any(data.to_id(s) == data.to_id(b) for s in bring_line.split(";")[0][len("We bring "):].split(", "))
+    assert any(line.startswith("Turn 1 vs ") and " || they: " in line for line in lines)
+    assert lines[-1].startswith("Cannot damage: ")
+
+
+def test_the_preview_table_on_the_second_oct_8_match_and_the_immune_cell():
+    mine, theirs, cands, table = preview_for(OURS_W2, THEIRS_W2)
+    assert 0 < len(table) <= 2500, len(table)
+    assert "Fake Out: Incineroar, Rillaboom" in table and "Flutter Mane (speed_drop)" in table
+    assert "lead veto" in table or "leads lose nothing" in table or "no lead pair" in table
+    # L1: Sneasler cannot touch Air Balloon Gholdengo (Close Combat into a Ghost): an 'x' cell and a named gap
+    our_six = ["Baxcalibur", "Landorus-Therian", "Sneasler", "Garchomp", "Cresselia", "Lucario"]
+    their_six = ["Dragonite", "Gholdengo", "Iron Hands", "Archaludon", "Iron Bundle", "Indeedee-F"]
+    mine, theirs, cands, table = preview_for(our_six, their_six)
+    sneasler = next(line for line in table.splitlines() if line.startswith("Sneasler"))
+    cols = sneasler.split()
+    assert cols[2] == "x"  # the Gholdengo column
+    if any(data.to_id(b) == "sneasler" for b in cands[0].bring):
+        assert "Sneasler: Gholdengo" in table.split("Cannot damage: ")[1]
+    assert lineup.preview_table({}, {}, cands, V2) == ""
+
+
+def test_the_opening_plan_reads_the_turn_one_line():
+    from agent.pokemon import matchup
+
+    u = lambda s: matchup.unit(CATALOG[s])  # noqa: E731
+    plan = matchup.opening_plan([u("Iron Hands"), u("Whimsicott")], [u("Incineroar"), u("Sylveon")])
+    assert len(plan) == 4 and plan[0].startswith("Iron Hands: fakeout -> ") and plan[1] == "Whimsicott: tailwind"
+    assert plan[2].startswith("Incineroar: fakeout -> ") and plan[3].startswith("Sylveon: ")
