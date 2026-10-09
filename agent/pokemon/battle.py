@@ -43,6 +43,17 @@ def stage_multiplier(stage: int) -> float:
     return (2 + stage) / 2 if stage >= 0 else 2 / (2 - stage)
 
 
+def staged_stat(base: float, stage: int) -> float:
+    """A stat at a stage the way the engine does it: floor(stat x numerator / denominator) in integers (Kingambit's
+    205 Attack at -1 is 136, not 136.67; Oct 8 live match da9c168e: Waterfall did 108 HP against a sheet minimum of
+    109.7 built on the fraction). Items and abilities multiply afterwards."""
+    stage = max(-6, min(6, int(stage or 0)))
+    if not stage:
+        return base
+    numerator, denominator = (2 + stage, 2) if stage > 0 else (2, 2 - stage)
+    return math.floor(base * numerator / denominator)
+
+
 @dataclass
 class Mon:
     """One Pokémon on the field, merged from the live summary and its drafted card."""
@@ -74,7 +85,7 @@ class Mon:
             stage = max(stage, min_stage)
         if max_stage is not None:
             stage = min(stage, max_stage)
-        value = base * stage_multiplier(stage)
+        value = staged_stat(base, stage)
         if name == "spe":
             if self.status == "par":
                 value *= 0.5
@@ -887,7 +898,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             move = {**move, "id": data.to_id(option.get("move_id")), "type": move.get("type") or option.get("move_type"),
                     "category": move.get("category") or str(option.get("category") or "").capitalize() or None,
                     "base_power": move.get("base_power") or option.get("base_power") or 0}
-            spread = move.get("target") in SPREAD_TARGETS and len(theirs) > 1
+            spread = is_spread(move, foes=len(theirs), allies=len(ours) - 1)  # Earthquake with one foe and our ally is still 0.75x (batch 2)
             eff = effective_move(me, move, me, fs)
             psychic_spread = move["id"] == "expandingforce" and fs.terrain == "psychic" and me.grounded and len(theirs) > 1
             per_target = []

@@ -149,7 +149,7 @@ def expected_hits(move: dict | None, *, item: object = None, ability: object = N
 # -- what the move table alone cannot say: weight, accuracy, hit counts, Intimidate -------------------------------
 
 # Weights in kg of every live-catalog species (data/cards.json), copied once from the Showdown dex in
-# sim/node_modules/pokemon-showdown (0.11.11). Low Kick / Grass Knot take their power from the target's weight and
+# sim/node_modules/pokemon-showdown (0.11.11; Iron Treads, Iron Valiant, Talonflame and Toxapex joined on Oct 8). Low Kick / Grass Knot take their power from the target's weight and
 # Heavy Slam / Heat Crash from the user:target ratio; the move table lists them at 0 power, which read as "no damage"
 # (Oct 8 review: Tyranitar's Low Kick, 81-97% into Kingambit, had no row). ``species_weight`` falls back to the
 # vendored pokedex for anything else.
@@ -157,11 +157,12 @@ SPECIES_WEIGHT_KG: dict[str, float] = {
     "amoonguss": 10.5, "arcanine": 155.0, "archaludon": 60.0, "basculegion": 110.0, "baxcalibur": 210.0,
     "chienpao": 152.2, "cresselia": 85.6, "dondozo": 220.0, "dragonite": 210.0, "fluttermane": 4.0,
     "garchomp": 95.0, "gholdengo": 30.0, "greattusk": 320.0, "grimmsnarl": 61.0, "gyarados": 235.0,
-    "hatterene": 5.1, "incineroar": 83.0, "indeedeef": 28.0, "ironbundle": 11.0, "ironhands": 380.7,
+    "hatterene": 5.1, "incineroar": 83.0, "indeedeef": 28.0, "ironbundle": 11.0, "ironhands": 380.7, "irontreads": 240.0,
+    "ironvaliant": 35.0,
     "kingambit": 120.0, "klefki": 3.0, "landorustherian": 68.0, "lucario": 54.0, "milotic": 162.0,
     "pelipper": 28.0, "porygon2": 32.5, "rillaboom": 90.0, "sableye": 11.0, "salamence": 102.6,
-    "screamtail": 8.0, "sneasler": 43.0, "sylveon": 23.5, "thundurus": 61.0, "tinglu": 699.7,
-    "torkoal": 80.4, "tornadus": 63.0, "tyranitar": 202.0, "ursaluna": 290.0, "whimsicott": 6.6, "wochien": 74.2,
+    "screamtail": 8.0, "sneasler": 43.0, "sylveon": 23.5, "talonflame": 24.5, "thundurus": 61.0, "tinglu": 699.7,
+    "torkoal": 80.4, "tornadus": 63.0, "toxapex": 14.5, "tyranitar": 202.0, "ursaluna": 290.0, "whimsicott": 6.6, "wochien": 74.2,
 }
 WEIGHT_MOVES = frozenset({"lowkick", "grassknot"})          # power from the target's weight
 WEIGHT_RATIO_MOVES = frozenset({"heavyslam", "heatcrash"})  # power from user weight / target weight
@@ -427,3 +428,322 @@ def actual_stats(card: dict) -> dict[str, int] | None:
     for stat in ("atk", "def", "spa", "spd", "spe"):
         stats[stat] = calc_stat(base.get(stat, 0), evs[stat], nature_mult=nature_multiplier(nature, stat))
     return stats
+
+
+# -- Workstream D batch 2 helpers: self-damage, conditional moves, blocked effects, berries, speed ties, Choice locks --
+# Duck-typed on battle.Mon (species, types, item, ability, status, stats, hp_fraction, grounded, side) so the core lane
+# can call them from the row generators while the damage helpers stay as they are.
+
+RECOIL_FRACTION = {"flareblitz": 1 / 3, "wavecrash": 1 / 3, "woodhammer": 1 / 3, "bravebird": 1 / 3, "doubleedge": 1 / 3,
+                   "volttackle": 1 / 3, "headsmash": 1 / 2, "lightofruin": 1 / 2, "wildcharge": 1 / 4, "takedown": 1 / 4,
+                   "submission": 1 / 4, "headcharge": 1 / 4}
+HALF_MAX_HP_MOVES = frozenset({"mindblown", "steelbeam", "chloroblast"})  # the user loses half its max HP
+CONTACT_PUNISH_ABILITIES = {"roughskin": 1 / 8, "ironbarbs": 1 / 8}      # of the attacker's max HP, per contact strike
+CONTACT_PUNISH_ITEMS = {"rockyhelmet": 1 / 6}
+CHOICE_ITEMS = frozenset({"choicescarf", "choiceband", "choicespecs"})
+NEEDS_TARGET_ATTACKING = frozenset({"suckerpunch", "thunderclap"})       # fail unless the target uses a damaging move first
+POWDER_MOVES = frozenset({"spore", "sleeppowder", "stunspore", "poisonpowder", "cottonspore", "magicpowder", "ragepowder"})
+STATUS_CONDITION_MOVES = {"willowisp": "brn", "thunderwave": "par", "stunspore": "par", "glare": "par", "toxic": "tox",
+                          "poisonpowder": "psn", "poisongas": "psn", "spore": "slp", "sleeppowder": "slp", "hypnosis": "slp",
+                          "darkvoid": "slp", "lovelykiss": "slp", "sing": "slp", "grasswhistle": "slp", "yawn": "slp"}
+AIMED_TARGETS = frozenset({"normal", "any", "adjacentFoe", "allAdjacentFoes", "allAdjacent", "randomNormal", "scripted"})
+PINCH_BERRIES = {"sitrusberry": (0.5, 0.25), "wikiberry": (0.25, 1 / 3), "aguavberry": (0.25, 1 / 3), "figyberry": (0.25, 1 / 3),
+                 "magoberry": (0.25, 1 / 3), "iapapaberry": (0.25, 1 / 3)}  # (triggers at this HP fraction or below, heals this fraction of max HP)
+
+
+def _attr(obj: object, name: str, default: object = None) -> object:
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _info(move: object) -> dict:
+    return move if isinstance(move, dict) else (move_info(move) or {})
+
+
+def _max_hp(mon: object) -> float:
+    stats = _attr(mon, "stats") or {}
+    return float(stats.get("hp") or 0) if isinstance(stats, dict) else 0.0
+
+
+def makes_contact(move: object) -> bool:
+    return "contact" in (_info(move).get("flags") or [])
+
+
+def self_damage(move: object, user: object, target: object, damage_dealt: float, *, hits: float | None = None) -> dict:
+    """What using ``move`` costs ``user`` when it hits ``target`` for ``damage_dealt`` HP: recoil (a fraction of the damage
+    actually dealt, capped at the target's remaining HP; none with Rock Head / Magic Guard), the half-max-HP moves, Life
+    Orb (10% of max HP per use; not with Magic Guard) and the target's Rough Skin / Iron Barbs (1/8) or Rocky Helmet
+    (1/6) per contact strike (``hits`` strikes, the move's expected count when None; not through Protective Pads /
+    Long Reach / Magic Guard). Returns {"hp", "pct_max", "pct_current", "notes"} for the user: core marks a row
+    "KOs itself" when pct_current reaches 100. Nothing but the half-max-HP cost when the move deals no damage."""
+    info, mid = _info(move), _move_id(move) or _move_id(_info(move))
+    max_hp = _max_hp(user)
+    empty = {"hp": 0.0, "pct_max": 0.0, "pct_current": 0.0, "notes": []}
+    if max_hp <= 0:
+        return empty
+    ability, item = to_id(_attr(user, "ability")), to_id(_attr(user, "item"))
+    t_ability, t_item = to_id(_attr(target, "ability")), to_id(_attr(target, "item"))
+    dealt = max(0.0, float(damage_dealt or 0.0))
+    target_hp = _max_hp(target) * float(_attr(target, "hp_fraction", 1.0) or 0.0)
+    if target_hp > 0:
+        dealt = min(dealt, target_hp)  # recoil counts the HP that was actually there
+    hp, notes = 0.0, []
+    fraction = RECOIL_FRACTION.get(mid)
+    if fraction and dealt > 0 and ability not in ("rockhead", "magicguard"):
+        hp += dealt * fraction
+        notes.append(f"recoil: {fraction:.0%} of the damage dealt".replace("33%", "1/3").replace("50%", "1/2").replace("25%", "1/4"))
+    if mid in HALF_MAX_HP_MOVES and ability != "magicguard":
+        hp += max_hp / 2
+        notes.append("costs half its max HP")
+    if item == "lifeorb" and dealt > 0 and ability != "magicguard":
+        hp += max_hp / 10
+        notes.append("Life Orb: 10% of its max HP")
+    if dealt > 0 and makes_contact(info) and ability not in ("magicguard", "longreach") and item != "protectivepads":
+        strikes = float(hits) if hits is not None else expected_hits(info, item=item, ability=ability)
+        for source, share in ((t_ability, CONTACT_PUNISH_ABILITIES.get(t_ability, 0.0)), (t_item, CONTACT_PUNISH_ITEMS.get(t_item, 0.0))):
+            if share:
+                hp += max_hp * share * strikes
+                notes.append(f"{source}: {share:.1%} of its max HP per contact strike" + (f" x{strikes:g}" if strikes > 1 else ""))
+    current = max_hp * float(_attr(user, "hp_fraction", 1.0) or 0.0)
+    return {"hp": round(hp, 1), "pct_max": round(hp / max_hp * 100, 1),
+            "pct_current": round(hp / current * 100, 1) if current > 0 else (999.0 if hp > 0 else 0.0), "notes": notes}
+
+
+def after_move_volatiles(move: object) -> frozenset[str]:
+    """The volatile condition the user carries after this move until its next action (Glaive Rush: it takes double
+    damage and cannot Protect)."""
+    return frozenset({"glaiverush"}) if (_move_id(move) or _move_id(_info(move))) == "glaiverush" else frozenset()
+
+
+def incoming_multiplier(volatiles: object) -> float:
+    """Damage multiplier on a defender from its volatiles: 2.0 after it used Glaive Rush, else 1.0."""
+    ids = {to_id(v) for v in (volatiles or ())} if not isinstance(volatiles, str) else {to_id(volatiles)}
+    return 2.0 if "glaiverush" in ids else 1.0
+
+
+def needs_target_attacking(move: object) -> bool:
+    """Sucker Punch / Thunderclap fail unless the target is about to use a damaging move (a status move, a Protect,
+    a switch, or a target that has already moved all make them fail)."""
+    return (_move_id(move) or _move_id(_info(move))) in NEEDS_TARGET_ATTACKING
+
+
+def helping_hand_boost(helper_move: object, boosted_move: object) -> float:
+    """1.5 when the partner uses Helping Hand and the boosted Pokémon uses a damaging move this turn, else 1.0 (a
+    partner that Protects, switches or uses a status move gets nothing). Core multiplies the boosted rows by it and
+    values the Helping Hand itself as that extra half of the partner's damage."""
+    if (_move_id(helper_move) or _move_id(_info(helper_move))) != "helpinghand" or boosted_move is None:
+        return 1.0
+    return 1.5 if is_damaging(boosted_move) else 1.0
+
+
+def redirect_ignored(redirect_move: object, attacker: object) -> str | None:
+    """Why ``attacker``'s single-target moves ignore this Rage Powder / Follow Me (None when they are redirected):
+    Rage Powder is a powder move (Grass types, Overcoat, Safety Goggles ignore it); Stalwart / Propeller Tail ignore
+    both. Good as Gold does NOT ignore redirection (it only blocks status moves aimed at the holder)."""
+    mid = _move_id(redirect_move) or _move_id(_info(redirect_move))
+    ability, item = to_id(_attr(attacker, "ability")), to_id(_attr(attacker, "item"))
+    types = [to_id(t) for t in (_attr(attacker, "types") or [])]
+    if ability in ("stalwart", "propellertail"):
+        return f"{ability} ignores redirection"
+    if mid == "ragepowder":
+        if "grass" in types:
+            return "Grass types ignore Rage Powder (a powder move)"
+        if ability == "overcoat":
+            return "Overcoat ignores Rage Powder (a powder move)"
+        if item == "safetygoggles":
+            return "Safety Goggles ignore Rage Powder (a powder move)"
+    return None
+
+
+def secondary_blocked(target: object) -> str | None:
+    """Why a move's secondary effects (Fake Out's flinch, Icy Wind's / Snarl's drops, Nuzzle's paralysis...) do not
+    happen to ``target``: Covert Cloak or Shield Dust. None otherwise."""
+    if to_id(_attr(target, "item")) == "covertcloak":
+        return "Covert Cloak blocks secondary effects"
+    if to_id(_attr(target, "ability")) == "shielddust":
+        return "Shield Dust blocks secondary effects"
+    return None
+
+
+def stat_drop_blocked(target: object) -> str | None:
+    """Why a stat drop (Intimidate, Snarl, Icy Wind, Parting Shot...) does nothing to ``target``: Clear Body / White Smoke /
+    Full Metal Body, a Clear Amulet, Mirror Armor (bounced back) or Contrary (a raise instead). None otherwise."""
+    ability, item = to_id(_attr(target, "ability")), to_id(_attr(target, "item"))
+    if ability in ("clearbody", "whitesmoke", "fullmetalbody"):
+        return f"{ability} blocks stat drops"
+    if item == "clearamulet":
+        return "Clear Amulet blocks stat drops"
+    if ability == "mirrorarmor":
+        return "Mirror Armor bounces stat drops back"
+    if ability == "contrary":
+        return "Contrary turns the drop into a raise"
+    return None
+
+
+def stat_drop_backfires(target: object) -> str | None:
+    """What a stat drop hands ``target`` on top: Defiant (+2 Attack) or Competitive (+2 Special Attack). None otherwise."""
+    ability = to_id(_attr(target, "ability"))
+    if ability == "defiant":
+        return "Defiant: +2 Atk for every drop"
+    if ability == "competitive":
+        return "Competitive: +2 SpA for every drop"
+    return None
+
+
+def status_move_blocked(move: object, target: object, *, user: object = None, terrain: object = None) -> str | None:
+    """Why a status move aimed at ``target`` does nothing (None when it works): Good as Gold, Magic Bounce (reflected),
+    powder moves into Grass types / Overcoat / Safety Goggles, Soundproof, a Prankster user into a Dark type, the
+    status-condition immunities (types, Thermal Exchange / Water Veil / Water Bubble / Flash Fire for burns, Limber /
+    Electric types / Ground types and the absorbers for Thunder Wave, Insomnia / Vital Spirit / Sweet Veil and Electric
+    Terrain for sleep, Poison / Steel types for poison, Purifying Salt / Comatose, Misty Terrain for grounded targets,
+    an existing status, a Lum / Chesto Berry), Taunt / Encore into Oblivious / Aroma Veil / Mental Herb, and Parting
+    Shot into a blocked stat drop (the user then does not switch out). Moves not aimed at a foe (Tailwind, Protect,
+    Follow Me...) are never blocked here."""
+    info = _info(move)
+    mid = _move_id(move) or _move_id(info)
+    if info.get("category") != "Status" or info.get("target") not in AIMED_TARGETS:
+        return None
+    types = [to_id(t) for t in (_attr(target, "types") or [])]
+    ability, item = to_id(_attr(target, "ability")), to_id(_attr(target, "item"))
+    grounded = bool(_attr(target, "grounded", True))
+    field = to_id(terrain)
+    if user is not None and to_id(_attr(user, "ability")) == "prankster" and "dark" in types:
+        return "a Prankster-boosted status move fails on a Dark type"
+    if ability == "goodasgold":
+        return "Good as Gold ignores status moves"
+    if ability == "magicbounce":
+        return "Magic Bounce reflects it"
+    if mid in POWDER_MOVES:
+        if "grass" in types:
+            return "Grass types ignore powder moves"
+        if ability == "overcoat":
+            return "Overcoat ignores powder moves"
+        if item == "safetygoggles":
+            return "Safety Goggles ignore powder moves"
+    if "sound" in (info.get("flags") or []) and ability == "soundproof":
+        return "Soundproof ignores sound moves"
+    condition = STATUS_CONDITION_MOVES.get(mid)
+    if condition:
+        if _attr(target, "status"):
+            return "it already has a status condition"
+        if ability in ("purifyingsalt", "comatose"):
+            return f"{ability} ignores status conditions"
+        if field == "misty" and grounded:
+            return "Misty Terrain protects grounded Pokémon from status conditions"
+        if condition == "slp":
+            if ability in ("insomnia", "vitalspirit", "sweetveil"):
+                return f"{ability} prevents sleep"
+            if field == "electric" and grounded:
+                return "Electric Terrain prevents sleep on grounded Pokémon"
+            if item in ("lumberry", "chestoberry"):
+                return f"{item} cures it at once"
+        elif condition == "brn":
+            if "fire" in types:
+                return "Fire types cannot be burned"
+            if ability in ("thermalexchange", "waterveil", "waterbubble"):
+                return f"{ability} prevents burns"
+            if ability == "flashfire":
+                return "Flash Fire absorbs Will-O-Wisp"
+            if item == "lumberry":
+                return "Lum Berry cures it at once"
+        elif condition == "par":
+            if "electric" in types:
+                return "Electric types cannot be paralysed"
+            if mid == "thunderwave" and "ground" in types:
+                return "Ground types are immune to Thunder Wave"
+            if mid == "thunderwave" and ability in ("voltabsorb", "lightningrod", "motordrive"):
+                return f"{ability} absorbs Thunder Wave"
+            if ability == "limber":
+                return "Limber prevents paralysis"
+            if item == "lumberry":
+                return "Lum Berry cures it at once"
+        elif condition in ("psn", "tox"):
+            if "poison" in types or "steel" in types:
+                return "Poison and Steel types cannot be poisoned"
+            if ability in ("immunity", "pastelveil"):
+                return f"{ability} prevents poison"
+            if item == "lumberry":
+                return "Lum Berry cures it at once"
+    if mid in ("taunt", "encore"):
+        if mid == "taunt" and ability == "oblivious":
+            return "Oblivious ignores Taunt"
+        if ability == "aromaveil":
+            return f"Aroma Veil blocks {mid}"
+        if item == "mentalherb":
+            return f"Mental Herb cures {mid} at once"
+    if mid == "partingshot":
+        blocked = stat_drop_blocked(target)
+        if blocked:
+            return f"{blocked}: the drops fail and the user does not switch out"
+    return None
+
+
+def pinch_berry(item: object, ability: object = None) -> tuple[float, float] | None:
+    """(triggers at this HP fraction or below, heals this fraction of max HP) for a pinch berry: Sitrus at 1/2 for 1/4,
+    the Wiki / Aguav / Figy / Mago / Iapapa berries at 1/4 for 1/3 (Gluttony: at 1/2; Ripen: double). None otherwise."""
+    entry = PINCH_BERRIES.get(to_id(item))
+    if not entry:
+        return None
+    threshold, heal = entry
+    if to_id(ability) == "gluttony":
+        threshold = max(threshold, 0.5)
+    if to_id(ability) == "ripen":
+        heal *= 2
+    return (threshold, heal)
+
+
+def heal_between_hits(defender: object, first_hit_pct_of_current: float) -> float:
+    """What the defender's pinch berry gives back, in % of its CURRENT HP, after a first hit that takes
+    ``first_hit_pct_of_current`` % of it: 0 without a berry, when it does not trigger, or when the hit KOs. The berry is
+    eaten between two hits (focus fire) and between the strikes of a multi-hit move, so a 'guaranteed' combined KO must
+    cover it: 519 of the Oct 7 review's focus-fire KOs survived on min rolls for this."""
+    berry = pinch_berry(_attr(defender, "item"), _attr(defender, "ability"))
+    if not berry:
+        return 0.0
+    hp_frac = float(_attr(defender, "hp_fraction", 1.0) or 0.0)
+    if hp_frac <= 0 or first_hit_pct_of_current >= 100:
+        return 0.0
+    after = hp_frac * (1 - first_hit_pct_of_current / 100)
+    threshold, heal = berry
+    if after > threshold + 1e-9:
+        return 0.0
+    return round(min(heal, 1.0 - after) / hp_frac * 100, 1)
+
+
+def speed_order_probability(a: object, b: object, field: object = None) -> float:
+    """Chance ``a`` acts before ``b`` at equal priority: 1.0 when faster, 0.0 when slower, 0.5 on a speed tie. Speeds
+    come from Mon.stat('spe') (stages, Choice Scarf, paralysis, Tailwind, Unburden); ``field.trick_room`` turns the
+    order around."""
+    speed_a, speed_b = float(a.stat("spe")), float(b.stat("spe"))
+    if abs(speed_a - speed_b) < 1e-9:
+        return 0.5
+    first = speed_a > speed_b
+    if _attr(field, "trick_room", False):
+        first = not first
+    return 1.0 if first else 0.0
+
+
+def locked_move(mon: object, memory: object) -> str | None:
+    """The move a Choice-item holder is locked into, or None: no Choice item, it has just come in, or no move used
+    since it entered. Theirs: the memory's last move since it entered (protocol log). Ours: our last recorded,
+    non-forced turn with it in the same slot (a switch / pass there means no lock)."""
+    if to_id(_attr(mon, "item")) not in CHOICE_ITEMS:
+        return None
+    key = to_id(_attr(mon, "species"))
+    if _attr(mon, "side") == "theirs":
+        last = (_attr(memory, "opp_last_move") or {}).get(key)
+        return to_id(last) or None
+    if key in {to_id(k) for k in (_attr(memory, "fresh_active") or [])}:
+        return None
+    for fields in reversed(list(_attr(memory, "turns") or [])):
+        if not isinstance(fields, dict) or fields.get("forced"):
+            continue
+        actives = [to_id(a) for a in (fields.get("actives") or [])]
+        if key not in actives:
+            return None  # not out on our last turn: it has come in since
+        choice = (fields.get("payload") or {}).get(f"slot_{actives.index(key)}") or {}
+        if choice.get("type") == "move" and choice.get("move_id"):
+            return to_id(choice["move_id"]) or None
+        return None
+    return None

@@ -43,6 +43,7 @@ function run(name, a, moveName, d, opts = {}) {
   defender.originalCurHP = Math.max(1, Math.floor(defender.maxHP() * hp));
   const gameType = opts.gameType || 'Doubles';
   const field = new Field({ gameType, weather: opts.weather, terrain: opts.terrain, ...(opts.fieldExtra || {}),
+    attackerSide: { isHelpingHand: !!opts.helpingHand },
     defenderSide: { isReflect: !!opts.reflect, isLightScreen: !!opts.lightScreen } });
   const move = new Move(gen, moveName, { ...(opts.hits ? { hits: opts.hits } : {}), ...(opts.crit ? { isCrit: true } : {}) });
   const result = calculate(gen, attacker, defender, move, field);
@@ -57,6 +58,8 @@ function run(name, a, moveName, d, opts = {}) {
              ruin: Object.keys(opts.fieldExtra || {}).filter(k => /Ruin$/.test(k)) },
     spread_in_calc: gameType !== 'Singles' && SPREAD.includes(move.target),
     damage: [range[0], range[1]],
+    recoil_pct: result.recoil('%').recoil,  // the calculator's own recoil (% of the attacker's max HP; [min, max] or a number)
+    helping_hand: !!opts.helpingHand,
   };
   cases.push(c);
   return c;
@@ -234,6 +237,26 @@ run('stamina_woodhammer_archaludon_plus1', by['Rillaboom'], 'Wood Hammer', by['A
 // 48-57% sheet. The protocol log has '|-crit|p1a: Iron Hands' before the damage line: the crit range, not a modifier.
 run('oct7_hypervoice_ironhands', by['Sylveon'], 'Hyper Voice', by['Iron Hands'], {});
 run('oct7_hypervoice_ironhands_crit', by['Sylveon'], 'Hyper Voice', by['Iron Hands'], { crit: true });
+
+// -- Brief 2: self-damage (the calculator's recoil()), Helping Hand, Earthquake with one foe and our own ally ---------
+run('recoil_flareblitz_incineroar_rillaboom', by['Incineroar'], 'Flare Blitz', by['Rillaboom'], {});
+run('recoil_wavecrash_basculegion_cresselia', by['Basculegion'], 'Wave Crash', by['Cresselia'], {});
+run('recoil_wildcharge_ironhands_pelipper', by['Iron Hands'], 'Wild Charge', by['Pelipper'], {});
+run('recoil_woodhammer_rillaboom_milotic', by['Rillaboom'], 'Wood Hammer', by['Milotic'], {});  // overflow: recoil from the HP that was there
+run('helpinghand_flareblitz_incineroar_rillaboom', by['Incineroar'], 'Flare Blitz', by['Rillaboom'], { helpingHand: true });
+run('eq_ally_dondozo', by['Garchomp'], 'Earthquake', by['Dondozo'], {});       // one foe plus our own ally: still the spread 0.75x
+run('eq_ally_rillaboom', by['Garchomp'], 'Earthquake', by['Rillaboom'], {});   // the ally's share of it
+
+// -- da9c168e checks: stat stages are floored before anything else (Kingambit's 205 Atk at -1 is 136, not 137);
+// Gyarados at -1 (our Landorus-T's Intimidate) into Landorus-T; our Kingambit's Kowtow Cleave at fallen 1.
+run('stagefloor_kowtow_minus1_gyarados', by['Kingambit'], 'Kowtow Cleave', by['Gyarados'], { aBoosts: { atk: -1 } });
+run('stagefloor_waterfall_minus1_landorus', by['Gyarados'], 'Waterfall', by['Landorus-Therian'], { aBoosts: { atk: -1 } });
+run('stagefloor_waterfall_minus3_arcanine', by['Gyarados'], 'Waterfall', by['Arcanine'], { aBoosts: { atk: -3 } });
+run('overlord1_kowtow_gyarados', by['Kingambit'], 'Kowtow Cleave', by['Gyarados'], { alliesFainted: 1 });
+run('overlord1_kowtow_incineroar', by['Kingambit'], 'Kowtow Cleave', by['Incineroar'], { alliesFainted: 1 });
+// da9c168e T3: Incineroar's Fake Out into the staying Thundurus (57 HP) once our Landorus-T had come in and Intimidated it.
+run('fakeout_thundurus57', by['Incineroar'], 'Fake Out', by['Thundurus'], { hp: 57 / 154 });
+run('fakeout_minus1_thundurus57', by['Incineroar'], 'Fake Out', by['Thundurus'], { hp: 57 / 154, aBoosts: { atk: -1 } });
 
 const out = path.join(root, 'tests', 'fixtures', 'smogon_calc_mech.json');
 fs.writeFileSync(out, JSON.stringify(cases, null, 0));
