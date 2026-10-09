@@ -723,6 +723,15 @@ def test_clean_reason_strips_the_debris_seen_live_and_keeps_whole_sentences():
     assert clean_reason("Protect slot 0. Moonblast into OPPONENT gyarados for the KO this turn") == "Protect slot 0. Moonblast into OPPONENT gyarados for the KO this turn"
     assert clean_reason("Attack with Moonblast; Protect the other slot") == "Attack with Moonblast; Protect the other slot"
     assert clean_reason("") == "" and clean_reason(None) == ""
+    # A decimal point is not a sentence end, and brackets stay balanced: every code-only reason carries damage ranges.
+    assert clean_reason("slot 0 bodypress -> rillaboom ([45.4, 53.3]%)") == "slot 0 bodypress -> rillaboom ([45.4, 53.3]%)"
+    assert clean_reason("Body Press into OPPONENT rillaboom (KO at 92.1%)") == "Body Press into OPPONENT rillaboom (KO at 92.1%)"
+    assert clean_reason("Tailwind first, then the v2.1 line") == "Tailwind first, then the v2.1 line"
+    assert clean_reason("Protect slot 1 (Scale Shot does 119.2-140.3%). Attack with slot 0 (92.1% to KO).") == \
+        "Protect slot 1 (Scale Shot does 119.2-140.3%). Attack with slot 0 (92.1% to KO)."
+    assert clean_reason("Moonblast (see [45.4, 53.3]%) ends it.]") == "Moonblast (see [45.4, 53.3]%) ends it."
+    assert clean_reason("slot 0 earthquake -> ironhands + screamtail ([165.7, 194.9]%), slot 1 tailwind -> field ([0, 0]%)") == \
+        "slot 0 earthquake -> ironhands + screamtail ([165.7, 194.9]%), slot 1 tailwind -> field ([0, 0]%)"
     # Over the limit: the last full sentence that fits, never a cut word.
     long = "Protect slot 0 because Kingambit's Sucker Punch is lethal. " * 6
     cleaned = clean_reason(long)

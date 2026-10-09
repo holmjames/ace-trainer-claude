@@ -484,34 +484,55 @@ class PokemonAgent:
             pass
 
 
-_REASON_TRAILING_DEBRIS = re.compile(r"""[\s"'\]\[}{]+$""")  # JSON remnants after the model's last sentence
 _REASON_GLUED_JUNK = re.compile(r"(?<=[.!?])[a-z]{1,10}\.$")  # "...this turn.ewhere." -> "...this turn."
-_REASON_LAST_SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
+# A sentence end: . ! or ? followed by whitespace, the end, or stray JSON/quote debris. A decimal point ("53.3]%",
+# "92.1%", "v2.1") is followed by a digit and never matches: code-only reasons are full of damage ranges.
+_REASON_SENTENCE_END = re.compile(r"""[.!?](?=[\s"'\]\[}{)]|$)""")
 _REASON_FRAGMENT_LIMIT = 24  # a tail this short after the last full sentence is debris ("'] Hmm", "}"), not a sentence
+_BRACKET_PAIRS = (("(", ")"), ("[", "]"), ("{", "}"))
+
+
+def _balanced(text: str) -> bool:
+    return all(text.count(open_) == text.count(close) for open_, close in _BRACKET_PAIRS)
+
+
+def _strip_debris(text: str) -> str:
+    """Trailing whitespace, unmatched closing brackets/braces and odd quotes: the tail of the model's JSON, never a
+    balanced "(KO at 92.1%)" or a closing quote that has its opening one."""
+    s = text.rstrip()
+    while s:
+        last = s[-1]
+        if last in (")", "]", "}") and any(last == close and s.count(open_) < s.count(close) for open_, close in _BRACKET_PAIRS):
+            s = s[:-1].rstrip()
+        elif last in ('"', "'") and s.count(last) % 2 == 1:
+            s = s[:-1].rstrip()
+        else:
+            break
+    return s
 
 
 def clean_reason(text: Any, limit: int = REASONING_CHAR_LIMIT) -> str:
     """The public reasoning_summary, cleaned: the model's JSON is parsed by the provider but its text sometimes carries
     the tail of the structured answer (4 of 19 answers in match bcbaabe2: ".ewhere.", ".]", ".)", a trailing newline).
-    Strips trailing non-sentence debris and whitespace, and ends at the last full sentence within ``limit`` chars.
-    Only the public text changes; the action is untouched."""
-    s = re.sub(r"\s+", " ", str(text or "")).strip()
-    s = _REASON_TRAILING_DEBRIS.sub("", s)
-    if s.endswith(")") and s.count("(") < s.count(")"):
-        s = s[:-1].rstrip()
+    Strips trailing non-sentence debris and whitespace, and ends at the last full sentence within ``limit`` chars,
+    keeping brackets balanced. Only the public text changes; the action is untouched."""
+    s = _strip_debris(re.sub(r"\s+", " ", str(text or "")).strip())
     s = _REASON_GLUED_JUNK.sub("", s)
     if len(s) > limit:
         cut = s[:limit]
-        ends = [m.end() for m in _REASON_LAST_SENTENCE_END.finditer(cut)]
-        s = cut[:ends[-1]] if ends else cut.rsplit(" ", 1)[0].rstrip(",;:") + "…"
+        ends = [m.end() for m in _REASON_SENTENCE_END.finditer(cut) if _balanced(cut[:m.end()])]
+        if ends:
+            s = cut[:ends[-1]]
+        else:
+            words = cut.rsplit(" ", 1)[0].rstrip(",;:")
+            while words and " " in words and not _balanced(words):  # never cut inside a bracket
+                words = words.rsplit(" ", 1)[0].rstrip(",;:")
+            s = (words if words and _balanced(words) else cut.rsplit(" ", 1)[0]) + "…"
     if s and s[-1] not in ".!?":
-        last = max(s.rfind(mark) for mark in ".!?")  # wherever the last sentence ended, even before a stray quote
-        if last > 0 and len(s) - last - 1 <= _REASON_FRAGMENT_LIMIT:
-            s = s[:last + 1]
-    s = _REASON_TRAILING_DEBRIS.sub("", s)
-    if s.endswith(")") and s.count("(") < s.count(")"):
-        s = s[:-1].rstrip()
-    return s
+        ends = [m.end() for m in _REASON_SENTENCE_END.finditer(s)]
+        if ends and len(s) - ends[-1] <= _REASON_FRAGMENT_LIMIT and _balanced(s[:ends[-1]]):
+            s = s[:ends[-1]]
+    return _strip_debris(s)
 
 
 class _SafeLog:
