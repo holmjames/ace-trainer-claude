@@ -618,6 +618,44 @@ def test_launcher_dry_run_prints_the_plan_and_starts_nothing(tmp_path):
     assert loop.returncode != 0 and "internal" in loop.stderr
 
 
+def test_launcher_resolves_its_own_path_before_changing_directory(tmp_path):
+    """Started from scripts/ as ./run_tournament.sh, $0 is relative: after the cd to the repository root the detached
+    loop re-ran a path that did not exist and died at once while "started" was printed."""
+    env = _launcher_env(tmp_path)
+    result = subprocess.run(["bash", "./run_tournament.sh", "--dry-run"], cwd=SCRIPT.parent, env=env, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"script:    {SCRIPT.resolve()}" in result.stdout and f"stop with: {SCRIPT.resolve()} --stop" in result.stdout
+    assert "./run_tournament.sh" not in result.stdout
+
+
+def test_launcher_from_the_scripts_directory_really_starts_and_a_dead_loop_is_reported(tmp_path):
+    env = _launcher_env(tmp_path)
+    pid_file = tmp_path / "logs" / "runtime-tournament.pid"
+    launcher = subprocess.Popen(["bash", "./run_tournament.sh", "--match"], cwd=SCRIPT.parent, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True, text=True)
+    try:
+        _wait_for(lambda: pid_file.exists() and "fake runtime started" in _log_text(tmp_path) and "runtime started detached" in _log_text(tmp_path))
+        loop_pid = int(pid_file.read_text())
+        time.sleep(0.5)
+        assert _alive(loop_pid)
+        os.killpg(launcher.pid, signal.SIGINT)
+        launcher.wait(timeout=10)
+        assert "runtime started detached" in _log_text(tmp_path)
+    finally:
+        _launcher(env, "--stop")
+    _wait_for(lambda: not _alive(loop_pid))
+    # A broken detach (the setsid shim exits at once): no "started", exit 1, no pid file left behind.
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    env2 = _launcher_env(broken)
+    stub = broken / "fake_python.sh"
+    stub.write_text(STUB.replace('exec "$FAKE_REAL_PYTHON" "$@"', 'echo "shim exploded"; exit 1'))
+    result = _launcher(env2, "--match")
+    assert result.returncode == 1, result.stdout
+    assert "runtime FAILED to start" in result.stdout and "runtime started detached" not in result.stdout
+    assert not (broken / "logs" / "runtime-tournament.pid").exists()
+
+
 def test_launcher_stops_when_the_preflight_fails(tmp_path):
     env = _launcher_env(tmp_path, preflight_rc=1)
     result = _launcher(env, "--match")
@@ -633,7 +671,7 @@ def test_launcher_runs_detached_survives_its_terminal_and_stops_on_request(tmp_p
     launcher = subprocess.Popen(["bash", str(SCRIPT), "--match"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True, text=True)
     try:
-        _wait_for(lambda: pid_file.exists() and "fake runtime started" in _log_text(tmp_path))
+        _wait_for(lambda: pid_file.exists() and "fake runtime started" in _log_text(tmp_path) and "runtime started detached" in _log_text(tmp_path))
         loop_pid = int(pid_file.read_text())
         assert _alive(loop_pid)
         # The Terminal window closes: SIGHUP to the launcher's whole process group. The loop lives in its own session.

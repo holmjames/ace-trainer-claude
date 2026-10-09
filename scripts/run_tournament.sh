@@ -17,6 +17,9 @@
 #
 # pipefail: the pre-flight's exit code must survive the tee, or a failed check never stops the launcher.
 set -uo pipefail
+# The absolute path of this script, resolved BEFORE the cd: the detached loop re-runs it (`bash "$SCRIPT" --loop`),
+# and a relative $0 ("./run_tournament.sh" from scripts/) is wrong once we are in the repository root.
+SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/.."
 
 LOG_DIR="${TOURNAMENT_LOG_DIR:-logs}"
@@ -105,7 +108,8 @@ case "$mode" in
     echo "  pid file:  $PID_FILE"
     echo "  capture:   AGENT_CAPTURE_DIR=$AGENT_CAPTURE_DIR"
     echo "  detached:  nohup + python os.setsid (own session; survives closing this terminal)"
-    echo "  stop with: $0 --stop"
+    echo "  script:    $SCRIPT"
+    echo "  stop with: $SCRIPT --stop"
     if pid="$(running_pid)"; then echo "  note:      a runtime is already running (pid $pid)"; fi
     exit 0
     ;;
@@ -153,7 +157,7 @@ case "$mode" in
     mkdir -p "$LOG_DIR"
     if pid="$(running_pid)"; then
       echo "a runtime is already running (pid $pid); log: $(newest_log)"
-      echo "stop it first: $0 --stop"
+      echo "stop it first: $SCRIPT --stop"
       exit 1
     fi
     STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -166,13 +170,30 @@ try:
     os.setsid()
 except OSError:
     pass
-os.execvp(sys.argv[1], sys.argv[1:])' bash "$0" --loop ${args[@]+"${args[@]}"} >> "$LOG" 2>&1 < /dev/null &
+os.execvp(sys.argv[1], sys.argv[1:])' bash "$SCRIPT" --loop ${args[@]+"${args[@]}"} >> "$LOG" 2>&1 < /dev/null &
     loop_pid=$!
     echo "$loop_pid" > "$PID_FILE"
+    # Say "started" only once the loop is alive and has written its first line (a wrong path or a broken shim dies
+    # at once, and used to be announced as started anyway).
+    i=0
+    while [ "$i" -lt 100 ]; do
+      if ! kill -0 "$loop_pid" 2>/dev/null; then break; fi
+      grep -q "starting runtime" "$LOG" 2>/dev/null && break
+      sleep 0.1; i=$((i + 1))
+    done
+    if ! kill -0 "$loop_pid" 2>/dev/null; then
+      rm -f "$PID_FILE"
+      echo "runtime FAILED to start: the detached loop (pid $loop_pid) exited at once. Last lines of $LOG:" | tee -a "$LOG"
+      tail -n 5 "$LOG"
+      exit 1
+    fi
+    if ! grep -q "starting runtime" "$LOG" 2>/dev/null; then
+      echo "warning: the loop (pid $loop_pid) is alive but has not written to $LOG yet" | tee -a "$LOG"
+    fi
     echo "[$(date +%H:%M:%S)] runtime started detached (pid $loop_pid): $PY -m agent ${RUNTIME_ARGS[*]}" | tee -a "$LOG"
-    echo "Closing this window does not stop it. Stop: $0 --stop   Status: $0 --status"
+    echo "Closing this window does not stop it. Stop: $SCRIPT --stop   Status: $SCRIPT --status"
     echo "Following $LOG (Ctrl+C stops following only):"
-    trap 'echo; echo "Still running (pid $loop_pid). Stop with: $0 --stop"; exit 0' INT TERM
+    trap 'echo; echo "Still running (pid $loop_pid). Stop with: $SCRIPT --stop"; exit 0' INT TERM
     tail -n +1 -f "$LOG"
     ;;
 esac
