@@ -293,8 +293,9 @@ def test_last_turns_digest_reads_both_sides_entries_kos_and_hp_from_a_live_sessi
     assert "we:" in digest and "they:" in digest and "HP after:" in digest
     memory = _replay_memory("93a98b6f")
     digest = memory.last_turns(2)
-    assert "[failed]" in memory.last_turns(6) or "protect" in memory.last_turns(6)  # the failed Protect at T3 is marked
-    assert "KO:" in memory.last_turns(6)
+    full = memory.last_turns(6, limit=4000)
+    assert "[failed]" in full  # the failed Protect at T3 is marked
+    assert "KO: theirs:grimmsnarl" in full and len(memory.last_turns(6)) <= 600  # the default cap trims the oldest detail
     assert MatchMemory().last_turns() == ""
 
 
