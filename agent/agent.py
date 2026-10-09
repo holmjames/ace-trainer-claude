@@ -48,6 +48,7 @@ from examples.llm.base import Choice, InvalidChoice, object_schema
 from examples.llm.providers import LLMProvider, ProviderError
 
 from agent.pokemon import battle as battle_rules
+from agent.pokemon import data
 from agent.pokemon import draft as draft_rules
 from agent.pokemon import lineup as lineup_rules
 from agent.pokemon.log import DecisionLog, git_commit
@@ -133,33 +134,234 @@ _TURN_SCHEMA = object_schema({"win_condition": {"type": "string"}, "slot_0": _SL
 
 
 _PROTECT_MOVES = {"protect", "detect", "wideguard", "quickguard", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "kingsshield", "obstruct"}
+_PIERCES_PROTECT = {"feint", "hyperspacefury", "hyperspacehole", "phantomforce", "shadowforce"}
+_FLINCH_PROOF_ABILITIES = {"innerfocus", "shielddust"}
+RECHECK_KO_PROBABILITY = 0.5  # a hit that lands first "removes" a threat when it KOs at least this often
 
 
-def _lethal_recheck(value: Any, sheet: Any) -> str | None:
-    """A valid answer that leaves a LETHAL-flagged slot attacking gets one explicit second look. The model keeps the
-    final say (trades can be right), but it has to make that call with the warning in front of it."""
+def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dict | None = None, info: dict | None = None) -> str | None:
+    """A valid answer that leaves a threatened slot attacking gets one explicit second look, unless the sheet shows
+    the attack is right. The model keeps the final say (trades can be right), but it has to make that call with the
+    warning and the concrete alternative row in front of it.
+
+    Triggers (per attacking slot): a LETHAL warning (the threat moves first and KOs), an EXPOSED note (we move first
+    but its reply KOs us unless it is removed), a DOUBLE-TARGET warning (both foes together KO the slot).
+    Skips: the chosen move's priority beats the threat and it KOs it (ko_probability >= 0.5) - a priority hit that
+    cannot KO is no escape (bcbaabe2 T13/T14 lost Arcanine to exactly that); the partner's hit (or the two hits
+    together) removes the threat before it moves with p >= 0.5; a Fake Out that goes first flinches it; Protect is
+    on a streak and no switch-in is safe; the threat pierces Protect and no pivot is safe; our last Pokémon with
+    nothing to wait for. ``info`` (optional) gets the outcome for the decision log."""
     payload = value if isinstance(value, dict) else getattr(value, "payload", None)
     if not isinstance(payload, dict):
         return None
-    lethal = [w for w in getattr(sheet, "warnings", []) if str(w).startswith("LETHAL:")]
-    if not lethal:
+    facts = _SheetFacts(sheet, memory, template)
+    triggers = facts.triggers()
+    if not triggers:
         return None
     if getattr(sheet, "alone", False) and not getattr(sheet, "stall_reasons", None):
+        _note(info, "skipped: our last Pokémon with nothing to wait for")
         return None  # our last Pokémon with nothing to wait for: Protect only delays, so attacking is right (Oct 7)
-    problems = []
+    problems: list[str] = []
+    skips: list[str] = []
     for number in (0, 1):
         slot = payload.get(f"slot_{number}") or {}
-        if slot.get("type") != "move" or str(slot.get("move_id") or "").replace("-", "").replace(" ", "").lower() in _PROTECT_MOVES:
+        if slot.get("type") != "move" or _move_key(slot.get("move_id")) in _PROTECT_MOVES:
             continue
-        hits = [w for w in lethal if f"slot {number} (" in w]
-        if hits:
-            problems.append(f"slot {number} attacks with {slot.get('move_id')} although: {hits[0]}")
+        for trigger in [t for t in triggers if t["slot"] == number]:
+            skip = facts.escape(number, trigger, payload)
+            if skip:
+                skips.append(f"slot {number}: {skip}")
+                continue
+            problems.append(f"slot {number} attacks with {slot.get('move_id')} although: {trigger['text']}")
+            break
+    if isinstance(info, dict):
+        info["recheck_skips"] = list(skips)
+        info["recheck_problems"] = [p[:120] for p in problems]
     if not problems:
+        _note(info, "skipped: " + "; ".join(skips) if skips else "no attacking slot under a trigger")
         return None
+    _note(info, "fired: " + " | ".join(p[:80] for p in problems) + (" (skipped: " + "; ".join(skips) + ")" if skips else ""))
+    alternatives = [facts.alternative(number) for number in (0, 1) if any(p.startswith(f"slot {number} ") for p in problems)]
+    alternatives = [a for a in alternatives if a]
     return ("Recheck before this is final. " + " | ".join(problems) +
-            " A Pokémon that is knocked out before it moves never gets its attack off. Keep your answer only if the other slot "
-            "removes that threat first (priority, or faster with a guaranteed KO) or the trade wins the game; otherwise Protect "
-            "or switch that slot. Answer again; reasoning_summary stays a one-sentence public description of the move itself.")
+            " A Pokémon that is knocked out before it moves never gets its attack off, and one that is knocked out after it moves "
+            "is gone next turn. Keep your answer only if the other slot removes that threat first (priority, or faster with a "
+            "likely KO) or the trade wins the game; otherwise take the alternative row."
+            + (" The sheet's alternative: " + " / ".join(alternatives) + "." if alternatives else "")
+            + " Answer again; reasoning_summary stays a one-sentence public description of the move itself.")
+
+
+def _note(info: dict | None, outcome: str) -> None:
+    if isinstance(info, dict):
+        info["recheck_outcome"] = outcome
+
+
+def _move_key(move_id: Any) -> str:
+    return str(move_id or "").replace("-", "").replace(" ", "").lower()
+
+
+class _SheetFacts:
+    """What the recheck needs from a TurnSheet: who moves before whom, what each of our options does to each foe,
+    which threats the warnings name, and the alternative rows."""
+
+    def __init__(self, sheet: Any, memory: Any = None, template: dict | None = None) -> None:
+        self.sheet = sheet
+        self.memory = memory
+        self.template_options: dict[int, list] = {}
+        for index, slot in enumerate((template or {}).get("slots") or []):
+            if isinstance(slot, dict):
+                number = slot.get("slot", index)
+                self.template_options[number if number in (0, 1) else index] = [o for o in slot.get("options") or [] if isinstance(o, dict)]
+        self.order = {(e.get("side"), e.get("position")): i for i, e in enumerate(getattr(sheet, "speed_order", None) or [])}
+        self.ours = {e.get("position"): e.get("species") for e in getattr(sheet, "speed_order", None) or [] if e.get("side") == "mine"}
+        self.theirs = {e.get("position"): e.get("species") for e in getattr(sheet, "speed_order", None) or [] if e.get("side") == "theirs"}
+        self.threats = {species_key(t.get("species")): t for t in getattr(sheet, "threats", None) or []}
+
+    # -- triggers --------------------------------------------------------------------------------------------------
+
+    def triggers(self) -> list[dict]:
+        out = []
+        for text in getattr(self.sheet, "warnings", None) or []:
+            text = str(text)
+            m = re.match(r"LETHAL: (.+?)'s (\S+?)( with priority \+\d)? hits slot (\d) \(", text)
+            if m:
+                out.append({"kind": "lethal", "slot": int(m.group(4)), "threat": species_key(m.group(1)), "move": m.group(2), "text": text})
+                continue
+            m = re.match(r"DOUBLE-TARGET: if both foes go into slot (\d) \((.+?)\) — (.+?)'s (\S+) \+ (.+?)'s (\S+) =", text)
+            if m:
+                out.append({"kind": "double", "slot": int(m.group(1)), "threat": species_key(m.group(3)), "move": m.group(4),
+                            "threat2": species_key(m.group(5)), "move2": m.group(6), "text": text})
+        for text in getattr(self.sheet, "notes", None) or []:
+            text = str(text)
+            m = re.match(r"EXPOSED: slot (\d) \((.+?)\) moves before (.+?), but .+?'s (\S+) KOs it", text)
+            if m:
+                out.append({"kind": "exposed", "slot": int(m.group(1)), "threat": species_key(m.group(3)), "move": m.group(4), "text": text})
+        return out
+
+    # -- our chosen moves ------------------------------------------------------------------------------------------
+
+    def option_row(self, number: int, slot_payload: dict) -> dict | None:
+        """The sheet's row for the option this slot chose (matched by move id)."""
+        for entry in getattr(self.sheet, "our_options", None) or []:
+            if entry.get("slot") != number:
+                continue
+            for option in entry.get("options") or []:
+                if _move_key(option.get("move")) == _move_key(slot_payload.get("move_id")):
+                    return option
+        return None
+
+    @staticmethod
+    def damage_into(option: dict, threat_key: str, target: Any) -> list | None:
+        for row in option.get("targets") or []:
+            if row.get("side") != "theirs" or species_key(row.get("species")) != threat_key:
+                continue
+            if row.get("target") in (0, None) or target in (0, None) or row.get("target") == target:
+                return row.get("damage_pct_of_current_hp")
+        return None
+
+    def acts_before(self, number: int, our_priority: int, threat_key: str, their_priority: int) -> bool:
+        position = next((p for p, s in self.theirs.items() if species_key(s) == threat_key), None)
+        if our_priority != their_priority:
+            return our_priority > their_priority
+        return self.order.get(("mine", number), 99) < self.order.get(("theirs", position), 99)
+
+    def escape(self, number: int, trigger: dict, payload: dict) -> str | None:
+        """Why the attack is right despite the trigger, or None."""
+        threat_key = trigger["threat"]
+        threat = self.threats.get(threat_key) or {}
+        their_hit = next((h for h in threat.get("hits") or [] if _move_key(h.get("move")) == _move_key(trigger["move"])), {})
+        their_priority = int(their_hit.get("priority") or 0) if trigger["kind"] != "exposed" else 0
+        removal: list[tuple[float, str]] = []  # (probability the threat is gone before it moves, how)
+        combined: list[list] = []
+        for n in (0, 1):
+            choice = payload.get(f"slot_{n}") or {}
+            if choice.get("type") != "move" or _move_key(choice.get("move_id")) in _PROTECT_MOVES:
+                continue
+            option = self.option_row(n, choice)
+            if not option:
+                continue
+            our_priority = int(option.get("priority") or 0)
+            first = self.acts_before(n, our_priority, threat_key, their_priority) if trigger["kind"] != "exposed" else True
+            if not first:
+                continue
+            damage = self.damage_into(option, threat_key, choice.get("target"))
+            if damage:
+                p = battle_rules.ko_probability({"damage_pct_of_current_hp": damage})
+                combined.append(list(damage))
+                if p >= RECHECK_KO_PROBABILITY:
+                    removal.append((p, f"slot {n}'s {option.get('move')} ({damage[0]}-{damage[1]}%) lands first and KOs {threat_key} {int(p * 100)}% of the time"))
+            if _move_key(option.get("move")) == "fakeout" and our_priority > their_priority and self.flinchable(threat, number):
+                targets = [r for r in option.get("targets") or [] if species_key(r.get("species")) == threat_key]
+                if targets and (choice.get("target") in (0, None) or any(r.get("target") == choice.get("target") for r in targets)):
+                    removal.append((1.0, f"slot {n}'s Fake Out goes first and flinches {threat_key}"))
+        if len(combined) == 2 and not removal:
+            lo, hi = combined[0][0] + combined[1][0], combined[0][1] + combined[1][1]
+            p = battle_rules.ko_probability({"damage_pct_of_current_hp": [lo, hi]})
+            if p >= RECHECK_KO_PROBABILITY:
+                removal.append((p, f"both hits land before {threat_key} moves and together KO it ({lo:.1f}-{hi:.1f}%, {int(p * 100)}%)"))
+        if removal:
+            return max(removal, key=lambda r: r[0])[1]
+        species = self.ours.get(number)
+        streak = self.memory.protect_streak(species, number) if (self.memory is not None and species) else 0
+        safe = self.safe_switches(number)
+        if streak and not safe:
+            return f"Protect is on a streak of {streak} (1 in {3 ** streak}) and no switch-in is safe: attacking is what is left"
+        if self.pierces_protect(threat, their_hit) and not safe:
+            return f"{threat_key}'s {trigger['move']} goes through Protect and no switch-in is safe: attacking is what is left"
+        return None
+
+    def flinchable(self, threat: dict, number: int) -> bool:
+        ability = data.to_id(threat.get("ability"))
+        item = data.to_id(threat.get("item"))
+        types = data.resolve_types({"species": threat.get("species")}) if threat.get("species") else []
+        return "ghost" not in types and ability not in _FLINCH_PROOF_ABILITIES and item != "covertcloak"
+
+    @staticmethod
+    def pierces_protect(threat: dict, hit: dict) -> bool:
+        move = _move_key(hit.get("move"))
+        if move in _PIERCES_PROTECT:
+            return True
+        info = data.move_info(move) or {}
+        return data.to_id(threat.get("ability")) == "unseenfist" and "contact" in (info.get("flags") or [])
+
+    def safe_switches(self, number: int) -> list[str]:
+        out = []
+        for key, entry in (getattr(self.sheet, "switch_ins", None) or {}).items():
+            by_slot = entry.get("by_slot") or {}
+            verdict = (by_slot.get(number) or by_slot.get(str(number)) or {}).get("verdict") or entry.get("verdict")
+            if verdict == "safe":
+                out.append(key)
+        return out
+
+    # -- the alternative row -----------------------------------------------------------------------------------------
+
+    def alternative(self, number: int) -> str | None:
+        """The top protect_threatened / switch_threatened candidate that takes this slot out of the line of fire."""
+        for cand in getattr(self.sheet, "candidates", None) or []:
+            if cand.get("name") not in ("protect_threatened", "switch_threatened", "switch_weak_slot"):
+                continue
+            mine = cand.get(f"slot_{number}") or {}
+            option = self.option_by_index(number, mine.get("option"))
+            if option is None:
+                continue
+            is_protect = option.get("type") == "move" and _move_key(option.get("move_id")) in _PROTECT_MOVES
+            is_switch = option.get("type") == "switch"
+            if not (is_protect or is_switch):
+                continue
+            other = 1 - number
+            theirs = cand.get(f"slot_{other}") or {}
+            what = f"option {mine.get('option')} ({'switch to ' + str(option.get('species')) if is_switch else option.get('move_id')})"
+            return (f"{cand.get('name')}: slot {number} {what}, slot {other} option {theirs.get('option')} target {theirs.get('target')} "
+                    f"— {str(cand.get('why'))[:160]}")
+        return None
+
+    def option_by_index(self, number: int, index: Any) -> dict | None:
+        """The server's option at that index for the slot (moves, switches and pass alike: the sheet's own rows only
+        cover damaging moves)."""
+        options = self.template_options.get(number) or []
+        if isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(options):
+            return options[index]
+        return None
 
 
 class PokemonAgent:
@@ -383,13 +585,15 @@ class PokemonAgent:
             "observation": _compact(_battle_view(obs, roster, self.memory), _BATTLE_KEYS),
         }
         remaining = expected_remaining_turns(roster["ours"].get("remaining"), roster["theirs"].get("remaining"))
-        value, answer, info = self._ask(choice, payload, kind="turn", recheck=lambda v: _lethal_recheck(v, sheet),
+        recheck_info: dict[str, Any] = {}
+        value, answer, info = self._ask(choice, payload, kind="turn",
+                                        recheck=lambda v: _lethal_recheck(v, sheet, memory=self.memory, template=template, info=recheck_info),
                                         clock=obs.get("clock"), remaining_turns=remaining)
         forced = any(slot.get("force_switch") for slot in template.get("slots") or [])
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced)
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
                   win_condition=(answer or {}).get("win_condition"), battle_roster=roster, turn_sheet=sheet.as_prompt(),
-                  wall_ms=self._wall_ms(), **info)
+                  wall_ms=self._wall_ms(), recheck_outcome=recheck_info.get("recheck_outcome"), **info)
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 
@@ -442,6 +646,7 @@ class PokemonAgent:
         ]
         info["attempt_log"] = []
         info["model_latency_ms"] = 0
+        first_valid: tuple[Any, dict] | None = None  # a valid first answer under recheck: never discarded for a failed second call
         for attempt in range(1, MAX_ATTEMPTS + 1):
             info["attempts"] = attempt
             self.memory.llm_calls += 1
@@ -455,6 +660,11 @@ class PokemonAgent:
                               chain=list(getattr(self._provider, "last_attempts", None) or []))
                 info["attempt_log"].append(record)
                 info["model_latency_ms"] += record["latency_ms"]
+                if first_valid is not None:
+                    info["errors"].append(f"recheck call failed ({exc}); the first valid answer stands")
+                    info["recheck_result"] = "first answer kept: the recheck call failed"
+                    info["answer"] = first_valid[1]
+                    return first_valid[0], first_valid[1], info
                 info["errors"].append(str(exc))
                 self._all_failed += 1
                 self._consecutive_failures += 1
@@ -487,6 +697,10 @@ class PokemonAgent:
             except InvalidChoice as exc:
                 record["outcome"] = "invalid"
                 info["errors"].append(f"invalid answer: {exc}")
+                if first_valid is not None:
+                    info["recheck_result"] = "first answer kept: the rechecked answer was invalid"
+                    info["answer"] = first_valid[1]
+                    return first_valid[0], first_valid[1], info
                 if time_left < MIN_MODEL_SECONDS:
                     info["errors"].append(f"no time left for a second model call ({time_left:.1f}s of the {deadline:.1f}s deadline); playing the computed move")
                     break
@@ -500,9 +714,12 @@ class PokemonAgent:
                     message = None
                 if message:
                     info["recheck"] = message
+                    first_valid = (value, answer)
                     messages.append({"role": "assistant", "content": json.dumps(answer, default=str)})
                     messages.append({"role": "user", "content": message})
                     continue
+            if first_valid is not None:
+                info["recheck_result"] = "second answer stands" if answer != first_valid[1] else "the model kept its answer"
             info["answer"] = answer
             return value, answer, info
 
