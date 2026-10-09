@@ -730,8 +730,11 @@ def deep_candidates(model: PreviewModel, our_fours: list[tuple[int, ...]], their
     four_w = float(P.get("lineup_sim_four_w", 0.5))
     top_value = max(value for value, _, _ in ranked)
     four_value = {our_fours[i]: four_w * (value - top_value) for value, _, i in ranked if i in picked}
+    v2_four = our_fours[ranked[0][2]]
+    v2_pair = tuple(k for k in v2_four if names[k] in v2_first.leads)
     search = preview_sim.Search(model.board.units, plans, their, seed=seed if seed is not None else 0, turns=turns,
-                                expected_w=float(P.get("lineup_sim_expected_w", 0.7)), finalists=top, four_value=four_value)
+                                expected_w=float(P.get("lineup_sim_expected_w", 0.7)), finalists=top, four_value=four_value,
+                                keep=(v2_four, v2_pair) if len(v2_pair) == LEADS else None)
     result = search.run(budget_s)
     summary = (f"sim search: {result.plans} plans ({len(picked)} fours x 6 lead pairs) x {len(result.their)} fours of theirs, "
                f"{result.rollouts} rollouts of {turns} turns in {result.seconds:.1f}s, {result.rounds} rounds, seed {result.seed:#x}")
@@ -772,9 +775,19 @@ def deep_candidates(model: PreviewModel, our_fours: list[tuple[int, ...]], their
                "rollouts": r.plan.n, "turns": turns}
         return Candidate([names[k] for k in four], [names[k] for k in pair], round(r.score, 3), notes, sim)
 
+    # v2's plan stays first unless the search's best beats it by more than lineup_sim_keep_v2 (both played the last round)
+    order = list(result.ranked)
+    best = order[0]
+    v2_plan = next((x for x in order if x.plan.four == v2_four and set(x.plan.leads) == set(v2_pair)), None)
+    band = float(P.get("lineup_sim_keep_v2", 0.05))
+    kept = v2_plan is not None and v2_plan is not best and v2_plan.plan.rounds == best.plan.rounds \
+        and v2_plan.score >= best.score - band
+    if kept:
+        order.remove(v2_plan)
+        order.insert(0, v2_plan)
     out: list[Candidate] = []
     seen: set[tuple] = set()
-    for r in result.ranked:
+    for r in order:
         if r.plan.four not in seen:
             seen.add(r.plan.four)
             out.append(candidate(r))
@@ -782,9 +795,11 @@ def deep_candidates(model: PreviewModel, our_fours: list[tuple[int, ...]], their
                 break
     first = out[0]
     first.notes.append(summary)
-    if (set(first.bring), set(first.leads)) != (set(v2_first.bring), set(v2_first.leads)):
-        v2_plan = next((x for x in result.ranked if {names[k] for k in x.plan.four} == set(v2_first.bring)
-                        and {names[k] for k in x.plan.leads} == set(v2_first.leads)), None)
+    if kept:
+        first.notes.append(f"sim keeps v2's lead: the search's best, {names[best.plan.leads[0]]} + {names[best.plan.leads[1]]}"
+                           f"{'' if best.plan.four == v2_four else ' with ' + '/'.join(names[k] for k in best.plan.four)} "
+                           f"({best.expected:+.2f}/{best.worst:+.2f}), is within {band:.2f} of it")
+    elif (set(first.bring), set(first.leads)) != (set(v2_first.bring), set(v2_first.leads)):
         first.notes.append(f"sim changes v2's lineup {v2_first.bring} lead {' + '.join(v2_first.leads)}"
                            + (f" (sim {v2_plan.expected:+.2f}/{v2_plan.worst:+.2f})" if v2_plan is not None else ""))
     first.notes.append(f"game value {100 * win(game_value):.0f}%")

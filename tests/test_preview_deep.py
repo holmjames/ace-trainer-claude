@@ -64,6 +64,19 @@ def test_the_deep_preview_leads_with_its_best_plan_and_shows_the_margins(small_s
     assert all(c.notes[0].startswith("sim: lead ") for c in a)
 
 
+def test_v2_s_plan_stays_code_one_unless_the_search_beats_it_by_more_than_the_band(small_schedule):
+    mine, theirs = profiles(*L3)
+    v2 = lineup.shortlist_v2(mine, theirs, params=tuning.merged(), seed=4)[0]
+    wide = lineup.shortlist_v2(mine, theirs, params=tuning.merged({"lineup_sim_keep_v2": 100.0}), seed=4, sim_budget_s=30.0)[0]
+    assert (set(wide.bring), set(wide.leads)) == (set(v2.bring), set(v2.leads))
+    assert wide.notes[0].startswith(f"sim: lead {v2.leads[0]} + {v2.leads[1]}") or wide.notes[0].startswith(f"sim: lead {v2.leads[1]} + {v2.leads[0]}")
+    narrow = lineup.shortlist_v2(mine, theirs, params=tuning.merged({"lineup_sim_keep_v2": 0.0}), seed=4, sim_budget_s=30.0)
+    if (set(narrow[0].bring), set(narrow[0].leads)) != (set(v2.bring), set(v2.leads)):
+        assert any(n.startswith("sim changes v2's lineup") for n in narrow[0].notes)
+        assert any(n.startswith("sim keeps v2's lead") for n in wide.notes)
+    assert narrow[0].score >= max(c.score for c in narrow)
+
+
 def test_a_budget_too_short_for_one_round_or_a_failure_leaves_v2_s_lineup(monkeypatch):
     P = tuning.merged()
     mine, theirs = profiles(*L3)

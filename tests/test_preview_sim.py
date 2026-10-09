@@ -225,14 +225,14 @@ def test_the_margin_is_zero_for_a_mirror_and_counts_knock_outs_and_speed_control
 # -- the anytime search ---------------------------------------------------------------------------------------------
 
 
-def small_search(seed: int) -> ps.Search:
+def small_search(seed: int, **kwargs) -> ps.Search:
     ours = [u(s) for s in ("Iron Hands", "Whimsicott", "Archaludon", "Gyarados", "Iron Bundle")]
     theirs = [u(s) for s in ("Incineroar", "Sylveon", "Rillaboom", "Flutter Mane", "Kingambit")]
     units = ours + theirs
     fours = [(0, 1, 2, 3), (0, 2, 3, 4)]
     plans = [(f, pair) for f in fours for pair in combinations(f, 2)]
     their = [(0.7, (5, 6, 7, 8), [((5, 6), 0.6), ((7, 8), 0.4)]), (0.3, (5, 6, 7, 9), [((6, 9), 1.0)])]
-    return ps.Search(units, plans, their, seed=seed)
+    return ps.Search(units, plans, their, seed=seed, **kwargs)
 
 
 def test_the_search_is_deterministic_under_a_seed_and_follows_the_seed():
@@ -272,3 +272,14 @@ def test_the_schedule_grows_with_the_budget_and_their_leads_are_drawn_in_proport
     draws = [search.their_leads(0, k) for k in range(100)]
     assert 55 <= draws.count((5, 6)) <= 65 and 35 <= draws.count((7, 8)) <= 45
     assert all(search.their_leads(1, k) == (6, 9) for k in range(10))
+
+
+def test_the_last_round_holds_the_best_plan_of_each_finalist_four_and_the_kept_plan_on_equal_rollouts():
+    plain = small_search(5).run(60.0, first=2)
+    last = [r for r in plain.ranked if r.plan.rounds == plain.rounds]
+    assert {r.plan.four for r in last} == {(0, 1, 2, 3), (0, 2, 3, 4)}  # both fours reach the last round...
+    assert len({r.plan.n for r in last}) == 1  # ...on equal rollouts
+    worst = plain.ranked[-1].plan  # a plan the first round knocked out
+    kept = small_search(5, keep=(worst.four, worst.leads)).run(60.0, first=2)
+    survivor = next(r for r in kept.ranked if r.plan.four == worst.four and r.plan.leads == worst.leads)
+    assert survivor.plan.rounds == kept.rounds and survivor.plan.n == kept.ranked[0].plan.n

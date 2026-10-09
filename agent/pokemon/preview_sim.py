@@ -915,7 +915,7 @@ class Sim:
 
 GOLDEN = 0.6180339887498949
 NOMINAL_ROLLOUT_S = 0.0004  # what the schedule assumes a 4-turn rollout costs (measured 0.3-0.5 ms on the live sixes, Oct 9)
-BUDGET_SHARE = 0.85  # the share of the budget the schedule plans to use; the rest absorbs a cold damage memo
+BUDGET_SHARE = 0.75  # the share of the budget the schedule plans to use; the rest absorbs a cold memo and a loaded machine
 KEEP_SHARES = (0.5, 0.67, 0.75)  # the share of plans each successive-halving round may keep
 
 
@@ -966,7 +966,8 @@ class Search:
     def __init__(self, units: list[matchup.Unit], plans: list[tuple[tuple[int, ...], tuple[int, int]]],
                  their: list[tuple[float, tuple[int, ...], list[tuple[tuple[int, int], float]]]], *, seed: int,
                  turns: int = 4, expected_w: float = 0.7, prior: dict | None = None, calc: Calc | None = None,
-                 finalists: int = 3, four_value: dict[tuple, float] | None = None) -> None:
+                 finalists: int = 3, four_value: dict[tuple, float] | None = None,
+                 keep: tuple[tuple[int, ...], tuple[int, int]] | None = None) -> None:
         self.units = units
         self.four_value = dict(four_value or {})  # a constant added to every plan of a four (the bench's long-run worth)
         total = sum(w for w, _, _ in their) or 1.0
@@ -978,8 +979,11 @@ class Search:
         self.prior = prior
         self.calc = calc or _CALC
         self.offsets = [(g * 0.7548776662466927) % 1.0 for g in range(len(self.their))]
-        # the final round plays the best plan of each of this many different fours, on equal rollouts (the shortlist)
+        # the final round plays the best plan of each of this many different fours, on equal rollouts (the shortlist),
+        # and ``keep`` (the plan the caller would play without the search) whatever its value, so the two meet on equal terms
         self.finalists = max(1, min(int(finalists), len({p.four for p in self.plans}) or 1))
+        self.keep = next((i for i, p in enumerate(self.plans) if keep is not None and p.four == tuple(keep[0])
+                          and set(p.leads) == set(keep[1])), None)
 
     def their_leads(self, g: int, k: int) -> tuple[int, int]:
         """Their lead pair for rollout ``k`` against four ``g``: a low-discrepancy draw from its lead distribution, so
@@ -1036,36 +1040,36 @@ class Search:
 
     def cost(self, c0: int, keep: float) -> int:
         """Rollouts in a full run (``run``): ``c0`` per (plan, four) first, then the better ``keep`` share of the plans
-        (never fewer than the finalists) with their count per four doubled, until only the finalists are left and
-        have played their round."""
+        (never fewer than the protected ones) with their count per four doubled, until only the protected plans are
+        left and have played their round."""
+        floor = self.finalists + (1 if self.keep is not None else 0)
         n, done, total, per = len(self.plans), 0, 0, c0
         while n >= 1:
             total += n * len(self.their) * per
             done += per
-            if n <= self.finalists:
+            if n <= floor:
                 break
-            n, per = self.kept(n, keep), done
+            n, per = max(floor, min(n - 1, int(n * keep + 0.5))), done
         return total
 
-    def kept(self, n: int, keep: float) -> int:
-        return max(self.finalists, min(n - 1, int(n * keep + 0.5)))
-
-    def halve(self, alive: list[int], keep: float) -> list[int]:
-        """The better ``keep`` share of ``alive`` by value, always with the best plan of each of the best
-        ``finalists`` fours (so the shortlist's three different fours reach the last round)."""
-        ranked = sorted(alive, key=lambda i: (-self.value(self.plans[i])[0], i))
-        protected: list[int] = []
+    def protected(self, ranked: list[int]) -> list[int]:
+        """Of ``ranked`` (best first): the best plan of each of the best ``finalists`` fours, and the kept plan."""
+        out: list[int] = []
         seen: set[tuple] = set()
         for i in ranked:
             four = self.plans[i].four
-            if four not in seen:
+            if four not in seen and len(seen) < self.finalists:
                 seen.add(four)
-                protected.append(i)
-                if len(protected) == self.finalists:
-                    break
-        if len(alive) <= self.finalists:
-            return ranked
-        n = self.kept(len(alive), keep)
+                out.append(i)
+        if self.keep is not None and self.keep in ranked and self.keep not in out:
+            out.append(self.keep)
+        return out
+
+    def halve(self, alive: list[int], keep: float) -> list[int]:
+        """The better ``keep`` share of ``alive`` by value, always with the protected plans."""
+        ranked = sorted(alive, key=lambda i: (-self.value(self.plans[i])[0], i))
+        protected = self.protected(ranked)
+        n = max(len(protected), min(len(alive) - 1, int(len(alive) * keep + 0.5)))
         chosen = set(protected)
         for i in ranked:
             if len(chosen) >= n:
@@ -1108,7 +1112,8 @@ class Search:
             complete = True
             for i in alive:
                 self.plans[i].rounds = rounds
-            if len(alive) <= self.finalists:
+            ranked = sorted(alive, key=lambda i: (-self.value(self.plans[i])[0], i))
+            if set(alive) <= set(self.protected(ranked)):
                 break
             alive = self.halve(alive, keep)
             per = done

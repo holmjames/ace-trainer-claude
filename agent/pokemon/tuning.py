@@ -78,6 +78,7 @@ DEFAULTS: dict[str, float] = {
     "lineup_sim_their_fours": 8.0,  # their likeliest fours the plans are played against (plus the search-bot template's four): their actual four was among 8 in 17 of the 19 live previews, among 6 in 15
     "lineup_sim_expected_w": 0.7,  # a plan's value: this x its expected margin over their fours + the rest x its worst four
     "lineup_sim_four_w": 0.5,      # ... + this x its four's v2 value (log-odds, relative to v2's best four): the bench, which a few simulated turns barely see
+    "lineup_sim_keep_v2": 0.05,    # v2's own plan (its four and lead veto pair) stays code #1 unless the search's best beats it by more than this (Pokemon); it plays the last round too
     "lineup_sim_beta": 2.0,        # how sharply their four distribution follows their value against our likely fours (softmax, per log-odds)
     "lineup_sim_flat": 0.5,        # share of their four distribution spread evenly over the fours simulated (live: the predicted top four was right in 4 of 19)
     "lineup_sim_lead_floor": 0.2,  # share of each four's lead distribution spread evenly over its six pairs (live: their actual lead pair got 0.26 on average, 0 twice)
