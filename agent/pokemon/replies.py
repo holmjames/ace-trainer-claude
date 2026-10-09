@@ -37,6 +37,47 @@ SETUP_IDS = {"nastyplot": 30, "calmmind": 25, "swordsdance": 30, "dragondance": 
              "tailwind": 28, "trickroom": 28, "icywind": 20, "electroweb": 20, "snarl": 12}
 FLINCH_IMMUNE_ABILITIES = ("innerfocus", "shielddust")
 
+# The search-bot class's starting rates: (k+1)/(n+2) from the Oct 8 pooled tally of the class's 130 decisions over the
+# eight live games (Oct 7-8; Oct 8 alone where the two days differ at Fisher p < 0.1). The in-game tallies (A4) move
+# them; a tally file outside the repository overrides them at import time when it is present.
+SEARCH_BOT_SEEDS = {
+    "protect_after_protect": 0.05,       # 0/17: never twice in a row
+    "fresh_protect_ko50": 0.47,          # 6/13: a fresh Protect against our one-move KO
+    "fresh_protect_30_noko": 0.32,       # 6/20: taking >= 30% with no KO on the board
+    "switchin_first_turn_protect": 0.43, # 5/12: a fresh switch-in on its first turn
+    "lead_turn1_protect": 0.57,          # 3/5 on the current build: a lead on turn 1
+    "spent_protect_ko_switch": 0.38,     # 3/6 like-for-like: Protect spent, our move KOs it, a better absorber behind
+    "double_only_ko_stays": 0.88,        # 22/24: it stays when only our two attacks together KO it
+    "double_only_ko_protect": 0.40,      # the no-Protect-on-t-1 branch of the same denominator
+    "both_attack_same_target": 0.61,     # 10/16 turns
+    "fakeout_first_turn": 0.50,          # 8/16, aimed at the slot whose action it can stop
+    "fakeout_after_first_turn": 0.07,    # 0/16 since its stale-Fake-Out fix
+    "setup_unthreatened": 0.36,          # 4/12
+    "tailwind_when_available": 0.22,     # 5/25
+    "voluntary_switch_rate": 0.16,       # 14/130 decisions (8/35 when facing our >= 0.5 KO with a bench)
+}
+TALLIES_PATH = os.environ.get("ACE_OPPONENT_TALLIES", os.path.expanduser("~/projects/ace-trainer-data/opponent-tallies-2026-10-08.json"))
+
+
+def _load_seeds(path: str) -> dict[str, float]:
+    """The tally file's suggested seeds over the dictionary above; the dictionary alone when the file is missing."""
+    seeds = dict(SEARCH_BOT_SEEDS)
+    try:
+        import json
+
+        with open(path) as f:
+            doc = json.load(f)
+        for event in doc.get("events") or []:
+            name, seed = event.get("event"), event.get("suggested_seed")
+            if name in seeds and seed is not None:
+                seeds[name] = float(seed)
+    except Exception:
+        pass
+    return seeds
+
+
+SEEDS = _load_seeds(TALLIES_PATH)
+
 
 # -- the opponent class and its priors ------------------------------------------------------------------------------
 
@@ -71,39 +112,49 @@ def opponent_class(memory: MatchMemory | None) -> str:
 
 
 def _p_protect(klass: str, *, streak: int, ko_one: float, ko_two: float, facing: float, fresh_in: bool, turn: int | None) -> float:
-    """Chance this foe Protects this turn. Search bot (live tallies, Oct 7-8): never twice in a row (0/12); a fresh
-    Protect against a one-move KO 7/9; against a two-move KO 3/8; facing >= 30% but no KO 5/9 on Oct 8 (1/8 on Oct 7);
-    a fresh switch-in Protects on its first turn 4/5. Generic LLM: Protects in KO range about half the time, even again."""
+    """Chance this foe Protects this turn. Search bot: the pooled tally's seeds (SEEDS): never twice in a row, a fresh
+    Protect against our one-move KO about a coin flip, against a double-only KO 0.4, a lead on turn 1 and a fresh
+    switch-in on its first turn a little above that, a third when it only takes >= 30%. Generic LLM: Protects in KO
+    range about half the time, even again."""
     if klass == "random":
         return 0.15
     if klass == "llm":
         base = 0.5 if ko_one >= 0.5 else (0.3 if ko_two >= 0.5 else 0.1)
         return base * (0.5 if streak else 1.0)
     if streak:
-        return 0.0
+        return SEEDS["protect_after_protect"]
     if ko_one >= 0.5:
-        return 0.7
+        if (turn or 1) <= 1:
+            return SEEDS["lead_turn1_protect"]
+        if fresh_in:
+            return max(SEEDS["switchin_first_turn_protect"], SEEDS["fresh_protect_ko50"])
+        return SEEDS["fresh_protect_ko50"]
     if ko_two >= 0.5:
-        return 0.4
+        return SEEDS["double_only_ko_protect"]
     if fresh_in:
-        return 0.5
+        return SEEDS["switchin_first_turn_protect"]
     if facing >= 30:
-        return 0.4
+        return SEEDS["fresh_protect_30_noko"]
     return 0.1
 
 
-def _p_switch(klass: str, *, streak: int, ko_one: float, has_absorber: bool) -> float:
-    """Protect already spent + one of our moves KOs it + a better absorber on its bench -> the search bot switches
-    (3/4, any speed). Generic LLM: 1 voluntary switch in 14."""
+def _p_switch(klass: str, *, streak: int, ko_one: float, ko_two: float = 0.0, has_absorber: bool, has_protect: bool = True) -> float:
+    """Chance this foe switches out. Search bot (SEEDS): Protect spent (or no Protect) + our move KOs it + a better
+    absorber behind -> 0.38; facing our one-move KO with a fresh Protect 8/35 of the time; it STAYS when only our two
+    attacks together KO it (0.88); otherwise the voluntary rate 0.16 over a bench. Generic LLM: 1 switch in 14."""
     if klass == "random":
         return 0.1 if has_absorber else 0.0
     if not has_absorber:
         return 0.0
     if klass == "llm":
         return 0.1
-    if streak and ko_one >= 0.5:
-        return 0.6
-    return 0.1 if ko_one >= 0.5 else 0.03
+    if ko_one >= 0.5 and (streak or not has_protect):
+        return SEEDS["spent_protect_ko_switch"]
+    if ko_one >= 0.5:
+        return 0.23  # 8/35 facing a >= 0.5 KO with a bench (voluntary_switch_rate's split)
+    if ko_two >= 0.5:
+        return max(0.02, 1.0 - SEEDS["double_only_ko_stays"] - SEEDS["double_only_ko_protect"] * 0.3)
+    return SEEDS["voluntary_switch_rate"] * 0.5
 
 
 def _p_setup(klass: str, *, threatened: bool, turn: int | None, move_id: str) -> float:
@@ -111,17 +162,18 @@ def _p_setup(klass: str, *, threatened: bool, turn: int | None, move_id: str) ->
         return 0.1
     if threatened:
         return 0.05
-    if move_id == "tailwind" and (turn or 1) <= 2:
-        return 0.4
-    return 0.15 if klass == "llm" else 0.2
+    if move_id == "tailwind":
+        return SEEDS["tailwind_when_available"] if klass == "search" else 0.15
+    return 0.15 if klass == "llm" else SEEDS["setup_unthreatened"]
 
 
 def _p_fakeout(klass: str, *, turn: int | None) -> float:
+    """A fresh Fake Out: 8/16 first turns on the field for the search bot (turn-1 leads 1/4), aimed at the stoppable slot."""
     if klass == "random":
         return 0.3
-    if (turn or 1) <= 1:
-        return 0.8
-    return 0.5 if klass == "search" else 0.2  # a fresh Fake Out mid-game: used 2 of 4 times, always on the stoppable slot
+    if klass == "search":
+        return SEEDS["fakeout_first_turn"]
+    return 0.6 if (turn or 1) <= 1 else 0.2
 
 
 # -- the matrix ----------------------------------------------------------------------------------------------------
@@ -239,7 +291,8 @@ def _lambda(memory: MatchMemory | None, ctx: "_Context", cols: list["_Actor"], p
     if predicted and memory is not None and isinstance(ctx.turn, int) and predicted.get("turn") is not None and ctx.turn > predicted["turn"]:
         matched = ctx.prediction_matched(predicted)
         if matched is not None:
-            lam = min(0.7, lam + 0.15) if matched else max(0.15, lam / 2)
+            # both foes as predicted: +0.15; one of two: unchanged; neither: halved (floor 0.15)
+            lam = min(0.7, lam + 0.15) if matched >= 1.0 else (lam if matched > 0 else max(0.15, lam / 2))
             try:
                 setattr(memory, "_reply_lambda", lam)
                 setattr(memory, "_reply_predicted", None)
@@ -314,6 +367,7 @@ class _Context:
         self.our_streak = {n: (memory.protect_streak(m.species, n) if memory is not None else 0) for n, m in ours.items()}
         self.obs_team = obs_team
         self.bench_prob: dict[str, float] = {}
+        self.revealed = self._revealed()
         self.their_bench = self._their_bench()
         self.switch_rows = self._their_switch_rows()
         self.our_switch_rows = self._our_switch_rows()
@@ -324,6 +378,17 @@ class _Context:
                          for n, m in ours.items()}
 
     # -- tables ------------------------------------------------------------------------------------------------------
+
+    def _revealed(self) -> set[str]:
+        """Our Pokémon the opponent has seen on the field this battle (its search models switches to those)."""
+        seen = {species_key(m.species) for m in self.ours.values()}
+        for fields in getattr(self.memory, "turns", None) or []:
+            for s in fields.get("actives") or []:
+                if s:
+                    seen.add(species_key(s))
+        for s in getattr(self.memory, "last_active", None) or []:
+            seen.add(species_key(s))
+        return seen
 
     def _their_bench(self) -> list[battle.Mon]:
         memory = self.memory
@@ -596,6 +661,8 @@ class _Context:
             protect = {n: self.option_index(n, "protect") if self.option_index(n, "protect") is not None else self.option_index(n, "detect") for n in (0, 1)}
             if best[0] and best[1]:
                 from_payload("both_attack", best[0], best[1])
+            if protect[0] is not None and protect[1] is not None and all(self.in_ko_range(n) for n in (0, 1)):
+                from_payload("double_protect", {"option": protect[0], "target": 0}, {"option": protect[1], "target": 0})
             for n in (0, 1):
                 other = 1 - n
                 for move_id, answer in self.status_answers(n):
@@ -674,6 +741,14 @@ class _Context:
                 from_payload(f"protect_{n}", *(({"option": protect, "target": 0}, lone) if n == 0 else (lone, {"option": protect, "target": 0})))
         cap = int(self.P.get("reply_rows", 16))
         return rows[:cap]
+
+    def in_ko_range(self, number: int) -> bool:
+        """Does a KO threaten this slot this turn (a single hit at >= 0.5, or the double-target)?"""
+        for t in self.sheet.threats:
+            for h in t["hits"]:
+                if h["into_slot"] == number and h["ko"] != "no" and battle.ko_probability(h) >= 0.5:
+                    return True
+        return any(f["slot"] == number and f["ko_chance"] >= 0.5 for f in self.sheet.focus_threats)
 
     def best_attack_answer(self, number: int) -> dict | None:
         opt, row, _ = battle._best_attack(self.by_slot.get(number, {}), P=self.P, threats=self.weights)
@@ -903,7 +978,8 @@ class _Context:
         p_protect = _p_protect(self.klass, streak=streak, ko_one=ko_one, ko_two=ko_two, facing=facing, fresh_in=fresh_in, turn=self.turn) \
             if any(m["id"] in battle.PROTECT_LIKE for m in foe.moves) else 0.0
         absorber = self.best_absorber(a.slot)
-        p_switch = _p_switch(self.klass, streak=streak, ko_one=ko_one, has_absorber=absorber is not None) \
+        has_protect = any(m["id"] in battle.PROTECT_LIKE for m in foe.moves)
+        p_switch = _p_switch(self.klass, streak=streak, ko_one=ko_one, ko_two=ko_two, has_absorber=absorber is not None, has_protect=has_protect) \
             * (self.bench_prob.get(species_key(absorber.species), 1.0) if absorber is not None else 1.0)
         p_fake = _p_fakeout(self.klass, turn=self.turn) if ("fakeout" in {m["id"] for m in foe.moves} and fresh_in) else 0.0
         setup_move = next((m["id"] for m in foe.moves if m["id"] in SETUP_IDS and not data.is_damaging(m)), None)
@@ -928,7 +1004,7 @@ class _Context:
             share = 0.6
         partner = next((b for b in col.actions if b is not a), None)
         if partner is not None and partner.kind == "attack" and not partner.spread and not a.spread and partner.target == a.target:
-            share *= 1.3
+            share *= 1.0 + SEEDS["both_attack_same_target"]  # both on one target 10/16 turns
         return rest * share
 
     def _two_move_ko(self, pos: int) -> bool:
@@ -959,7 +1035,7 @@ class _Context:
                 totals[pos] = totals.get(pos, 0.0) + min(battle._avg(r["damage_pct_of_current_hp"]), 100.0)
         return max(totals, key=totals.get) if totals else None
 
-    def prediction_matched(self, predicted: dict) -> bool | None:
+    def prediction_matched(self, predicted: dict) -> float | None:
         """Did the opponent do what the top-prior column said last turn? Read from the memory's protocol-log tables."""
         memory = self.memory
         if memory is None:
@@ -984,7 +1060,7 @@ class _Context:
                 checks.append(bool(used) and key in actives_now and data.is_damaging(info) and used not in battle.PROTECT_LIKE)
         if not checks:
             return None
-        return all(checks)
+        return sum(1.0 for c in checks if c) / len(checks)
 
     # -- the cell ----------------------------------------------------------------------------------------------------
 
@@ -1018,8 +1094,10 @@ class _Context:
             if a.kind == "protect":
                 streak = self.our_streak.get(a.slot, 0) if a.side == "mine" else int(self.their_streak.get(species_key(a.species), 0))
                 protected[me_key] = p_act * (1.0 / 3 ** streak)
-                if a.side == "mine" and self.sheet.alone and not self.sheet.stall_reasons:
-                    tempo -= P.get("reply_stall_w", 30.0)  # our last Pokémon with nothing to wait for: a Protect only delays
+                if a.side == "mine":
+                    tempo -= P.get("reply_protect_tempo", 8.0)  # the turn it gives away (their free switch, setup, a spent Protect)
+                    if self.sheet.alone and not self.sheet.stall_reasons:
+                        tempo -= P.get("reply_stall_w", 30.0)  # our last Pokémon with nothing to wait for: a Protect only delays
                 continue
             if a.kind == "switch":
                 gone[me_key] = p_act
@@ -1122,12 +1200,93 @@ class _Context:
                 hp_in = float(mon.hp_fraction if mon else 1.0)
                 value -= P.get("reply_loss_w", 1.0) * ko_in * (100.0 * hp_in + P["ko_bonus_guaranteed"])
                 value -= P.get("reply_chip_w", 0.35) * dmg_in * hp_in
-                value += P.get("reply_pivot_w", 6.0) * gone[key]  # the newcomer's entry (Intimidate, a resist) counts a little
+                if mon is not None and species_key(mon.species) not in self.revealed:
+                    value += P.get("reply_pivot_w", 6.0) * gone[key]  # an unrevealed newcomer: its search cannot aim at it (a seen one it can)
         # choice lock into a dead move
         for a in row.actions:
             if a.side == "mine" and a.kind == "attack" and self.sheet.choice_locks.get(a.slot, {}).get(a.move):
                 value -= P.get("reply_dead_lock_w", 15.0) * acts.get(("mine", a.slot), 1.0)
-        return value + tempo
+        return value + tempo + self._next_turn(parts, gone, incoming, order)
+
+    def _next_turn(self, parts: dict, gone: dict, incoming: dict, order: list[_Actor]) -> float:
+        """One ply ahead, discounted: what is left after this turn and who threatens whom next turn. For each Pokémon
+        still standing (its chance and its remaining HP from this turn's hits), the KO each side can take next turn
+        with its best hit at that HP, in speed order (a foe we take out first does not swing), weighted by the
+        threat removed / the material lost. All-negative turns then rank by what they leave (L3 T1 type), and a pivot
+        that sets up a KO next turn (L4 T2: Landorus's Earthquake into a Balloon-less Gholdengo) gets its credit."""
+        P = self.P
+        w = float(P.get("reply_next_w", 0.4))
+        if w <= 0:
+            return 0.0
+
+        def state(key: tuple[str, int]) -> tuple[float, float]:
+            """(chance it is still standing, remaining HP as a fraction of its HP at the start of the turn)."""
+            dmg, p_ko = battle._outcome(parts.get(key, []))
+            return (1.0 - p_ko), max(0.05, 1.0 - dmg / 100.0)
+
+        protected_now = {a.slot for a in order if a.side == "mine" and a.kind == "protect"}
+        their_protected_now = {a.slot for a in order if a.side == "theirs" and a.kind == "protect"}
+
+        def protect_answer(side: str, slot: int, mon: battle.Mon) -> float:
+            """How much of a KO threat next turn a Protect answers: a fresh one all but the tempo (0.6), a spent one 1 in 3."""
+            if not any(m["id"] in battle.PROTECT_LIKE for m in mon.moves):
+                return 0.0
+            spent = slot in (protected_now if side == "mine" else their_protected_now)
+            return 0.6 / 3 if spent else 0.6
+
+        theirs_alive: dict[int, tuple[float, float, battle.Mon]] = {}
+        for pos, foe in self.theirs.items():
+            left = 1.0 - gone.get(("theirs", pos), 0.0)
+            alive, rem = state(("theirs", pos))
+            if left > 0:
+                theirs_alive[pos] = (left * alive, rem, foe)
+        ours_alive: dict[int, tuple[float, float, battle.Mon, float]] = {}
+        for n, me in self.ours.items():
+            key = ("mine", n)
+            left = 1.0 - gone.get(key, 0.0)
+            alive, rem = state(key)
+            mat = self.material[n]
+            if left > 0:
+                ours_alive[n] = (left * alive, rem, me, mat)
+            if key in incoming and incoming[key]:
+                mon = incoming[key][0] if isinstance(incoming[key], tuple) else incoming[key]
+                if isinstance(mon, battle.Mon):
+                    alive_in, rem_in = state(("in",) + key)
+                    ours_alive[n] = (gone[key] * alive_in, rem_in * mon.hp_fraction / max(me.hp_fraction, 0.05), mon,
+                                     battle.material(mon, P))
+        total = 0.0
+        for pos, (q, rem_f, foe) in theirs_alive.items():
+            # our best KO on it next turn, over our standing Pokémon, rescaled to what it has left
+            best_p, best_first = 0.0, False
+            for n, (p, _, me, _) in ours_alive.items():
+                ans = self.best_single_answer(n, pos) if me is self.ours.get(n) else None
+                if not ans:
+                    continue
+                opt = self.move_option(n, ans["option"])
+                row = next((r for r in (opt or {}).get("targets") or [] if r.get("side") == "theirs"
+                            and (r.get("target") == pos or (r.get("target", 0) == 0 and self.pos_of(r["species"]) == pos))), None)
+                if row is None:
+                    continue
+                lo, hi = row["damage_pct_of_current_hp"]
+                p_ko = battle.linear_ko(lo / rem_f, hi / rem_f) * float(row.get("hit_chance", 1.0)) * p
+                if p_ko > best_p:
+                    best_p = p_ko
+                    best_first = (opt.get("priority", 0) or 0) > 0 or self.speed_rank.get(("mine", n), 99) < self.speed_rank.get(("theirs", pos), 99)
+            if best_p > 0:
+                total += w * q * best_p * (1.0 - protect_answer("theirs", pos, foe)) \
+                    * (P["ko_bonus_guaranteed"] + P.get("ko_threat_w", 0.0) * self.weights.get(species_key(foe.species), 0.0))
+            # its best KO on one of ours next turn, unless we take it out first
+            for n, (p, rem_s, me, mat) in ours_alive.items():
+                hit = self.best_hit_into(pos, n) if me is self.ours.get(n) else None
+                if hit is None:
+                    continue
+                lo, hi = hit["damage_pct_of_current_hp"]
+                p_ko = battle.linear_ko(lo / rem_s, hi / rem_s) * float(hit.get("hit_chance", 1.0))
+                if p_ko <= 0:
+                    continue
+                removed_first = best_p if best_first else 0.0
+                total -= w * q * p * p_ko * (1.0 - removed_first) * (1.0 - protect_answer("mine", n, me)) * mat
+        return total
 
     def _alive_before(self, key: tuple[str, int], parts: dict, actor: _Actor, order: list[_Actor]) -> float:
         """Chance this Pokémon is still standing when its turn comes: the hits already recorded on it."""
@@ -1151,9 +1310,11 @@ class _Context:
             return None
         return self.our_switch_rows.get((species_key(mon.species), a.slot, a.move))
 
+    TURNS_LEFT = {"tailwind": 3, "trickroom": 4, "icywind": 3, "electroweb": 3}  # turns the effect still covers after this one
+
     def _speed_control_gain(self, move: str) -> float:
         """How much a Tailwind / Trick Room / Icy Wind of ours changes who moves first: the share of (our attacker,
-        their foe) pairs it flips, times the turns it lasts."""
+        their foe) pairs it flips, times the turns it still covers after this one (over a three-turn yardstick)."""
         pairs = [(m, f) for m in self.ours.values() for f in self.theirs.values()]
         if not pairs:
             return 0.0
@@ -1170,7 +1331,7 @@ class _Context:
             flips += int(after and not before) - int(before and not after)
         if flips <= 0:
             return 0.1
-        return min(1.5, 0.4 + flips / len(pairs))
+        return min(1.5, (0.4 + flips / len(pairs)) * self.TURNS_LEFT.get(move, 3) / 3)
 
     def _their_speed_control_gain(self, move: str) -> float:
         pairs = [(m, f) for m in self.ours.values() for f in self.theirs.values()]

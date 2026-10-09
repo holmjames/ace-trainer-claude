@@ -387,3 +387,84 @@ def test_tie_guard_avoids_a_recoil_self_ko_with_our_last_pokemon():
     assert any(n.startswith("TIE GUARD") for n in sheet.notes), sheet.notes
     fb_index = next(i for i, o in enumerate(template["slots"][0]["options"]) if o.get("move_id") == "flareblitz")
     assert sheet.candidates and sheet.candidates[0]["slot_0"]["option"] != fb_index, sheet.candidates
+
+
+# -- the two player-2 wins' row bugs (Oct 8 post-mortem) and the mixture's new rows -------------------------------------
+
+
+def _two_vs_two(m: MatchMemory, mine: list[str], opp: list[str], hp: dict[str, float], *, fresh: list[str] = ()) -> tuple[dict, dict]:
+    template, obs = _doubles(m, mine, opp, hp)
+    obs["active_pokemon"] = [{"species": s} for s in mine]
+    m.fresh_active = [species_key(s) for s in fresh]
+    m.opp_fresh_active = []
+    return template, obs
+
+
+def test_finish_the_other_bonus_needs_a_killer_that_moves():
+    """The +15 'one slot already KOs' bonus is for a KO that happens: a killer that is KO'd before it moves earns none
+    of it (the Oct 8 win as player 2, turn 2: the bonus tied a Rillaboom that never moved with the winning switch)."""
+    cards = _catalog()
+    m = MatchMemory()
+    m.my_cards["rillaboom"] = cards["Rillaboom"]
+    m.my_cards["archaludon"] = cards["Archaludon"]
+    m.opp_cards["dragonite"] = cards["Dragonite"]
+    m.opp_cards["ursaluna"] = cards["Ursaluna"] if "Ursaluna" in cards else cards["Ting-Lu"]
+    template, obs = _two_vs_two(m, ["Rillaboom", "Archaludon"], ["Dragonite", list(m.opp_cards.values())[1]["species"]], {"Rillaboom": 0.35, "Dragonite": 0.3})
+    sheet = battle.build_sheet(template, obs, m)
+    rows = [c for c in sheet.candidates if c["name"] == "finish_the_other"]
+    speed_rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    rilla_first = speed_rank.get(("mine", 0), 99) < speed_rank.get(("theirs", 1), 99)
+    lethal_on_rilla = [h for t in sheet.threats for h in t["hits"] if h["into_slot"] == 0 and h["ko"] != "no"]
+    if rows and lethal_on_rilla and not rilla_first:
+        # a killer in slot 0 that dies first: its finish_the_other row carries no bonus beyond its joint value
+        for c in rows:
+            if c["slot_0"]["option"] == 0:
+                assert c["score"] <= max(x["score"] for x in sheet.candidates if x["name"] != "finish_the_other") + 1e-6, sheet.candidates
+
+
+def test_double_target_warning_survives_a_sure_hit_that_lands_after_we_move():
+    """A guaranteed single hit that lands AFTER our slot moves is no reason to skip the double-target check (the Oct 8
+    win as player 2, turn 4: Fake Out + Extreme Speed did 93-110% into Iron Valiant with no warning)."""
+    sheet = battle.TurnSheet()
+    sheet.speed_order = [{"species": "Us", "side": "mine", "position": 0, "speed": 300}, {"species": "A", "side": "theirs", "position": 1, "speed": 200},
+                         {"species": "B", "side": "theirs", "position": 2, "speed": 100}]
+    sheet.threats = [
+        {"position": 1, "species": "A", "hits": [{"move": "fakeout", "into_slot": 0, "species": "Us", "damage_pct_of_current_hp": [40.0, 48.0], "ko": "no", "priority": 3}]},
+        {"position": 2, "species": "B", "hits": [{"move": "extremespeed", "into_slot": 0, "species": "Us", "damage_pct_of_current_hp": [53.0, 62.0], "ko": "no", "priority": 2},
+                                                  {"move": "bodyslam", "into_slot": 0, "species": "Us", "damage_pct_of_current_hp": [100.0, 118.0], "ko": "guaranteed", "priority": 0}]},
+    ]
+    cards = _catalog()
+    me = battle.build_mon({"species": "Flutter Mane", "current_hp_fraction": 1.0}, cards["Flutter Mane"], side="mine", position=0)
+    battle._double_target_threats(sheet, {0: me}, DEFAULTS)
+    assert sheet.focus_threats and sheet.focus_threats[0]["moves"] == ["A fakeout", "B extremespeed"], sheet.focus_threats
+    assert any(w.startswith("DOUBLE-TARGET") for w in sheet.warnings), sheet.warnings
+    # ... but a sure hit that lands BEFORE we move still defers to the LETHAL warning
+    sheet2 = battle.TurnSheet()
+    sheet2.speed_order = list(sheet.speed_order)
+    sheet2.threats = [sheet.threats[0], {"position": 2, "species": "B", "hits": [
+        {"move": "extremespeed", "into_slot": 0, "species": "Us", "damage_pct_of_current_hp": [100.0, 118.0], "ko": "guaranteed", "priority": 2}]}]
+    battle._double_target_threats(sheet2, {0: me}, DEFAULTS)
+    assert not sheet2.focus_threats
+
+
+def test_the_mixture_offers_a_double_protect_only_when_both_slots_face_a_ko(rows):
+    # M3 T1: Wild Charge KOs Tornadus and Hyper Voice KOs Great Tusk; both slots carry Protect.
+    import tempfile
+    from tests.test_replies_live import replay_mix, decision
+    _, _, row = decision(M3, 1)
+    names = [c["name"] for c in row["turn_sheet"]["candidate_turns"]]
+    assert "double_protect" in names, names
+    # O8 T6: only Wo-Chien is in KO range (a double), Archaludon is not: no double Protect row
+    _, _, row6 = decision(O8, 6)
+    assert "double_protect" not in [c["name"] for c in row6["turn_sheet"]["candidate_turns"]]
+
+
+def test_the_search_bot_priors_come_from_the_pooled_tally():
+    from agent.pokemon import replies
+    assert replies.SEEDS["protect_after_protect"] <= 0.1 and 0.4 <= replies.SEEDS["fresh_protect_ko50"] <= 0.55
+    assert replies._p_protect("search", streak=1, ko_one=1.0, ko_two=0.0, facing=100.0, fresh_in=False, turn=5) == replies.SEEDS["protect_after_protect"]
+    assert replies._p_protect("search", streak=0, ko_one=1.0, ko_two=0.0, facing=100.0, fresh_in=False, turn=5) == replies.SEEDS["fresh_protect_ko50"]
+    assert replies._p_protect("search", streak=0, ko_one=0.0, ko_two=1.0, facing=60.0, fresh_in=False, turn=5) == replies.SEEDS["double_only_ko_protect"]
+    assert replies._p_switch("search", streak=1, ko_one=1.0, has_absorber=True, has_protect=True) == replies.SEEDS["spent_protect_ko_switch"]
+    assert replies._p_switch("search", streak=0, ko_one=0.0, ko_two=1.0, has_absorber=True) < 0.1  # it stays when only a double KOs it
+    assert replies._p_fakeout("search", turn=1) == replies.SEEDS["fakeout_first_turn"]
