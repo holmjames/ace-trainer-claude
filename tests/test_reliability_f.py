@@ -31,7 +31,7 @@ from altruagent import DecisionContext
 from altruagent.models import GameState
 
 from agent.agent import PokemonAgent, battle_roster
-from agent.pokemon import data
+from agent.pokemon import data, tuning
 from agent.pokemon.memory import observation_dict, species_key
 from test_live_semantics import LIVE, _sequence
 
@@ -126,9 +126,12 @@ def _catalog_gaps(folder: Path, seat: int) -> set[str]:
 
 @pytest.mark.skipif(not CASES, reason="no live captures")
 @pytest.mark.parametrize("folder, seat", CASES, ids=[f"{f.name[:8]}/seat{s}" for f, s in CASES])
-def test_a_fresh_agent_sees_the_same_sheet_as_a_full_replay(folder, seat, tmp_path):
+def test_a_fresh_agent_sees_the_same_sheet_as_a_full_replay(folder, seat, tmp_path, monkeypatch):
     """Every battle state of every live session: an agent restarted on that state builds the same turn sheet, roster
     and known sets as the agent that lived through the draft and Team Preview."""
+    # core-5 pin: the default scorer's sheet. A restart redraws the mixture's secret seed and resets its lambda by design;
+    # tests/test_replies_live.py checks the mixture's own inputs after a restart.
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)
     from agent.pokemon.memory import _complete
 
     gaps = _catalog_gaps(folder, seat)
@@ -849,11 +852,12 @@ def test_recheck_fires_when_the_priority_move_cannot_ko_the_threat_bcbaabe2_t13(
     assert _lethal_recheck(protect, sheet, memory=agent.memory, template=template) is None
 
 
-def test_recheck_defers_to_the_sheet_on_a_protect_streak_bcbaabe2_t14():
+def test_recheck_defers_to_the_sheet_on_a_protect_streak_bcbaabe2_t14(monkeypatch):
     """A turn later Arcanine Protected last turn (1 in 3) and the only switch-in, Wo-Chien, is KO'd on entry 57% of
     the time. The streak rule would skip the recheck ("attacking is what is left"), but the sheet's best row is still
     the Protect row (58.3 vs 30.9 for the attack): a 1-in-3 Protect beats a certain KO, so an attacking answer is sent
     back with that row quoted. Model-piloted, this position was the one loss against code-only at effort low."""
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's rows and history
     from agent.agent import _lethal_recheck
 
     agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 14)
@@ -873,10 +877,11 @@ def test_recheck_defers_to_the_sheet_on_a_protect_streak_bcbaabe2_t14():
     assert "Protect is on a streak of 1" in info["recheck_outcome"] and "no switch-in is safe" in info["recheck_outcome"]
 
 
-def test_recheck_fires_on_two_attacks_under_two_lethal_hits_93a98b6f_t4():
+def test_recheck_fires_on_two_attacks_under_two_lethal_hits_93a98b6f_t4(monkeypatch):
     """Both slots under a LETHAL hit (Flutter Mane's Shadow Ball 78% into Iron Treads, Rillaboom's Wood Hammer into
     Sylveon) and a DOUBLE-TARGET on slot 0: the live first answer attacked with both. The recheck fires for both
     slots and quotes a Protect row; the derived deadline (E1) now leaves time for the second call."""
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's rows and history
     from agent.agent import _lethal_recheck
 
     agent, sheet, template, build = _position("93a98b6f", 0, 4)
@@ -915,9 +920,10 @@ def test_recheck_skips_when_two_priority_hits_remove_the_threat_first_da9c168e_t
     assert not any("together KO it" in skip or "lands first" in skip for skip in info["recheck_skips"])
 
 
-def test_recheck_skips_when_a_fake_out_that_goes_first_flinches_the_threat_d9405f02_t6():
+def test_recheck_skips_when_a_fake_out_that_goes_first_flinches_the_threat_d9405f02_t6(monkeypatch):
     """Oct 7 L1 T6: Dragonite's Extreme Speed (+2) is LETHAL on Sneasler (slot 0); Sneasler's Fake Out (+3) goes
     first and flinches it, so the code's Fake Out line is not sent back. Dire Claw (no priority) is."""
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's rows and history
     from agent.agent import _lethal_recheck
 
     agent, sheet, template, build = _position("d9405f02", 0, 6)
@@ -1141,10 +1147,11 @@ def test_placeholder_card_is_loud_and_never_blank(tmp_path):
     assert len([line for line in lines if "CATALOG GAP" in line]) == 1  # once per card per match
 
 
-def test_a_row_that_trails_the_best_row_beyond_the_margin_plays_the_best_row_bcbaabe2_t14():
+def test_a_row_that_trails_the_best_row_beyond_the_margin_plays_the_best_row_bcbaabe2_t14(monkeypatch):
     """E2 for rows: at T14 the rows are protect_threatened 58.3 and best_attacks 30.9. The model picked the attack row
     (and kept it through the recheck) in two of three real calls at low; a 47% gap plays row 0 unless the reply
     table rates the row at least as well against the predicted column (it does not exist with the mixture off)."""
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's rows and history
     agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 14)
     for index, c in enumerate(sheet.candidates):
         c["row"] = index

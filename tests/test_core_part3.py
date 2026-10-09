@@ -266,8 +266,9 @@ def test_compose_double_heals_with_any_pinch_berry():
 # -- friendly fire: charged like damage into a foe, blocked by the ally's Protect -----------------------------------
 
 
-def test_friendly_fire_is_charged_in_hp_units():
+def test_friendly_fire_is_charged_in_hp_units(monkeypatch):
     # M2 T3: Earthquake also hits our own Archaludon (28.4-33.5%); the row that uses it pays ally_damage_w x that hit.
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer
     with_ff, *_ = _sheet_at(M2, 3, {})
     without, *_ = _sheet_at(M2, 3, {"ally_damage_w": 0.0})
     quake = next(o for e in with_ff.our_options if e["slot"] == 1 for o in e["options"] if o["move"] == "earthquake")
@@ -519,9 +520,10 @@ def test_a_taunted_spore_user_is_no_sleep_threat_and_draws_no_second_taunt():
     assert not [c for c in sheet.candidates if _labels(template, c)[0] == "taunt"], [c["why"] for c in sheet.candidates]
 
 
-def test_a_taunt_next_to_a_ko_on_its_target_is_worth_the_miss_only():
+def test_a_taunt_next_to_a_ko_on_its_target_is_worth_the_miss_only(monkeypatch):
     # Review finding 3: Heat Wave (90% accurate) KOs Amoonguss before it moves; the Taunt on it beside the Heat Wave is
     # credited only for the miss, and Gyarados Protects from Wild Charge instead (the deployed build's top row).
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer
     sheet, template, *_ = _synthetic(("Chi-Yu", "Gyarados"), ("Iron Hands", "Amoonguss"))
     assert _labels(template, sheet.candidates[0]) != ("heatwave", "taunt"), [c["why"] for c in sheet.candidates[:3]]
     assert sheet.candidates[0]["name"] == "protect_threatened"

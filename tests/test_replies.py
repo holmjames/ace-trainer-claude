@@ -50,20 +50,20 @@ def move_of(payload: dict, slot: int) -> str | None:
 # -- D1f: spread rows slipped past avoid_target --------------------------------------------------------------------
 
 
-def test_spread_rows_no_longer_hide_finish_the_other(rows):
+def test_spread_rows_no_longer_hide_finish_the_other(scorer_rows):
     # M3 turn 3: Hatterene's Dazzling Gleam KOs the 9% Whimsicott and Great Tusk holds Rock Slide (spread). The spread
     # row carried target 0, passed the avoid_target filter as Tusk's "best attack into the other foe", and the
     # "Gleam KOs Whimsicott, Headlong Rush into Incineroar" turn was never generated (REVIEW 4A).
-    row = turn_row(rows(M3), 3)
+    row = turn_row(scorer_rows(M3), 3)
     finish = named(row, "finish_the_other")
     assert finish, [c["name"] for c in candidates(row)]
     assert "dazzlinggleam already KOs whimsicott" in finish[0]["why"] and "headlongrush goes into incineroar" in finish[0]["why"]
 
 
-def test_spread_rows_no_longer_hide_focus_fire(rows):
+def test_spread_rows_no_longer_hide_focus_fire(scorer_rows):
     # The Oct 8 LLM-agent game, turn 6: Waterfall + Icicle Spear into the 54% Grimmsnarl is the double that wins the
     # turn; Gyarados' Earthquake (spread) hid it and the sheet had one candidate.
-    row = turn_row(rows(O8B), 6)
+    row = turn_row(scorer_rows(O8B), 6)
     focus = [c for c in named(row, "focus_fire") if "grimmsnarl" in c["why"]]
     assert focus, [c["why"] for c in candidates(row)]
     assert len(candidates(row)) >= 2
@@ -140,6 +140,34 @@ def rows_seat1(tmp_path_factory):
     return get
 
 
+def _scorer_replay(prefix: str, tmp_path: Path, seat: int = 0) -> list[dict]:
+    """The same replay with the default scorer ranking the rows (reply_mixture 0): the tests below are about its
+    generators, warnings and row names (core-5 pins; the mixture's own gate is tests/test_replies_live.py)."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(DEFAULTS, "reply_mixture", 0.0)
+        return replay(prefix, tmp_path, seat=seat)[1]
+
+
+@pytest.fixture(scope="module")
+def scorer_rows(tmp_path_factory):
+    def get(prefix: str) -> list[dict]:
+        key = prefix + ":scorer"
+        if key not in _ROWS:
+            _ROWS[key] = _scorer_replay(prefix, tmp_path_factory.mktemp(prefix))
+        return _ROWS[key]
+    return get
+
+
+@pytest.fixture(scope="module")
+def scorer_rows_seat1(tmp_path_factory):
+    def get(prefix: str) -> list[dict]:
+        key = prefix + ":1:scorer"
+        if key not in _ROWS:
+            _ROWS[key] = _scorer_replay(prefix, tmp_path_factory.mktemp(prefix), seat=1)
+        return _ROWS[key]
+    return get
+
+
 def top(row: dict) -> dict:
     return candidates(row)[0]
 
@@ -151,10 +179,10 @@ def warnings_of(row: dict) -> list[str]:
 # -- D1i: a priority move is an escape only when it (or the partner) removes the threat ------------------------------
 
 
-def test_a_priority_move_that_cannot_ko_is_no_escape(rows):
+def test_a_priority_move_that_cannot_ko_is_no_escape(scorer_rows):
     # O8 T13: Scale Shot KOs Arcanine before it moves; Extreme Speed does 39-46% to Dragonite. The old sheet printed
     # "(a priority move from this slot, +2, would go first)" and ranked finish_the_other with that Extreme Speed first.
-    row = turn_row(rows(O8), 13)
+    row = turn_row(scorer_rows(O8), 13)
     lethal = [w for w in warnings_of(row) if w.startswith("LETHAL") and "slot 1 (arcanine)" in w]
     assert lethal and "goes first" not in lethal[0] and "+2" not in lethal[0], lethal
     best = top(row)
@@ -170,8 +198,8 @@ def test_a_priority_move_that_kos_is_an_escape(rows):
     assert move_of(played(row), 1) == "extremespeed"
 
 
-def test_the_turn_after_keeps_protect_when_priority_still_cannot_ko(rows):
-    row = turn_row(rows(O8), 14)
+def test_the_turn_after_keeps_protect_when_priority_still_cannot_ko(scorer_rows):
+    row = turn_row(scorer_rows(O8), 14)
     assert move_of(played(row), 1) == "protect"
 
 
@@ -218,10 +246,10 @@ def test_a_double_that_needs_their_spread_move_to_hit_their_partner_is_discounte
 # -- unsafe switch rows ---------------------------------------------------------------------------------------------
 
 
-def test_no_switch_row_when_every_bench_card_dies_on_entry(rows):
+def test_no_switch_row_when_every_bench_card_dies_on_entry(scorer_rows):
     # O8 T12: Wo-Chien (43%, Protect spent) vs Scale Shot and U-turn. Arcanine is KO'd on entry 90% of the time and
     # Milotic 100% (Spikes + Wood Hammer): no switch row, the warning names the pivot, Protect (1 in 3) leads.
-    row = turn_row(rows(O8), 12)
+    row = turn_row(scorer_rows(O8), 12)
     assert not [c for c in candidates(row) if c["slot_1"].get("option") in (4, 5) and c["name"].startswith("switch")], candidates(row)
     pivot = [w for w in warnings_of(row) if w.startswith("No safe pivot for slot 1")]
     assert pivot and "arcanine would be KO'd on entry" in pivot[0] and "hazards included" in pivot[0], pivot
@@ -297,10 +325,10 @@ def test_exposed_after_note_for_a_self_dropping_move(rows):
 # -- Part 1b: the Oct 8 loss ------------------------------------------------------------------------------------------
 
 
-def test_fresh_fake_out_is_aimed_and_the_exposed_slot_protects(rows_seat1):
+def test_fresh_fake_out_is_aimed_and_the_exposed_slot_protects(scorer_rows_seat1):
     # M3D T3: the fresh Fake Out goes to Thundurus (the slot whose Thunderbolt it can stop) 0.8 / Kingambit 0.2; the row
     # that Protects Thundurus was generated, ranked 5th and cut at the old top-4; now it is code #1.
-    row = turn_row(rows_seat1(M3D), 3)
+    row = turn_row(scorer_rows_seat1(M3D), 3)
     fake = [w for w in warnings_of(row) if w.startswith("FAKE OUT")]
     assert fake and "slot 0 (thundurus): 80%" in fake[0] and "slot 1 (kingambit): 20%" in fake[0], fake
     best = top(row)
