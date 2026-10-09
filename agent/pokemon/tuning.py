@@ -70,6 +70,19 @@ DEFAULTS: dict[str, float] = {
     "lineup_hole_w": 0.5,          # B4: per coverage hole, in Team Preview v2's pairing (log-odds) and the old scorer's score_four (points); 0 = off
     "lineup_sleep_w": 0.0,         # the same both ways in Team Preview v2's pairing (matchup.Board.sleep_pressure). 0 = off, the deployed preview: at 0.4 their Amoonguss fours in 51c86e5c went 0 -> 46%, but under the live seeded tie-break no Rillaboom four was brought there any more (45/64 seeds -> 0) and 3 of 20 live previews changed (Oct 9 review); set it from a simulator series
     "lead_veto_w": 0.5,            # v2 lead veto: a pair that loses a lead on turn 1 (or leads an exposed speed-control setter) against their two likeliest openings is never chosen while a pair of the same four is safe; with no safe pair, this much per lead lost (half for an exposed setter). 0 = off
+    # the deep Team Preview (agent/pokemon/preview_sim.py): simulated openings for every plan (four + leads) under a deadline
+    "lineup_sim_budget_s": 20.0,   # seconds of the 85 s Team Preview clock the search may spend (the model call gets what is left); 0 = off, the stage2 preview exactly
+    "lineup_sim_turns": 4.0,       # turns per simulated opening
+    "lineup_sim_fours": 10.0,      # at most this many of our fours (the four-against-four game's best), every lead pair of each
+    "lineup_sim_four_margin": 0.15,  # ... and only fours within this win chance of the best four
+    "lineup_sim_their_fours": 8.0,  # their likeliest fours the plans are played against (plus the search-bot template's four): their actual four was among 8 in 17 of the 19 live previews, among 6 in 15
+    "lineup_sim_expected_w": 0.7,  # a plan's value: this x its expected margin over their fours + the rest x its worst four
+    "lineup_sim_four_w": 0.5,      # ... + this x its four's v2 value (log-odds, relative to v2's best four): the bench, which a few simulated turns barely see
+    "lineup_sim_keep_v2": 0.05,    # v2's own plan (its four and lead veto pair) stays code #1 unless the search's best beats it by more than this (Pokemon); it plays the last round too
+    "lineup_sim_beta": 2.0,        # how sharply their four distribution follows their value against our likely fours (softmax, per log-odds)
+    "lineup_sim_flat": 0.5,        # share of their four distribution spread evenly over the fours simulated (live: the predicted top four was right in 4 of 19)
+    "lineup_sim_lead_floor": 0.2,  # share of each four's lead distribution spread evenly over its six pairs (live: their actual lead pair got 0.26 on average, 0 twice)
+    "lineup_min_model_s": 10.0,    # after the search, a Team Preview model call needs at least this many seconds of the clock, else code #1 is played
     # battle
     "ko_bonus_guaranteed": 25.0,
     "ko_bonus_possible": 10.0,

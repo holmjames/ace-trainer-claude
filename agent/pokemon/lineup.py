@@ -11,6 +11,8 @@ numbers attached; the best one is also the fallback if the model fails.
 from __future__ import annotations
 
 import logging
+import math
+import time
 from dataclasses import dataclass, field
 from itertools import combinations
 
@@ -23,6 +25,7 @@ log = logging.getLogger(__name__)
 
 BRING = 4
 LEADS = 2
+SIM_RESERVE_S = 0.2  # of the deep preview's budget, kept for the notes it writes after the search
 SPEED_CONTROL = {"tailwind", "trickroom", "icywind", "electroweb", "thunderwave", "bulldoze"}
 REDIRECT = {"followme", "ragepowder"}
 
@@ -33,6 +36,7 @@ class Candidate:
     leads: list[str]
     score: float
     notes: list[str] = field(default_factory=list)
+    sim: dict | None = None  # the deep preview's numbers for this plan (deep_candidates); None from v2 / the old scorer
 
     def as_payload(self) -> dict:
         return {"type": "select_lineup", "bring": list(self.bring), "leads": list(self.leads)}
@@ -268,9 +272,11 @@ def pick_leads(four: list[Profile], theirs: list[Profile], params: dict | None =
 
 
 def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: list[str], *, top: int = 3,
-              params: dict | None = None) -> list[Candidate]:
+              params: dict | None = None, sim_budget_s: float = 0.0) -> list[Candidate]:
     """Rank all 4-of-6 lineups. ``roster`` is the server's spelling of our species ids;
-    the result uses those spellings so it can be sent as-is."""
+    the result uses those spellings so it can be sent as-is. ``sim_budget_s`` > 0 lets Team Preview v2 spend that
+    many seconds simulating openings (``preview_sim``; the agent passes ``lineup_sim_budget_s``); 0 is the stage2
+    preview exactly."""
     by_key = {data.to_id(r): r for r in roster}
     mine: list[Profile] = []
     for key, card in my_cards.items():
@@ -291,7 +297,8 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
     if P.get("lineup_v2", 0) and len(mine) >= BRING and len([t for t in theirs if t.moves]) >= LEADS \
             and all(p.moves for p in mine):
         try:
-            return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P, seed=known_seed(my_cards))
+            return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P, seed=known_seed(my_cards),
+                                sim_budget_s=sim_budget_s)
         except Exception as exc:  # noqa: BLE001 — a bug in v2 must not cost Team Preview: fall through to the scorer below
             v2_note = f"Team Preview v2 failed ({type(exc).__name__}: {exc}); old scorer used"
             log.warning("Team Preview v2 failed (%s: %s); the old scorer picks the lineup", type(exc).__name__, exc)
@@ -577,10 +584,13 @@ def choose_leads_v2(model: PreviewModel, four: tuple[int, ...], their_leads: dic
 
 
 def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None,
-                 seed: int | None = None) -> list[Candidate]:
+                 seed: int | None = None, sim_budget_s: float = 0.0) -> list[Candidate]:
     """Our best fours (first = the one we bring if the model does not answer) and their leads. ``seed`` (the match's
-    secret tie-break seed, draft.tiebreak_seed) decides among fours and lead pairs the model cannot tell apart."""
+    secret tie-break seed, draft.tiebreak_seed) decides among fours and lead pairs the model cannot tell apart.
+    ``sim_budget_s`` > 0: the deep preview (``deep_candidates``) re-ranks plans (four + leads) by simulated openings
+    within that many seconds; its best plan leads the list."""
     P = params or DEFAULTS
+    started = time.monotonic()
     model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)),
                          hole_w=float(P.get("lineup_hole_w", 0.0)), sleep_w=float(P.get("lineup_sleep_w", 0.0)))
     win = model.matchup.win_probability
@@ -589,7 +599,7 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
     our_fours = list(combinations(model.ours, BRING))
     their_fours = list(combinations(model.theirs, min(BRING, len(model.theirs))))
     payoff = [[model.pairing(f, g) for g in their_fours] for f in our_fours]
-    _, q, game_value = solve_game(payoff)
+    our_mix, q, game_value = solve_game(payoff)
     template = float(P.get("lineup_v2_template", 0.5))
     four_template = float(P.get("lineup_v2_four_template", 0.5))
     if four_template > 0:  # their four: the game's answer blended with how strong players actually bring (template)
@@ -631,12 +641,169 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
         if sleep:
             notes.append(sleep)
         out.append(Candidate([names[k] for k in four], [names[k] for k in best_pair], round(value, 3), notes))
+    if sim_budget_s > 0 and out:
+        try:
+            left = sim_budget_s - (time.monotonic() - started) - SIM_RESERVE_S  # the budget covers the whole preview call
+            deep, why = deep_candidates(model, our_fours, their_fours, payoff, our_mix, q, ranked, likely, likely_note, names,
+                                        P, seed, left, top, out[0], game_value)
+        except Exception as exc:  # noqa: BLE001 — a bug in the deep preview must not cost Team Preview: v2 answers
+            log.warning("deep Team Preview failed (%s: %s); v2's lineup stands", type(exc).__name__, exc)
+            deep, why = None, f"sim: failed ({type(exc).__name__}: {exc}); v2's lineup stands"
+        if deep:
+            return deep
+        out[0].notes.append(why)
     if out:
         out[0].notes.append(f"game value {100 * win(game_value):.0f}%")
         if seed is not None:
             out[0].notes.append(f"tie-break seed {seed:#x}" + (f": this four over {[c.bring for c in out[1:] if abs(win(c.score) - win(out[0].score)) <= eps]}"
                                                                if first else ""))
     return out
+
+
+# -- the deep preview: plans (four + leads) re-ranked by simulated openings (lineup_sim_budget_s > 0) -------------------
+#
+# Plain language: v2 above rates fours by the four-against-four game and picks leads by a two-turn opening with no
+# Protect, no switching and no dice. The deep preview keeps v2's best fours (every one within lineup_sim_four_margin win
+# chance of its best, at most lineup_sim_fours), makes every lead pair of each a plan, and plays each plan's first turns
+# (agent/pokemon/preview_sim.py) many times against each four they are likely to bring, with the leads they are likely
+# to open with. The plan with the best 0.7 x expected + 0.3 x worst margin is code #1; the next fours follow with their
+# own best leads. Every candidate carries its simulated margins so the model sees them.
+
+
+def their_side(model: PreviewModel, our_fours: list[tuple[int, ...]], their_fours: list[tuple[int, ...]],
+               payoff: list[list[float]], our_mix: list[float], q: list[float], P: dict) -> list[tuple]:
+    """Their likely fours for the simulation, as (weight, four, [(lead pair, weight), ...]). The fours: half the
+    four-against-four game's equilibrium mix, half a softmax (``lineup_sim_beta`` per log-odds) of each four's value
+    against our likely fours; the best ``lineup_sim_their_fours`` of that, plus the search-bot template's four when it
+    is not among them; then ``lineup_sim_flat`` of the weight spread evenly (the search bot picks noisily among its
+    best few fours: on the 19 live previews whose four we saw, the single likeliest was right 4 times). Each four's
+    leads: the lead sub-game blended with the template (``their_leads``) against the fours they expect from us (our
+    equilibrium mix), so the same leads face every plan of ours, with ``lineup_sim_lead_floor`` spread evenly over
+    all six pairs."""
+    n = len(their_fours)
+    rows = [i for i in range(len(our_fours)) if our_mix[i] > 0]
+    values = [-sum(our_mix[i] * payoff[i][j] for i in rows) for j in range(n)]
+    beta = float(P.get("lineup_sim_beta", 2.0))
+    top = max(values)
+    soft = [math.exp(beta * (v - top)) for v in values]
+    total = sum(soft)
+    blend = [0.5 * q[j] + 0.5 * soft[j] / total for j in range(n)]
+    order = sorted(range(n), key=lambda j: (-blend[j], j))[:max(1, int(P.get("lineup_sim_their_fours", 8)))]
+    template_mix = model.template_fours(their_fours)
+    if sum(template_mix) > 0:
+        shape = max(range(n), key=lambda j: (template_mix[j], -j))
+        if shape not in order:
+            order.append(shape)
+    flat = float(P.get("lineup_sim_flat", 0.5))
+    mass = sum(blend[j] for j in order) or 1.0
+    floor = float(P.get("lineup_sim_lead_floor", 0.2))
+    template = float(P.get("lineup_v2_template", 0.5))
+    ours = sorted(((our_mix[i], i) for i in rows), reverse=True)[:3]
+    ours_mass = sum(w for w, _ in ours) or 1.0
+    out = []
+    for j in order:
+        mix: dict[tuple, float] = {pair: floor / 6 for pair in combinations(their_fours[j], LEADS)}
+        for w, i in ours:
+            for pair, share in model.their_leads(our_fours[i], their_fours[j], template).items():
+                mix[pair] = mix.get(pair, 0.0) + (1 - floor) * w / ours_mass * share
+        weight = (1 - flat) * blend[j] / mass + flat / len(order)
+        out.append((weight, their_fours[j], sorted(mix.items(), key=lambda t: (-t[1], t[0]))))
+    return out
+
+
+def deep_candidates(model: PreviewModel, our_fours: list[tuple[int, ...]], their_fours: list[tuple[int, ...]],
+                    payoff: list[list[float]], our_mix: list[float], q: list[float], ranked: list[tuple], likely: list[tuple],
+                    likely_note: str, names: dict[int, str], P: dict, seed: int | None, budget_s: float, top: int,
+                    v2_first: Candidate, game_value: float) -> tuple[list[Candidate] | None, str]:
+    """The deep preview's shortlist (best plan first, then the best plan of each next four), or None and the reason
+    v2's shortlist stands (the budget ran out before every plan had its first round)."""
+    from . import preview_sim
+
+    win = model.matchup.win_probability
+    template = float(P.get("lineup_v2_template", 0.5))
+    best = max(win(value) for value, _, _ in ranked)
+    margin = float(P.get("lineup_sim_four_margin", 0.15))
+    picked = [i for value, _, i in ranked if best - win(value) <= margin][:max(1, int(P.get("lineup_sim_fours", 10)))]
+    plans = [(our_fours[i], pair) for i in picked for pair in combinations(our_fours[i], LEADS)]
+    their = their_side(model, our_fours, their_fours, payoff, our_mix, q, P)
+    turns = int(P.get("lineup_sim_turns", 4))
+    four_w = float(P.get("lineup_sim_four_w", 0.5))
+    top_value = max(value for value, _, _ in ranked)
+    four_value = {our_fours[i]: four_w * (value - top_value) for value, _, i in ranked if i in picked}
+    v2_four = our_fours[ranked[0][2]]
+    v2_pair = tuple(k for k in v2_four if names[k] in v2_first.leads)
+    search = preview_sim.Search(model.board.units, plans, their, seed=seed if seed is not None else 0, turns=turns,
+                                expected_w=float(P.get("lineup_sim_expected_w", 0.7)), finalists=top, four_value=four_value,
+                                keep=(v2_four, v2_pair) if len(v2_pair) == LEADS else None)
+    result = search.run(budget_s)
+    summary = (f"sim search: {result.plans} plans ({len(picked)} fours x 6 lead pairs) x {len(result.their)} fours of theirs, "
+               f"{result.rollouts} rollouts of {turns} turns in {result.seconds:.1f}s, {result.rounds} rounds, seed {result.seed:#x}")
+    if not result.complete or not result.ranked:
+        return None, f"{summary}: stopped before every plan was played; v2's lineup stands"
+    index = {our_fours[i]: i for i in picked}
+    v2 = {i: (value, expected) for value, expected, i in ranked}
+
+    def lead_line(x: preview_sim.Ranked) -> str:
+        return f"{names[x.plan.leads[0]]} + {names[x.plan.leads[1]]} {x.expected:+.2f}/{x.worst:+.2f}"
+
+    def candidate(r: preview_sim.Ranked) -> Candidate:
+        four, pair = r.plan.four, r.plan.leads
+        i = index[four]
+        worst_four = result.their[r.worst_four][1]
+        notes = [f"sim: lead {names[pair[0]]} + {names[pair[1]]}: margin {r.expected:+.2f} expected, {r.worst:+.2f} worst "
+                 f"(vs {[names[k] for k in worst_four]}), in Pokémon after {turns} turns, {r.plan.n} rollouts"]
+        others = [x for x in result.ranked if x.plan.four == four and x.plan.leads != pair][:2]
+        if others:
+            notes.append("sim, other leads of this four (expected/worst): " + "; ".join(lead_line(x) for x in others))
+        notes += [f"v2: {100 * win(v2[i][1]):.0f}% vs their likely fours ({likely_note})", f"worst case {100 * win(min(payoff[i])):.0f}%"]
+        their_leads = model.likely_leads(four, likely, their_fours, template)
+        expected_leads = sorted(their_leads.items(), key=lambda t: -t[1])[:2]
+        if expected_leads:
+            notes.append("their likely leads: " + "; ".join(f"{names[a]} + {names[b]} {100 * w:.0f}%" for (a, b), w in expected_leads))
+            top_leads = expected_leads[0][0]
+            opening = model.opening(pair, top_leads)
+            notes.append(f"opening vs {names[top_leads[0]]} + {names[top_leads[1]]}: margin {opening.margin:+.2f}"
+                         + (f", we lose {opening.ko_against}" if opening.ko_against else "")
+                         + (f", we KO {opening.ko_for}" if opening.ko_for else ""))
+        v2_pair, lead_notes = choose_leads_v2(model, four, their_leads, P, seed=seed)
+        if set(v2_pair) != set(pair):
+            notes.append(f"v2 would lead {names[v2_pair[0]]} + {names[v2_pair[1]]}" + (f" ({lead_notes[0]})" if lead_notes else ""))
+        sleep = model.sleep_note(four)
+        if sleep:
+            notes.append(sleep)
+        sim = {"expected": round(r.expected, 3), "worst": round(r.worst, 3), "worst_four": [names[k] for k in worst_four],
+               "rollouts": r.plan.n, "turns": turns}
+        return Candidate([names[k] for k in four], [names[k] for k in pair], round(r.score, 3), notes, sim)
+
+    # v2's plan stays first unless the search's best beats it by more than lineup_sim_keep_v2 (both played the last round)
+    order = list(result.ranked)
+    best = order[0]
+    v2_plan = next((x for x in order if x.plan.four == v2_four and set(x.plan.leads) == set(v2_pair)), None)
+    band = float(P.get("lineup_sim_keep_v2", 0.05))
+    kept = v2_plan is not None and v2_plan is not best and v2_plan.plan.rounds == best.plan.rounds \
+        and v2_plan.score >= best.score - band
+    if kept:
+        order.remove(v2_plan)
+        order.insert(0, v2_plan)
+    out: list[Candidate] = []
+    seen: set[tuple] = set()
+    for r in order:
+        if r.plan.four not in seen:
+            seen.add(r.plan.four)
+            out.append(candidate(r))
+            if len(out) >= top:
+                break
+    first = out[0]
+    first.notes.append(summary)
+    if kept:
+        first.notes.append(f"sim keeps v2's lead: the search's best, {names[best.plan.leads[0]]} + {names[best.plan.leads[1]]}"
+                           f"{'' if best.plan.four == v2_four else ' with ' + '/'.join(names[k] for k in best.plan.four)} "
+                           f"({best.expected:+.2f}/{best.worst:+.2f}), is within {band:.2f} of it")
+    elif (set(first.bring), set(first.leads)) != (set(v2_first.bring), set(v2_first.leads)):
+        first.notes.append(f"sim changes v2's lineup {v2_first.bring} lead {' + '.join(v2_first.leads)}"
+                           + (f" (sim {v2_plan.expected:+.2f}/{v2_plan.worst:+.2f})" if v2_plan is not None else ""))
+    first.notes.append(f"game value {100 * win(game_value):.0f}%")
+    return out, summary
 
 
 # -- the Team Preview payload table (C4) -----------------------------------------------------------------------------
@@ -719,6 +886,12 @@ def preview_table(my_cards: dict[str, dict], opp_cards: dict[str, dict], candida
         lines.append("Sleep: " + "; ".join(sleep))
     reasons = [n for n in best.notes if n.startswith(("v2:", "their likely leads", "opening vs", "lead veto", "no lead pair", "leads lose nothing", "coverage hole"))]
     lines.append("Predicted: " + " | ".join(reasons)[:600])
+    simulated = [(k, c) for k, c in enumerate(candidates, 1) if c.sim]
+    if simulated:  # the deep preview: each plan's simulated opening against their likely fours and leads
+        turns = simulated[0][1].sim.get("turns", 4)
+        lines.append(f"Simulated {turns}-turn openings, margin in Pokemon (expected/worst): "
+                     + "; ".join(f"#{k} {_short(c.leads[0])}+{_short(c.leads[1])} back {'+'.join(_short(b) for b in c.bring if b not in c.leads)} "
+                                 f"{c.sim['expected']:+.2f}/{c.sim['worst']:+.2f}" for k, c in simulated))
     lines.append(f"We bring {', '.join(name(i) for i in bring)}; lead {' + '.join(name(i) for i in leads)}.")
     likely = next((n for n in best.notes if n.startswith("their likely leads: ")), "")
     if likely and len(leads) == LEADS:
