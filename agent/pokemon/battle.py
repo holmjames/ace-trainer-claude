@@ -672,12 +672,20 @@ class TurnSheet:
     stall_reasons: list = field(default_factory=list)  # what a Protect would actually wait out (their Tailwind, screens, residual...)
     reply: dict = field(default_factory=dict)  # the reply mixture's table (agent/pokemon/replies.py): columns, their prior, the top rows
     wake: dict = field(default_factory=dict)  # our slot -> chance an ASLEEP Pokémon there acts this turn (0, 1/3, 1/2, 1 by missed attempts)
+    hampered: dict = field(default_factory=dict)  # our slot -> chance a paralysed (0.75) or frozen (0.2 thaw) Pokémon there acts this turn
+    taunted: set = field(default_factory=set)  # their species_keys under Taunt now (memory.taunted, from the protocol log)
+    bench_summary: dict = field(default_factory=dict)  # our bench species_key -> its observation entry (current item, status, HP)
     sleep_risk: dict = field(default_factory=dict)  # our slot -> (chance a faster foe's sleep move stops its action this turn, that move's priority)
     sleep_threat: dict = field(default_factory=dict)  # their position -> what one use of its sleep move costs us (damage points)
     bench_status: dict = field(default_factory=dict)  # our bench species_key -> its status ("slp": a Spore sink if it comes in)
     opp_team: dict = field(default_factory=dict)  # their species_key -> {"hp", "status", "fainted", "active"} from the observation
     turn: int | None = None  # the battle turn of this sheet (the reply mixture's priors depend on it)
     field: "FieldState | None" = None  # keep last: this name shadows dataclasses.field for anything declared after it
+
+    def acts(self, slot: int) -> float:
+        """Chance our Pokémon in ``slot`` gets to act at all this turn: asleep (wake odds), paralysed (3 in 4), frozen (1 in
+        5 thaws). Its switch is never stopped."""
+        return self.wake.get(slot, 1.0) * self.hampered.get(slot, 1.0)
 
     def as_prompt(self) -> dict:
         return {
@@ -769,6 +777,8 @@ def _left_text(n: int | None) -> str:
 def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | None = None) -> TurnSheet:
     P = params or DEFAULTS
     sheet = TurnSheet()
+    taunt_started = {k.split(":", 1)[1]: v for k, v in (getattr(memory, "taunted", None) or {}).items() if k.startswith("theirs:")}
+    sheet.taunted = set(taunt_started)
     slots = sorted(template.get("slots") or [], key=lambda s: s.get("slot", 0))
     weather = normalize_weather(obs.get("weather"))  # dict from the live server, string from the simulator, None when clear
     field_text = data.to_id(json.dumps([obs.get("fields"), obs.get("field")], default=str))
@@ -1020,7 +1030,12 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 if max(prof.get("hits") or {1: 1.0}) > 1:
                     hit["multi_hit"] = True  # breaks Focus Sash
                 threat["hits"].append(hit)
-        if any(m["id"] in PROTECT_LIKE for m in opp.moves):
+        if species_key(opp.species) in sheet.taunted:
+            started = taunt_started.get(species_key(opp.species))
+            threat["taunted"] = f"Taunted on turn {started}: no Protect and no status moves (Spore, Tailwind, Trick Room...) until it ends (3 turns)"
+            sheet.notes.append(f"Their {opp.species} is Taunted (since turn {started}): it cannot Protect or use status moves for its "
+                               "three turns; another Taunt on it fails.")
+        elif any(m["id"] in PROTECT_LIKE for m in opp.moves):
             streak = memory.opp_protect_streak.get(species_key(opp.species), 0)
             threat["protect"] = ("can Protect this turn" if not streak else
                                  f"Protected last turn: another works only 1 in {3 ** streak} (good turn to attack it)")
@@ -1429,13 +1444,13 @@ def _flinch_risk(sheet: "TurnSheet", ours: dict[int, "Mon"], theirs: dict[int, "
     users = [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")]
     if not users:
         return
-    eligible = [n for n, me in ours.items() if _flinchable(me, ours, fs) and sheet.wake.get(n, 1.0) > 0]
+    eligible = [n for n, me in ours.items() if _flinchable(me, ours, fs) and sheet.acts(n) > 0]
     if not eligible:
         return  # a sleeping slot that cannot act has nothing for a Fake Out to stop (Oct 8 evening loss, turn 4)
     P = P or DEFAULTS
 
     def stoppable(n: int) -> float:
-        return _slot_action_value(sheet, n, slots, P) * sheet.wake.get(n, 1.0)
+        return _slot_action_value(sheet, n, slots, P) * sheet.acts(n)
 
     if len(eligible) == 1:
         aim = {eligible[0]: 1.0}
@@ -1515,9 +1530,13 @@ def _our_status(sheet: "TurnSheet", ours: dict[int, "Mon"], obs: dict) -> None:
         sheet.notes.append(f"Our {me.species} (slot {n}) is ASLEEP{history}: it acts this turn only {int(round(100 * sheet.wake[n]))}% "
                            "of the time, so its attacks and its Protect count only then (a switch always works). A Pokémon "
                            "already asleep cannot be put to sleep again: while it stays in, their sleep move has one target fewer.")
+    for n, me in sorted(ours.items()):
+        if me.status in ("par", "frz"):
+            sheet.hampered[n] = 0.75 if me.status == "par" else 0.2  # full paralysis 1 in 4; a frozen Pokémon thaws 1 in 5
     team = obs.get("team")
     for s in (team.values() if isinstance(team, dict) else []):
         if isinstance(s, dict) and s.get("species") and not s.get("active") and not s.get("fainted"):
+            sheet.bench_summary[species_key(s["species"])] = s
             status = _status_id(s.get("status"))
             if status:
                 sheet.bench_status[species_key(s["species"])] = status
@@ -1558,11 +1577,11 @@ def _sleep_blocked(move: dict, target: "Mon", user: "Mon", ours: dict[int, "Mon"
 
 def sleep_users(sheet: "TurnSheet", theirs: dict[int, "Mon"]) -> dict[int, list[dict]]:
     """Their actives that can use a sleep move this turn: position -> the move dicts (not asleep or frozen themselves,
-    not Choice-locked into something else)."""
+    not Taunted, not Choice-locked into something else)."""
     out: dict[int, list[dict]] = {}
     for t in sheet.threats:
         foe = theirs.get(t["position"])
-        if foe is None or foe.status in ("slp", "frz"):
+        if foe is None or foe.status in ("slp", "frz") or species_key(foe.species) in sheet.taunted:
             continue
         locked = t.get("locked_move")
         moves = [{**(data.move_info(m["id"]) or {}), **m} for m in foe.moves if m["id"] in SLEEP_MOVES and (not locked or m["id"] == locked)]
@@ -1644,6 +1663,8 @@ def _sleep_threats(sheet: "TurnSheet", ours: dict[int, "Mon"], theirs: dict[int,
             t_prio = 1 if data.to_id(me.ability) == "prankster" else 0
             if data.status_move_blocked({"id": "taunt", **(data.move_info("taunt") or {})}, foe, user=me):
                 continue
+            if t_prio > 0 and priority_move_blocked(sheet, foe):
+                continue  # Psychic Terrain under a grounded target, or Armor Tail / Dazzling / Queenly Majesty on its side
             if t_prio > 0 or rank.get(("mine", n), 99) < rank.get(("theirs", pos), 99):
                 counters.append(f"slot {n} ({me.species})'s Taunt goes first and blocks it for three turns")
         best_ko = 0.0
@@ -1675,28 +1696,59 @@ def _sleep_switch_notes(sheet: "TurnSheet", theirs: dict[int, "Mon"], memory: "M
             entry["sleep_target"] = why
 
 
-def fresh_sleep_target(sheet: "TurnSheet", species: str, theirs: dict[int, "Mon"], memory: "MatchMemory | None") -> str | None:
-    """Would this bench Pokémon hand their active sleep user a fresh target on entry? The reason when it would (awake, not
-    immune); None when no sleep user is active, it is already asleep (a Spore sink, like the Archaludon that made
-    Spore fail on T6), or it is immune. The Oct 8 evening loss: Chi-Yu on T3 and Indeedee-F on T4 were Spored on entry."""
+def _bench_mon(sheet: "TurnSheet", species: str, memory: "MatchMemory | None") -> "Mon | None":
+    """A bench Pokémon as it stands now: its observation entry (current item: an eaten Lum Berry is gone; status; HP)
+    over its drafted card."""
+    key = species_key(species)
+    summary = dict(sheet.bench_summary.get(key) or {"species": species, "current_hp_fraction": sheet.bench_hp.get(key, 1.0)})
+    summary["boosts"] = {}  # boosts reset on a switch
+    card = memory.my_cards.get(key) if memory is not None else None
+    return build_mon(summary, card, side="mine", position=None)
+
+
+def fresh_sleep_target(sheet: "TurnSheet", species: str, theirs: dict[int, "Mon"], memory: "MatchMemory | None", *,
+                       outgoing: "Mon | None" = None) -> str | None:
+    """Would bringing this bench Pokémon in hand their active sleep user a target it would not otherwise have? The reason
+    when it would; None when no sleep user can act (none out, asleep itself, Taunted, locked), the newcomer is already
+    asleep or statused (a Spore sink, like the Archaludon that made Spore fail on T6), it is immune (with its CURRENT
+    item: an eaten Lum Berry is no cover), or the Pokémon it replaces (``outgoing``) could be slept where it stands: an
+    awake, sleepable Pokémon going out for another leaves Spore a target either way (the review of stage 5714330: the
+    old rule vetoed every switch while Amoonguss was out and kept a Chi-Yu in front of a 128-151% Earthquake). The Oct
+    8 evening loss: the sleeping Archaludon out for Chi-Yu (T3) and the switch into Indeedee-F (T4) were Spored on entry."""
     users = sleep_users(sheet, theirs)
     if not users:
         return None
-    key = species_key(species)
-    status = sheet.bench_status.get(key)
-    if status:
+    if sheet.bench_status.get(species_key(species)):
         return None  # asleep or otherwise statused: a sleep move cannot land on it
-    card = memory.my_cards.get(key) if memory is not None else None
-    incoming = build_mon({"species": species, "current_hp_fraction": sheet.bench_hp.get(key, 1.0)}, card, side="mine", position=None)
+    incoming = _bench_mon(sheet, species, memory)
     if incoming is None:
         return None
-    partner = [m for m in (sheet.field.actives if sheet.field else []) if m.side == "mine"]
+    side = {i: m for i, m in enumerate(m for m in (sheet.field.actives if sheet.field else []) if m.side == "mine" and m is not outgoing)}
     for pos, moves in users.items():
         foe = theirs.get(pos)
         for mv in moves:
-            if foe is not None and _sleep_blocked(mv, incoming, foe, {i: m for i, m in enumerate(partner)}, sheet.field) is None:
-                return f"their {foe.species}'s {mv['id']} would put it to sleep on entry"
+            if foe is None or _sleep_blocked(mv, incoming, foe, side, sheet.field) is not None:
+                continue
+            if outgoing is not None and _sleep_blocked(mv, outgoing, foe, side, sheet.field) is None:
+                return None  # the Pokémon going out was a target already: the switch adds none
+            return f"their {foe.species}'s {mv['id']} can put it to sleep on entry"
     return None
+
+
+def sleep_sink(sheet: "TurnSheet", species: str, theirs: dict[int, "Mon"], memory: "MatchMemory | None") -> bool:
+    """While their sleep user can act: is this bench Pokémon one its sleep move cannot touch (asleep already, statused,
+    or immune)? The switch-in to prefer then."""
+    users = sleep_users(sheet, theirs)
+    if not users:
+        return False
+    if sheet.bench_status.get(species_key(species)):
+        return True
+    incoming = _bench_mon(sheet, species, memory)
+    if incoming is None:
+        return False
+    side = {i: m for i, m in enumerate(m for m in (sheet.field.actives if sheet.field else []) if m.side == "mine")}
+    return all(_sleep_blocked(mv, incoming, theirs[pos], side, sheet.field) is not None
+               for pos, moves in users.items() if pos in theirs for mv in moves)
 
 
 def secondary_flinch(sheet: "TurnSheet", number: int, ours: dict[int, "Mon"], speed_rank: dict, my_priority: int = 0) -> float:
@@ -1947,6 +1999,17 @@ def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "Turn
     return (0.0, 0)
 
 
+def priority_move_blocked(sheet: "TurnSheet", target: "Mon") -> bool:
+    """Does a priority move of ours (Prankster's +1 status moves included) fail into ``target``: Psychic Terrain with the
+    target grounded, or Armor Tail / Dazzling / Queenly Majesty on the target's side (the check build_sheet makes for
+    priority attacks)."""
+    fs = sheet.field
+    if fs is not None and fs.terrain == "psychic" and target.grounded:
+        return True
+    side = [m for m in (fs.actives if fs is not None else []) if m.side == target.side] or [target]
+    return any(data.to_id(m.ability) in ("armortail", "dazzling", "queenlymajesty") for m in side)
+
+
 TAUNT_USE = {"sleep": 0.6, "redirect": 0.5, "speed": 0.25, "setup": 0.3, "status": 0.4, "other": 0.2}  # how often it would use each
 TAUNT_SETUP = {"nastyplot", "swordsdance", "dragondance", "calmmind", "bulkup", "quiverdance", "shellsmash", "bellydrum", "coil",
                "irondefense", "agility", "shiftgear", "victorydance", "tidyup", "filletaway"}
@@ -1963,9 +2026,13 @@ def taunt_value(me: "Mon", slot_number: int, pos: int, foe: "Mon", sheet: "TurnS
     P = P or DEFAULTS
     if data.status_move_blocked({"id": "taunt", **(data.move_info("taunt") or {})}, foe, user=me):
         return 0.0
+    if species_key(foe.species) in sheet.taunted:
+        return 0.0  # Taunted already: a second Taunt fails (the volatile has no restart)
+    my_prio = 1 if data.to_id(me.ability) == "prankster" else 0
+    if my_prio > 0 and priority_move_blocked(sheet, foe):
+        return 0.0  # a Prankster Taunt is a +1 move: Psychic Terrain (grounded target) and Armor Tail stop it
     w = float(P.get("sleep_future_w", 0.5))
     rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
-    my_prio = 1 if data.to_id(me.ability) == "prankster" else 0
     faster = rank.get(("mine", slot_number), 99) < rank.get(("theirs", pos), 99)
     their_side = sheet.field.their_side if sheet.field is not None else set()
     total = 0.0
@@ -2216,7 +2283,7 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
             factor *= 1.0 - P.get("focus_risk", 0.35) * focus["ko_chance"]
     if my_priority < 3:
         factor *= 1.0 - sheet.flinch_risk.get(slot_number, 0.0)  # a fresh Fake Out (+3) stops anything slower than it
-    factor *= sheet.wake.get(slot_number, 1.0)  # asleep: it acts only if it wakes (0, 1/3, 1/2, 1 by missed attempts)
+    factor *= sheet.acts(slot_number)  # asleep: it acts only if it wakes (0, 1/3, 1/2, 1 by missed attempts)
     risk = sheet.sleep_risk.get(slot_number)
     if risk and my_priority <= risk[1]:
         factor *= 1.0 - risk[0]  # a faster sleep move (Spore) aimed at this slot takes this turn's action too
@@ -2447,16 +2514,36 @@ def best_switch(slot: dict, theirs: dict[int, "Mon"], memory: "MatchMemory", *, 
     return best[0], best[1]
 
 
+def sleep_switch_cost(sheet: "TurnSheet", species: str, preview: dict, theirs: dict[int, "Mon"], P: dict | None = None) -> float:
+    """What sending ``species`` into their sleep move costs, in damage points, when it is a target Spore would not
+    otherwise have: the chance the sleeper uses it on the newcomer (``sleep_use_prior``, halved when our other active is a
+    target too) times its accuracy, times the newcomer's next turns of action (its preview's best hit, at
+    ``sleep_future_w`` per turn over the 1-3 turn sleep)."""
+    P = P or DEFAULTS
+    users = sleep_users(sheet, theirs)
+    if not users:
+        return 0.0
+    acc = max(data.hit_chance(mv, sheet.field.weather if sheet.field else None) for moves in users.values() for mv in moves)
+    aim = 0.5 if any(t.get("sleep") for t in sheet.threats) else 1.0  # our other active can be slept too: it may take the Spore instead
+    action = max((min(_avg(d["damage_pct"]), 100.0) * float(d.get("hit_chance", 1.0)) for d in preview.get("deals_best") or []), default=0.0)
+    return float(P.get("sleep_use_prior", 0.6)) * acc * aim * max(action, 30.0) * float(P.get("sleep_future_w", 0.5)) * SLEEP_TURNS
+
+
 def safe_switch(slot: dict, theirs: dict[int, "Mon"], memory: "MatchMemory", *, sheet: "TurnSheet | None" = None,
-                exclude: str | None = None) -> tuple[int | None, str | None, dict, bool]:
+                exclude: str | None = None, allow_sleep: bool = False) -> tuple[int | None, str | None, dict, bool]:
     """The switch option to offer for this slot, from mech's switch-in verdict (both foes, their double, hazards, entry
     effects): (index, species, preview, safe). The best 'safe' switch-in first; when every bench card is KO'd on entry
     half the time or more, the least bad one with ``safe`` False, so the row can say so. (Oct 8 practice game, turn 12:
-    Milotic was sent into Spikes + Wood Hammer; the pivot check had looked at one attacker.) A switch-in that their
-    active sleep move would put to sleep on entry is not safe either (``fresh_sleep_target``: the Oct 8 evening loss,
-    Chi-Yu on T3 and Indeedee-F on T4); a bench Pokémon already asleep, or immune, is."""
-    best_safe: tuple[int | None, str | None, dict, float] = (None, None, {}, float("-inf"))
+    Milotic was sent into Spikes + Wood Hammer; the pivot check had looked at one attacker.) While their sleep user can
+    act, a switch-in that hands it a target it would not otherwise have (the Pokémon going out is asleep or immune:
+    ``fresh_sleep_target``) is not safe either, unless ``allow_sleep`` (a slot facing a KO: losing it is worse than a
+    slept newcomer), when it is offered with its ``sleep_cost``; a sleep sink (asleep or immune) is preferred over a
+    better-scoring sleepable card. The returned preview of an unsafe pick says why (``unsafe``: "ko_on_entry" or "sleep")."""
+    best_safe: tuple[int | None, str | None, dict, tuple] = (None, None, {}, (False, float("-inf")))
     best_any: tuple[int | None, str | None, dict, float] = (None, None, {}, float("-inf"))
+    reasons: dict[int, str] = {}
+    outgoing = next((m for m in (sheet.field.actives if sheet is not None and sheet.field is not None else [])
+                     if m.side == "mine" and m.position == slot.get("slot", 0)), None)
     for index, option in enumerate(slot.get("options") or []):
         if option.get("type") != "switch" or not option.get("species") or option.get("species") == exclude:
             continue
@@ -2464,12 +2551,21 @@ def safe_switch(slot: dict, theirs: dict[int, "Mon"], memory: "MatchMemory", *, 
         value = preview["score"] if preview else switch_value(option["species"], theirs, memory)
         if value > best_any[3]:
             best_any = (index, option["species"], preview, value)
-        sleepy = fresh_sleep_target(sheet, option["species"], theirs, memory) if sheet is not None else None
-        if (preview.get("verdict", "safe") == "safe") and not sleepy and value > best_safe[3]:
-            best_safe = (index, option["species"], preview, value)
+        sleepy = fresh_sleep_target(sheet, option["species"], theirs, memory, outgoing=outgoing) if sheet is not None else None
+        if preview.get("verdict", "safe") != "safe":
+            reasons[index] = "ko_on_entry"
+        elif sleepy and not allow_sleep:
+            reasons[index] = "sleep"
+        else:
+            cost = sleep_switch_cost(sheet, option["species"], preview, theirs) if sleepy else 0.0
+            key = (sheet is not None and sleep_sink(sheet, option["species"], theirs, memory), value - cost)
+            if key > best_safe[3]:
+                best_safe = (index, option["species"], {**preview, "sleep_cost": round(cost, 1)} if cost else preview, key)
     if best_safe[0] is not None:
         return best_safe[0], best_safe[1], best_safe[2], True
-    return best_any[0], best_any[1], best_any[2], False
+    if best_any[0] is None:
+        return None, None, {}, False
+    return best_any[0], best_any[1], {**best_any[2], "unsafe": reasons.get(best_any[0], "ko_on_entry")}, False
 
 
 def _switch_entry_cost(preview: dict, species: str, sheet: "TurnSheet", memory: "MatchMemory", P: dict) -> float:
@@ -2579,7 +2675,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         return removal_chance(other, opp_pos, their_priority)
 
     def can_protect(foe: "Mon") -> bool:
-        return any(m["id"] in PROTECT_LIKE for m in foe.moves) and not (memory is not None and memory.opp_protect_streak.get(species_key(foe.species)))
+        return any(m["id"] in PROTECT_LIKE for m in foe.moves) and not (memory is not None and memory.opp_protect_streak.get(species_key(foe.species))) \
+            and species_key(foe.species) not in sheet.taunted  # a Taunted foe cannot Protect
 
     def aimed_last_turn(foe: "Mon") -> bool:
         """Did one of our single-target moves name this foe last turn (the protocol log's move targets)?"""
@@ -2674,7 +2771,9 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if data.to_id(me.ability) == "prankster" and info.get("target") in ("normal", "any", "adjacentFoe") \
                         and target in theirs and "dark" in theirs[target].types:
                     sv = 0.0  # a Prankster-boosted status move fails on a Dark-type target
-                sv *= survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else sheet.wake.get(number, 1.0)
+                if prio > 0 and info.get("target") in ("normal", "any", "adjacentFoe") and target in theirs and priority_move_blocked(sheet, theirs[target]):
+                    sv = 0.0  # a +1 status move into Psychic Terrain (grounded target) or an Armor Tail side fails
+                sv *= survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else sheet.acts(number)
                 if move_id == "taunt":
                     sv *= 1.0 - secondary_flinch(sheet, number, ours, speed_rank, prio)  # Icicle Crash first: no Taunt
                 if sv > 0 and sv > choice[2]:
@@ -2770,7 +2869,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             me = ours.get(number)
             slot = slot_template(number) or {}
             their_prio = hit.get("priority", 0) or 0
-            wake = sheet.wake.get(number, 1.0)
+            wake = sheet.acts(number)
+            state = "asleep" if number in sheet.wake else ("frozen" if me is not None and me.status == "frz" else "paralysed")
             first_normally = acts_before(number, threat["position"], 0, their_prio) and wake > 0  # a sleeper that cannot act moves before nobody
             if first_normally:
                 # Slower than us: it only lands if we leave the slot in and fail to remove it. Say so (not a warning).
@@ -2778,7 +2878,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     endangered.add(number)
                     sheet.notes.append(
                         f"EXPOSED: slot {number} ({me.species if me else '?'}) moves before {threat['species']}"
-                        + (f" if it wakes ({int(round(100 * wake))}%)" if wake < 1 else "") + f", but {threat['species']}'s "
+                        + (f" if it acts ({state}: {int(round(100 * wake))}%)" if wake < 1 else "") + f", but {threat['species']}'s "
                         f"{hit['move']} KOs it ({hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}%) afterwards unless "
                         f"{threat['species']} is removed, flinched, redirected or this slot Protects/switches.")
                 continue
@@ -2805,7 +2905,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 endangered.add(number)
                 advice = ("This is our last Pokémon and nothing runs out in our favour: Protect only delays the same KO by a "
                           "turn, so attack." if sheet.alone and not sheet.stall_reasons else
-                          f"It is ASLEEP ({int(round(100 * wake))}% to act): Protect works only if it wakes, so switch it out "
+                          f"It is {state.upper()} ({int(round(100 * wake))}% to act): Protect works only if it acts, so switch it out "
                           "unless trading it wins the game." if wake < 1 else
                           "Protect/switch that slot unless trading it wins the game.")
                 sheet.warnings.append(
@@ -2857,7 +2957,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         chance it does (the Oct 7 opponent Protected the threatened Pokémon three times in four games)."""
         attacks = [(n, opt, row) for n, opt, row, _ in picks if opt and row and "status_value" not in row and opt.get("targets")]
         attacks.sort(key=lambda a: (-(a[1].get("priority", 0) or 0), speed_rank.get(("mine", a[0]), 99)))  # the order they land
-        extra = sum(max(v, 0.0) for _, opt, row, v in picks if opt and row and ("status_value" in row or not opt.get("targets")))
+        status_picks = [(opt, row, v) for _, opt, row, v in picks if opt and row and ("status_value" in row or not opt.get("targets"))]
+        extra = 0.0
         removed: dict[int, float] = {}
         own: dict[tuple[int, int], float] = {}  # (slot, foe) -> the slot's own chance of taking that foe out before it moves
         for pos, foe in theirs.items():
@@ -2873,6 +2974,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     parts.append((p_act, sub))
                     own[(n, pos)] = p_act * ko_probability(sub)
             removed[pos] = _outcome(parts, foe)[1] if parts else 0.0
+        for opt, row, v in status_picks:
+            # a Taunt (or any status move) aimed at a foe the partner removes before it moves blocks nothing: Heat Wave
+            # KOs Amoonguss before it moves, so a Taunt on it next to the Heat Wave is worth the miss only (review 5714330)
+            target = row.get("target", 0)
+            extra += max(v, 0.0) * (1.0 - removed.get(target, 0.0)) if target in theirs else max(v, 0.0)
         surv = {n: survival_factor(n, sheet, opt.get("priority", 0) or 0, speed_rank, row, P, removed=removed) for n, opt, row in attacks}
         total = 0.0
         for pos, foe in theirs.items():
@@ -2989,7 +3095,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 picks.append(pick)
         if len(picks) < 2:
             continue
-        combined_ko = _outcome([(float(r.get("hit_chance", 1.0)) * sheet.wake.get(n, 1.0), r) for n, _, r, _ in picks], theirs.get(pos))[1]
+        combined_ko = _outcome([(float(r.get("hit_chance", 1.0)) * sheet.acts(n), r) for n, _, r, _ in picks], theirs.get(pos))[1]
         if combined_ko < 0.5:
             continue
         answers = {n: slot_answer(o["option"], r["target"] if r.get("target", 0) > 0 else 0) for n, o, r, _ in picks}
@@ -3050,14 +3156,16 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         return next((i for i, o in enumerate((slot or {}).get("options") or []) if o.get("type") == "move"
                      and data.to_id(o.get("move_id")) in PROTECT_OPTIONS), None)
 
-    def switch_row(endangered: int, other: int, label: str, why: str, base_score: float, *, allow_unsafe: bool) -> None:
+    def switch_row(endangered: int, other: int, label: str, why: str, base_score: float, *, allow_unsafe: bool,
+                   allow_sleep: bool = False) -> None:
         """A switch for the endangered slot while the other slot attacks, from mech's verdict: the best safe switch-in;
         when none survives entry, the least bad one, priced for the KO it risks and saying so (never offered at all
-        when ``allow_unsafe`` is off: switching just donates a Pokémon)."""
+        when ``allow_unsafe`` is off: switching just donates a Pokémon). With ``allow_sleep`` a newcomer their sleep move
+        would gain as a target is offered at its sleep cost."""
         slot = slot_template(endangered)
         if not slot or memory is None or not solo[other][0]:
             return
-        idx, species, preview, safe = safe_switch(slot, theirs, memory, sheet=sheet)
+        idx, species, preview, safe = safe_switch(slot, theirs, memory, sheet=sheet, allow_sleep=allow_sleep)
         if idx is None or not species:
             return
         if not safe:
@@ -3066,6 +3174,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             odds = int(round(100 * float(preview.get("ko_on_entry", 0.0) or 0.0)))
             why += f"; no bench card survives entry: {species} is KO'd on entry {odds}% of the time"
             base_score -= _switch_entry_cost(preview, species, sheet, memory, P)
+        elif preview.get("sleep_cost"):
+            why += f"; {species} goes in where their sleep move had no target (priced at {preview['sleep_cost']})"
+            base_score -= float(preview["sleep_cost"])
+        elif preview.get("sleep_target"):
+            why += f"; {species} goes in ({preview['sleep_target']}, as the Pokémon it replaces could be)"
         answers = {endangered: {"option": idx, "target": 0}, other: solo_answer(other)}
         add(label, answers[0], answers[1], why, base_score, covers=endangered)
 
@@ -3105,7 +3218,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 answers = {endangered_slot: {"option": protect, "target": 0}, other: solo_answer(other)}
                 bonus = P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"] * (0.5 + ko_probability(hit))
                 bonus *= 0.33 ** streak  # each consecutive Protect succeeds 1/3 as often: 1/3, then 1/9 (seen: 3 in a row in self-play)
-                bonus *= sheet.wake.get(endangered_slot, 1.0)  # asleep: the Protect happens only if it wakes
+                bonus *= sheet.acts(endangered_slot)  # asleep: the Protect happens only if it wakes
                 if can_remove_first:
                     bonus *= flinch  # we'd KO it first, unless Fake Out stops us: Protect is insurance worth the flinch odds
                 bonus *= 1.0 - removed
@@ -3114,17 +3227,28 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     + (f" (slot {other} KOs {threat['species']} first {int(removed * 100)}% of the time)" if removed else "")
                     + (f" (Protect used {streak} turn(s) in a row already: only 1 in {3 ** streak} to work)" if streak else ""),
                     solo_value(other, "protect") + bonus, covers=endangered_slot)
-            asleep = sheet.wake.get(endangered_slot, 1.0) < 1
+            asleep = sheet.acts(endangered_slot) < 1
             if slot and solo[other][0] and (protect is None or streak >= 1 or asleep):
                 # No Protect, Protect is a coin we already flipped, or the slot is asleep (its Protect needs it to wake): offer
                 # the switch so the judge sees the alternative, unless every switch-in is KO'd on entry (then say so and price
                 # it; without a Protect at all, offer it anyway).
                 base_score = solo_value(other) + P["switch_threatened_bonus"] + (P["protect_bonus_guaranteed"] if pierces_protect else 0) * ko_probability(hit) \
                     + (P["protect_bonus_guaranteed"] * (1 - 0.33 ** streak) if streak else 0) \
-                    + P["protect_bonus_guaranteed"] * (1.0 - sheet.wake.get(endangered_slot, 1.0))
+                    + P["protect_bonus_guaranteed"] * (1.0 - sheet.acts(endangered_slot))
                 base_score *= 1.0 - removed if removed else 1.0
-                _, species_any, preview_any, safe_any = safe_switch(slot, theirs, memory, sheet=sheet)
-                if not safe_any and preview_any:
+                _, species_any, preview_any, safe_any = safe_switch(slot, theirs, memory, sheet=sheet, allow_sleep=True)
+                if not safe_any and preview_any and preview_any.get("unsafe") == "sleep":
+                    # the real reason: the newcomer would be slept, and the Pokémon in the slot is asleep or immune already
+                    users = sleep_users(sheet, theirs)
+                    pos_s, moves_s = next(iter(users.items()))
+                    note = (f"No sleep-safe pivot for slot {endangered_slot}: {species_any}"
+                            + (" (and the rest of the bench)" if sum(1 for o in slot.get("options") or [] if o.get("type") == "switch") > 1 else "")
+                            + f" can be put to sleep on entry by their {theirs[pos_s].species}'s {moves_s[0]['id']}, while "
+                            f"{me_e.species if me_e is not None else 'the Pokémon in it'} cannot be: switching hands their sleep "
+                            "move a fresh target. Keep it in, Taunt the sleep user or take it out.")
+                    if note not in sheet.warnings:
+                        sheet.warnings.append(note)
+                elif not safe_any and preview_any:
                     worst, double = preview_any.get("takes_worst") or {}, preview_any.get("double_target")
                     killer = (" + ".join(double["moves"]) + " together") if double and double["ko_chance"] > worst.get("ko_chance", 0.0) else \
                         (f"{worst['from']}'s {worst['move']}" if worst else "their attacks")
@@ -3138,7 +3262,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 switch_row(endangered_slot, other, "switch_threatened",
                            f"{threat['species']}'s {hit['move']} can KO slot {endangered_slot}" + (" and pierces Protect" if pierces_protect else "")
                            + (f"; it already Protected {streak} turn(s) in a row" if streak else "") + f"; switch it out, slot {other} attacks",
-                           base_score, allow_unsafe=False)  # a pivot KO'd on entry is never a row: the warning says why
+                           base_score, allow_unsafe=False, allow_sleep=True)  # a pivot KO'd on entry is never a row: the warning says why
 
     # 3a. Double-targeting: both foes together KO a slot before it moves. Protect it while the partner attacks; the
     #     bonus is the chance they actually double into it (they pick one target) times the KO chance.
@@ -3155,7 +3279,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             add("protect_double_target", answers[0], answers[1],
                 f"both foes together KO slot {endangered_slot} ({focus['moves'][0]} + {focus['moves'][1]} = {focus['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
                 solo_value(other, "protect") + P["protect_bonus_guaranteed"] * P.get("focus_risk", 0.35) * focus["ko_chance"] * 0.33 ** streak
-                * sheet.wake.get(endangered_slot, 1.0), covers=endangered_slot)
+                * sheet.acts(endangered_slot), covers=endangered_slot)
 
     # 3b. Protect one slot, switch the other: the slot in danger Protects while its partner pivots to a safe bench card
     #     (the Oct 8 loss, turn 3: Thundurus Protect + Kingambit out to Landorus-T; the generator did not exist).
@@ -3172,7 +3296,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             me_e = ours.get(endangered_slot)
             streak = memory.protect_streak(me_e.species, endangered_slot) if me_e is not None else 0
             worst = max((ko_probability(h, with_accuracy=True) for t in sheet.threats for h in t["hits"] if h["into_slot"] == endangered_slot), default=0.0)
-            value = P["protect_bonus_guaranteed"] * worst * 0.33 ** streak * sheet.wake.get(endangered_slot, 1.0) + P["switch_weak_bonus"] \
+            value = P["protect_bonus_guaranteed"] * worst * 0.33 ** streak * sheet.acts(endangered_slot) + P["switch_weak_bonus"] \
                 + max(float(preview.get("score", 0.0) or 0.0), 0.0) * 0.25
             answers = {endangered_slot: {"option": protect, "target": 0}, other: {"option": idx, "target": 0}}
             add("protect_and_switch", answers[0], answers[1],
@@ -3220,7 +3344,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             add("redirect_to_protect_partner", answers[0], answers[1],
                 f"{threat['species']}'s {hit['move']} would KO slot {endangered_slot}; slot {redirector} redirects it ({est[0]}-{est[1]}% to itself) while slot {endangered_slot} {partner_action[1]}",
                 ((P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25 + (50 if "sets" in partner_action[1] else raw_partner[2] * 0.8))
-                * sheet.wake.get(redirector, 1.0),
+                * sheet.acts(redirector),
                 covers=endangered_slot)
 
     # 4. Fake Out on a Pokémon's first turn out: flinch the biggest threat while the partner sets up or attacks.
@@ -3279,7 +3403,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         # Fake Out vs Fake Out is decided by speed: a faster fresh Fake Out on their side can flinch ours first.
         faster_fakers = [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")
                          and speed_rank.get(("theirs", t["position"]), 99) < speed_rank.get(("mine", number), 99)]
-        lands = (1.0 - (sheet.flinch_risk.get(number, 0.0) if faster_fakers else 0.0)) * sheet.wake.get(number, 1.0)
+        lands = (1.0 - (sheet.flinch_risk.get(number, 0.0) if faster_fakers else 0.0)) * sheet.acts(number)
         if lands < 1.0:
             why += f"; their faster Fake Out may flinch ours first ({int((1 - lands) * 100)}%)"
         add("fake_out_setup", answers[0], answers[1], why,
@@ -3305,13 +3429,19 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         prio = 1 if data.to_id(me.ability) == "prankster" else 0
         legal = (slot.get("options") or [])[idx].get("targets") or []
         flinch = secondary_flinch(sheet, number, ours, speed_rank, prio)
-        acts = survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else sheet.wake.get(number, 1.0)
+        acts = survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else sheet.acts(number)
         for pos, foe in sorted(theirs.items()):
             if legal and pos not in legal:
                 continue
             blocked = taunt_value(me, number, pos, foe, sheet, P)
             if blocked <= 0:
                 continue
+            if other in ours and solo[other][0] and solo[other][1] is not None:
+                o_opt, o_row = solo[other][0], solo[other][1]
+                sub = row_into(o_opt, o_row, pos, foe.species)
+                o_prio = o_opt.get("priority", 0) or 0
+                if sub is not None and "status_value" not in o_row and acts_before(other, pos, o_prio, 1 if data.to_id(foe.ability) == "prankster" else 0):
+                    blocked *= 1.0 - ko_probability(sub, with_accuracy=True) * survival_factor(other, sheet, o_prio, speed_rank, o_row, P)
             what = [m["id"] for m in foe.moves if not data.is_damaging(data.move_info(m["id"]) or {}) and m["id"] not in PROTECT_LIKE]
             answers = {number: {"option": idx, "target": pos}, other: partner}
             add("taunt_status", answers.get(0), answers.get(1),

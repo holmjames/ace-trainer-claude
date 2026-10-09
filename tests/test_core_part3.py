@@ -430,3 +430,121 @@ def test_the_mixture_taunts_the_spore_user_and_reads_protect_or_switch_with_spor
     for turn in (1, 3):
         payload, template, row = decision(S51, turn)
         assert move_of(payload, 0) == "taunt" and payload["slot_0"]["target"] == 2, (turn, payload)
+
+
+# -- merge request 3: the review of stage 5714330 (default path) ------------------------------------------------------
+
+
+def _synthetic(mine, opp, bench=(), *, status=None, fields=None, hp=None, items=None, turn=9):
+    cards = _catalog()
+    m = MatchMemory()
+    for s in list(mine) + list(bench):
+        m.my_cards[species_key(s)] = cards[s]
+    for s in opp:
+        m.opp_cards[species_key(s)] = cards[s]
+    template, obs = _doubles(m, list(mine), list(opp), hp or {}, bench=bench)
+    obs["turn"] = turn
+    for key, entry in list(obs["team"].items()) + list(obs["opponent_team"].items()):
+        name = entry["species"]
+        if status and name in status:
+            entry["status"] = status[name]
+        if items and name in items:
+            entry["item"] = items[name]
+    if fields:
+        obs["fields"] = fields
+    return battle.build_sheet(template, obs, m), template, obs, m
+
+
+def _labels(template: dict, cand: dict) -> tuple[str, str]:
+    opts = {s["slot"]: s["options"] for s in template["slots"]}
+    out = []
+    for n in (0, 1):
+        o = opts[n][cand[f"slot_{n}"]["option"]]
+        out.append(o.get("move_id") or "->" + o.get("species", "?"))
+    return tuple(out)
+
+
+def test_an_awake_pokemon_may_switch_while_a_spore_user_is_out():
+    # Review finding 1: Chi-Yu + Gyarados vs Scarf Landorus-T + Amoonguss. Earthquake KOs Chi-Yu (128-151%) before it
+    # moves; Gyarados is an awake Spore target anyway, so the switch adds none and must stay the top row.
+    sheet, template, *_ = _synthetic(("Chi-Yu", "Gyarados"), ("Landorus-Therian", "Amoonguss"), ("Kingambit", "Garchomp"))
+    top = _labels(template, sheet.candidates[0])
+    assert top[0].startswith("->"), (top, [c["why"] for c in sheet.candidates])
+    assert not [w for w in sheet.warnings if w.startswith("No safe pivot") or w.startswith("No sleep-safe pivot")], sheet.warnings
+    # a sleeping Chi-Yu absorbs Spore where it stands: switching it hands Spore a target, priced, but the KO is worse
+    sheet, template, *_ = _synthetic(("Chi-Yu", "Gyarados"), ("Landorus-Therian", "Amoonguss"), ("Kingambit", "Garchomp"),
+                                     status={"Chi-Yu": "SLP"})
+    top = sheet.candidates[0]
+    assert _labels(template, top)[0].startswith("->") and "where their sleep move had no target" in top["why"], top
+
+
+def test_a_sleeper_does_not_pivot_out_into_spore_when_nothing_threatens_it():
+    # 51c86e5c T3 / T4: the sleeping Archaludon (T3) and Chi-Yu (T4) are Spore sinks; no row pivots them out into a fresh
+    # target unless it is facing a KO (T4: Close Combat into Chi-Yu, so its switch goes to the sleeping Archaludon).
+    cards = _catalog()
+    sheet, template, obs, m = _synthetic(("Gyarados", "Archaludon"), ("Chien-Pao", "Amoonguss"), ("Chi-Yu", "Indeedee-F"),
+                                         status={"Archaludon": "SLP"})
+    theirs = {x.position: x for x in sheet.field.actives if x.side == "theirs"}
+    slot1 = next(s for s in template["slots"] if s["slot"] == 1)
+    idx, species, preview, safe = battle.safe_switch(slot1, theirs, m, sheet=sheet)
+    assert not safe and preview.get("unsafe") == "sleep", (species, preview.get("unsafe"))
+    assert not [c for c in sheet.candidates if c["name"] in ("protect_and_switch", "switch_weak_slot")], [c["name"] for c in sheet.candidates]
+
+
+def test_taunt_is_tracked_from_the_protocol_log():
+    m = MatchMemory()
+    log = ["|switch|p1a: Gyarados|Gyarados, L50, F|202/202", "|switch|p2b: Amoonguss|Amoonguss, L50, F|100/100", "|turn|1",
+           "|move|p1a: Gyarados|Taunt|p2b: Amoonguss", "|-start|p2b: Amoonguss|move: Taunt", "|cant|p2b: Amoonguss|move: Taunt|Spore", "|turn|2"]
+    obs = {"team": {"p1: Gyarados": {"species": "gyarados"}}, "protocol_log": log}
+    m.observe_protocol(obs)
+    assert m.taunted == {"theirs:amoonguss": 1}
+    m.observe_protocol({**obs, "protocol_log": log + ["|-end|p2b: Amoonguss|move: Taunt", "|turn|3"]})
+    assert m.taunted == {}
+    m.observe_protocol({**obs, "protocol_log": log + ["|switch|p2b: Hatterene|Hatterene, L50, F|100/100", "|turn|3"]})
+    assert m.taunted == {}  # it left the field
+    m.observe_protocol({**obs, "protocol_log": log + ["|faint|p2b: Amoonguss", "|turn|3"]})
+    assert m.taunted == {}
+
+
+def test_a_taunted_spore_user_is_no_sleep_threat_and_draws_no_second_taunt():
+    # Review finding 2: after a turn-1 Taunt lands, turn 2 must not Taunt again (it fails) nor warn about Spore.
+    sheet, template, obs, m = _synthetic(("Gyarados", "Archaludon"), ("Chien-Pao", "Amoonguss"), turn=2)
+    m.taunted = {"theirs:amoonguss": 1}
+    sheet = battle.build_sheet(template, obs, m)
+    gyarados = next(x for x in sheet.field.actives if x.side == "mine" and x.species == "Gyarados")
+    amoonguss = next(x for x in sheet.field.actives if x.side == "theirs" and x.species == "Amoonguss")
+    assert battle.taunt_value(gyarados, 0, 2, amoonguss, sheet) == 0.0
+    assert not battle.sleep_users(sheet, {x.position: x for x in sheet.field.actives if x.side == "theirs"})
+    assert not [w for w in sheet.warnings if w.startswith("SLEEP")]
+    assert not [c for c in sheet.candidates if _labels(template, c)[0] == "taunt"], [c["why"] for c in sheet.candidates]
+
+
+def test_a_taunt_next_to_a_ko_on_its_target_is_worth_the_miss_only():
+    # Review finding 3: Heat Wave (90% accurate) KOs Amoonguss before it moves; the Taunt on it beside the Heat Wave is
+    # credited only for the miss, and Gyarados Protects from Wild Charge instead (the deployed build's top row).
+    sheet, template, *_ = _synthetic(("Chi-Yu", "Gyarados"), ("Iron Hands", "Amoonguss"))
+    assert _labels(template, sheet.candidates[0]) != ("heatwave", "taunt"), [c["why"] for c in sheet.candidates[:3]]
+    assert sheet.candidates[0]["name"] == "protect_threatened"
+
+
+def test_a_prankster_taunt_fails_into_psychic_terrain_and_armor_tail():
+    # Review finding 4: a +1 Taunt does nothing to a grounded target in Psychic Terrain or beside Armor Tail.
+    for opp, fields in ((("Chien-Pao", "Amoonguss"), {"PSYCHIC_TERRAIN": 3}), (("Farigiraf", "Amoonguss"), None)):
+        sheet, template, *_ = _synthetic(("Tornadus", "Indeedee-F"), opp, fields=fields)
+        tornadus = next(x for x in sheet.field.actives if x.side == "mine" and x.species == "Tornadus")
+        amoonguss = next(x for x in sheet.field.actives if x.side == "theirs" and x.species == "Amoonguss")
+        assert battle.taunt_value(tornadus, 0, 2, amoonguss, sheet) == 0.0, opp
+        assert not any("Taunt goes first" in w for w in sheet.warnings), sheet.warnings
+        assert _labels(template, sheet.candidates[0])[0] != "taunt", opp
+
+
+def test_an_eaten_lum_berry_is_no_sleep_cover_and_paralysis_or_freeze_cost_actions():
+    sheet, template, obs, m = _synthetic(("Gyarados", "Archaludon"), ("Chien-Pao", "Amoonguss"), ("Salamence", "Kingambit"),
+                                         items={"Salamence": ""})
+    theirs = {x.position: x for x in sheet.field.actives if x.side == "theirs"}
+    assert data.to_id(_catalog()["Salamence"]["item"]) == "lumberry"
+    assert battle.fresh_sleep_target(sheet, "salamence", theirs, m)  # the berry is gone: Spore lands
+    sheet, *_ = _synthetic(("Gyarados", "Archaludon"), ("Iron Hands", "Kingambit"), status={"Gyarados": "PAR", "Archaludon": "FRZ"})
+    assert sheet.acts(0) == pytest.approx(0.75) and sheet.acts(1) == pytest.approx(0.2)
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    assert battle.survival_factor(1, sheet, 0, rank) <= 0.2 + 1e-9

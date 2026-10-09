@@ -1044,7 +1044,7 @@ class _Context:
         Inner Focus Lucario left the Fake Out column out of m4 T7, where the bot's Fake Out went into Tornadus)."""
         best, best_v = None, -1.0
         for n in self.ours:
-            if not battle._flinchable(self.ours[n], self.ours, self.fs) or self.sheet.wake.get(n, 1.0) <= 0:
+            if not battle._flinchable(self.ours[n], self.ours, self.fs) or self.sheet.acts(n) <= 0:
                 continue
             v = max(battle._best_attack(self.by_slot.get(n, {}), P=self.P, threats=self.weights)[2], 0.0)
             for setup in ("tailwind", "trickroom"):
@@ -1202,7 +1202,7 @@ class _Context:
             p_alive = self._alive_before(me_key, parts, a, order)
             p_act = p_alive * (1.0 - flinched.get(me_key, 0.0)) * (1.0 - slept.get(me_key, 0.0))
             if a.side == "mine" and a.kind != "switch":
-                p_act *= self.sheet.wake.get(a.slot, 1.0)  # asleep: its move (and its Protect) happens only if it wakes
+                p_act *= self.sheet.acts(a.slot)  # asleep, paralysed or frozen: its move (and its Protect) happens only if it acts
             if a.kind == "pass":
                 acts[me_key] = 0.0
                 continue
