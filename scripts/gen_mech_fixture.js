@@ -257,6 +257,9 @@ run('overlord1_kowtow_incineroar', by['Kingambit'], 'Kowtow Cleave', by['Inciner
 // da9c168e T3: Incineroar's Fake Out into the staying Thundurus (57 HP) once our Landorus-T had come in and Intimidated it.
 run('fakeout_thundurus57', by['Incineroar'], 'Fake Out', by['Thundurus'], { hp: 57 / 154 });
 run('fakeout_minus1_thundurus57', by['Incineroar'], 'Fake Out', by['Thundurus'], { hp: 57 / 154, aBoosts: { atk: -1 } });
+// d74bfb88 T9: Flutter Mane's Moonblast into a Tyranitar (151/207) switching in: its Sand Stream makes it a Rock type in sand (Sp. Def x1.5).
+run('moonblast_fluttermane_tyranitar151', by['Flutter Mane'], 'Moonblast', by['Tyranitar'], { hp: 151 / 207 });
+run('moonblast_fluttermane_tyranitar151_sand', by['Flutter Mane'], 'Moonblast', by['Tyranitar'], { hp: 151 / 207, weather: 'Sand' });
 
 const out = path.join(root, 'tests', 'fixtures', 'smogon_calc_mech.json');
 fs.writeFileSync(out, JSON.stringify(cases, null, 0));

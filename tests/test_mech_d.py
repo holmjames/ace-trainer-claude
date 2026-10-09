@@ -877,3 +877,28 @@ def test_partner_threat_rows_under_an_intimidate_switch():
     assert error_vs_calc(minus, hit) < TOLERANCE
     assert minus["damage"][0] <= 16 <= minus["damage"][1] and not plain["damage"][0] <= 16 <= plain["damage"][1]
     assert hit[0] * 57 / 100 <= 16.5 and hit[1] * 57 / 100 >= 16
+
+
+def test_switch_preview_prices_the_switch_ins_own_weather():
+    """d74bfb88 T9: Flutter Mane's Moonblast into our incoming Tyranitar (151/207) was shown as 81-95%; in its own sand
+    (Sand Stream on entry: a Rock type's Sp. Def x1.5) it is 56-66% per the calculator, and it took 63.6% (96 HP)."""
+    plain, sand = case("moonblast_fluttermane_tyranitar151"), case("moonblast_fluttermane_tyranitar151_sand")
+    assert pct(sand, 0) <= 63.6 <= pct(sand, 1) and not pct(plain, 0) <= 63.6 <= pct(plain, 1)
+    sheet, _ = build(["Gyarados", "Baxcalibur"], ["Flutter Mane", "Rillaboom"], bench=["Tyranitar"], hp={"Gyarados": 145 / 202, "Tyranitar": 151 / 207})
+    assert sheet.field.weather is None
+    moon = next(t for t in sheet.switch_ins["tyranitar"]["takes"] if t["move"] == "moonblast")
+    assert error_vs_calc(sand, moon["damage_pct"]) < TOLERANCE and moon["damage_pct"][0] <= 63.6 <= moon["damage_pct"][1]
+    flutter, moonblast, tyranitar, fs = _pair(plain)
+    tyranitar = replace(tyranitar, side="mine")
+    after = battle.entry_field(fs, add=[tyranitar])
+    assert after.weather == "sand" and fs.weather is None  # the original field is untouched
+    assert error_vs_calc(plain, battle.damage_percent(flutter, moonblast, tyranitar, field=fs)) < TOLERANCE
+    assert error_vs_calc(sand, battle.damage_percent(flutter, moonblast, tyranitar, field=after)) < TOLERANCE
+    # A foe that is already out does not re-fire its weather: Pelipper passed for identity, Tyranitar the one arriving.
+    pelipper = catalog_mon("Pelipper", side="theirs", position=2)
+    assert battle.entry_field(fs, add=[pelipper, tyranitar], entering=[tyranitar]).weather == "sand"
+    assert battle.entry_field(fs, add=[tyranitar, pelipper], entering=[pelipper]).weather == "rain"
+    hits = battle.entry_hits(pelipper, tyranitar, battle.FieldState(weather="rain", actives=[pelipper]), our_actives=2, their_actives=2)
+    hurricane = next(h for h in hits if h["move"] == "hurricane")
+    assert hurricane["hit_chance"] == pytest.approx(0.7)  # the sand Tyranitar brings ends the rain: Hurricane can miss again
+    assert battle.entry_field(fs, add=[catalog_mon("Rillaboom", side="theirs", position=2)]).terrain == "grassy"

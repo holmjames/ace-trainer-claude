@@ -1131,20 +1131,42 @@ def intimidate_notes(incoming: "Mon", foes: "Iterable[Mon]") -> list[str]:
     return out
 
 
-def entry_field(fs: "FieldState | None", *, add: "Iterable[Mon]", drop: "Iterable[Mon | None]" = ()) -> "FieldState":
-    """The field as it stands once the Pokémon in ``add`` are out and those in ``drop`` have left: the same weather,
-    terrain, screens and fainted counts, the actives updated, so a switch-in's own Ruin ability and the Ruin abilities
-    still out price every hit (Oct 8 live match: our Wo-Chien's Tablets of Ruin cut Body Press into Ting-Lu by a
-    quarter the turn it came in, its leaving gave the foes their Attack back, and their Ting-Lu's Vessel of Ruin cut
-    Draco Meteor), and each newcomer's paradox boost read with the real field."""
+WEATHER_SETTERS = {"drizzle": "rain", "drought": "sun", "orichalcumpulse": "sun", "sandstream": "sand", "snowwarning": "snow"}
+TERRAIN_SETTERS = {"grassysurge": "grassy", "psychicsurge": "psychic", "electricsurge": "electric", "mistysurge": "misty",
+                   "hadronengine": "electric"}
+
+
+def entry_field(fs: "FieldState | None", *, add: "Iterable[Mon]", drop: "Iterable[Mon | None]" = (),
+                entering: "Iterable[Mon] | None" = None) -> "FieldState":
+    """The field as it stands once the Pokémon in ``add`` are out and those in ``drop`` have left: the same screens and
+    fainted counts, the actives updated, so a switch-in's own Ruin ability and the Ruin abilities still out price every
+    hit (Oct 8 live match: our Wo-Chien's Tablets of Ruin cut Body Press into Ting-Lu by a quarter the turn it came in,
+    its leaving gave the foes their Attack back, and their Ting-Lu's Vessel of Ruin cut Draco Meteor); the weather and
+    terrain the ``entering`` Pokémon set on arrival (every one in ``add`` when None: Sand Stream, Drought, Drizzle, Snow
+    Warning, the Surge terrains, Hadron Engine, Orichalcum Pulse; d74bfb88 T9: Moonblast into an incoming Tyranitar
+    is 56-66% in its own sand, not 81-95%); and every paradox boost re-read under that field (newcomers in place, the
+    Pokémon already out as copies when theirs change)."""
     base = fs if fs is not None else FieldState()
     dropped = {id(m) for m in drop if m is not None}
     added = list(add)
+    arriving = added if entering is None else list(entering)
     actives = [m for m in base.actives if id(m) not in dropped and not any(m is a for a in added)] + added
     new = FieldState(weather=base.weather, terrain=base.terrain, trick_room=base.trick_room, my_side=set(base.my_side),
                      their_side=set(base.their_side), actives=actives, fainted=dict(base.fainted), party_base_atk=dict(base.party_base_atk))
+    for mon in arriving:
+        ability = data.to_id(mon.ability)
+        if ability in WEATHER_SETTERS:
+            new.weather = WEATHER_SETTERS[ability]
+        if ability in TERRAIN_SETTERS:
+            new.terrain = TERRAIN_SETTERS[ability]
     for mon in added:
         mon.boosted_stat = paradox_boosted_stat(mon, new)
+    if new.weather != base.weather or new.terrain != base.terrain:
+        refreshed = []
+        for mon in new.actives:
+            boosted = paradox_boosted_stat(mon, new)
+            refreshed.append(mon if any(mon is a for a in added) or boosted == mon.boosted_stat else Mon(**{**mon.__dict__, "boosted_stat": boosted}))
+        new.actives = refreshed
     return new
 
 
@@ -1159,7 +1181,7 @@ def entry_hits(attacker: "Mon", incoming: "Mon", fs: "FieldState | None", *, our
     Impression are left out (a fresh attacker's Fake Out is the threat list's business)."""
     original = attacker
     attacker = intimidated_foes(incoming, [attacker])[0]
-    after = entry_field(fs, add=[attacker, incoming], drop=[outgoing, original])
+    after = entry_field(fs, add=[attacker, incoming], drop=[outgoing, original], entering=[incoming])  # the attacker is already out
     out = []
     for mv in attacker.moves:
         if not data.is_damaging(mv) or mv["id"] in ("fakeout", "firstimpression") or (locked and mv["id"] != locked):
