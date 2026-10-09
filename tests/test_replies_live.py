@@ -116,16 +116,20 @@ def test_reply_mixture_plays_the_documented_line(sc, seed):
     payload, template, row = decision(sc.session, sc.turn, sc.index, seed)
     top = (row["turn_sheet"].get("candidate_turns") or [{}])[0]
     assert sc.accept(payload, template), f"{sc.name}: want {sc.accept_text}; played {json.dumps({k: v for k, v in payload.items() if k != 'type'})}; " \
-                                         f"top row {top.get('name')} value {top.get('value')} worst {top.get('worst')} ({top.get('what')})"
+                                         f"top row {top.get('name')} score {top.get('score')} worst {top.get('worst')} ({top.get('why')})"
 
 
 def test_reply_table_is_logged_with_its_seed():
+    # the logged (and prompted) table carries the seed and the plausible replies; each row's score, worst case and best
+    # reply ride on candidate_turns, with a why for every row (the scorer's for its rows, our actions in words otherwise)
     rows = replay_mix("bcbaabe2")
     turn = next(r for r in rows if r.get("kind") == "turn" and r.get("turn") == 2)
     table = turn["turn_sheet"].get("reply_table") or {}
-    assert table.get("seed") is not None and table.get("columns") and table.get("rows"), table
-    assert all("prior" in c for c in table["columns"])
-    assert all(k in table["rows"][0] for k in ("name", "value", "worst", "best_reply"))
+    assert table.get("seed") is not None and table.get("columns") and "rows" not in table, table
+    assert all("prior" in c and max(c["prior"], c["eq"]) >= 0.05 for c in table["columns"])
+    cands = turn["turn_sheet"]["candidate_turns"]
+    assert cands and all(k in c for c in cands for k in ("name", "score", "worst", "best_reply", "why"))
+    assert all(c["why"] != c["name"] for c in cands), [(c["name"], c["why"]) for c in cands]
 
 
 def test_extreme_speed_then_draco_meteor_into_dragonite_is_generated(tmp_path):
@@ -144,3 +148,74 @@ def test_the_practice_game_turn_six_keeps_foul_play_on_the_other_slot():
     # Protect of the 28% Ting-Lu (what the model did) must not be.
     payload, template, row = decision("bcbaabe2", 6)
     assert LS.move_of(payload, 1) == "foulplay" and LS.target_species(payload, 1, template) == "dragonite", payload
+
+
+def test_the_mixture_payload_stays_inside_the_ops_budget(tmp_path, monkeypatch):
+    # tests/test_reliability_f.py's payload check at bcbaabe2 T14, with the mixture on: five rows with their worst case and
+    # best reply, a why for each, and the plausible replies fit the ops budget (19,066 characters before core-5 trimmed the
+    # table's duplicate rows and implausible replies; the default scorer's payload is 15,350)
+    from tests import test_reliability_f as R
+
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_seed", 7.0)
+    agent, sheet, template, build = R._position(R.MATCH_BCBAABE2, 0, 13)
+    provider = R._FakeProvider(R._turn_answer(row=0), R._turn_answer(row=0))
+    live = PokemonAgent(provider, version="e4", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
+    live.memory = agent.memory
+    folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(R.MATCH_BCBAABE2))
+    path = next(p for p in R._sequence(folder, 0) if p.name == "moving-00014-seat0.json")
+    raw = json.loads(path.read_text())
+    live.choose_action(GameState.from_mcp_state(raw), R._context(folder, raw, 0))
+    payload = json.loads(provider.calls[0][0][2]["content"])
+    row = R._last_turn_row(tmp_path)
+    assert row["payload_chars"] < 17000, row["payload_chars"]
+    rows = payload["turn_sheet"]["candidate_turns"]
+    assert 1 < len(rows) <= 5 and all(r["why"] != r["name"] and "best_reply" in r for r in rows), rows
+    assert payload["turn_sheet"]["reply_table"]["columns"] and row["code_prediction"]["source"] == "reply_table"
+
+
+RESTART_SESSIONS = ("8e3a639c", "93a98b6f", "d74bfb88", "da9c168e", "15f6f540")
+
+
+def test_a_restarted_agent_sees_the_same_mixture(monkeypatch, tmp_path):
+    """Restart parity for the mixture's own inputs (tests/test_reliability_f.py checks the default scorer's sheet). With the
+    per-match seed, lambda and the opponent class held equal (a restart redraws the seed and resets lambda by design; the
+    class comes from memory.opponent_class, which reads a draft a restarted agent never saw), a fresh agent ranks the same
+    rows with the same values wherever the rest of the sheet matches. Our revealed Pokemon came from our own turn records
+    and were empty after a restart (every bench card earned the unrevealed-pivot credit); they come from the protocol log
+    now. The full replay records its own choices, so a state whose sheet differs (d74bfb88 T5: the replay's own Glaive
+    Rush) is skipped, not compared."""
+    from agent.pokemon import replies
+    from tests import test_reliability_f as R
+
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_seed", 7.0)
+    monkeypatch.setattr(replies, "_lambda", lambda memory, ctx, cols, prior: 0.3)
+    monkeypatch.setattr(replies, "opponent_class", lambda memory: "search")
+    mixture = ("candidate_turns", "reply_table")
+    compared, diffs = 0, []
+    for folder, seat in R.CASES:
+        if not folder.name.startswith(RESTART_SESSIONS):
+            continue
+        full_dir = tmp_path / f"full-{folder.name[:8]}-{seat}"
+        full = R._agent(full_dir, "full-replay")
+        for path in R._sequence(folder, seat):
+            raw = json.loads(path.read_text())
+            state = GameState.from_mcp_state(raw)
+            if not state.legal_actions:
+                continue
+            ctx = R._context(folder, raw, seat)
+            full.choose_action(state, ctx)
+            if state.phase != "moving":
+                continue
+            expected = R._snapshot(full, state, full_dir)["turn_sheet"]
+            fresh_dir = tmp_path / f"fresh-{folder.name[:8]}-{seat}-{path.stem}"
+            fresh = R._agent(fresh_dir, "fresh")
+            fresh.choose_action(state, ctx)
+            actual = R._snapshot(fresh, state, fresh_dir)["turn_sheet"]
+            if R._first_difference({k: v for k, v in expected.items() if k not in mixture}, {k: v for k, v in actual.items() if k not in mixture}):
+                continue
+            compared += 1
+            found = R._first_difference({k: expected.get(k) for k in mixture}, {k: actual.get(k) for k in mixture})
+            if found:
+                diffs.append(f"{folder.name[:8]}/{path.name}: {found}")
+    assert compared >= 40, compared
+    assert not diffs, f"{len(diffs)}/{compared} states differ after a restart:\n  " + "\n  ".join(diffs[:8])

@@ -687,6 +687,15 @@ class TurnSheet:
         5 thaws). Its switch is never stopped."""
         return self.wake.get(slot, 1.0) * self.hampered.get(slot, 1.0)
 
+    def reply_prompt(self) -> dict:
+        """The mixture's table as the model sees it: its seed, class, lambda and the replies it finds plausible (prior or
+        equilibrium weight >= 0.05); not its rows, whose score, worst case and best reply candidate_turns carry already
+        (the payload stays inside the ops budget, tests/test_reliability_f.py)."""
+        table = {k: v for k, v in self.reply.items() if k != "rows"}
+        columns = table.get("columns") or []
+        table["columns"] = [c for c in columns if max(c.get("prior", 0.0), c.get("eq", 0.0)) >= 0.05] or columns
+        return table
+
     def as_prompt(self) -> dict:
         return {
             "WARNINGS": self.warnings,
@@ -698,7 +707,7 @@ class TurnSheet:
             "notes": self.notes,
             **({"switch_ins": {k: {kk: vv for kk, vv in v.items() if kk != "score"} for k, v in self.switch_ins.items()}} if self.switch_ins else {}),
             **({"asleep_acts_pct": {str(n): int(round(100 * w)) for n, w in sorted(self.wake.items())}} if self.wake else {}),
-            **({"reply_table": self.reply} if self.reply else {}),
+            **({"reply_table": self.reply_prompt()} if self.reply else {}),
         }
 
 
@@ -3477,7 +3486,9 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                                   obs={"turn": sheet.turn})
         if ranked:
             candidates = ranked
-            return candidates[:6]  # the mixture's rows carry their value, worst case and best reply: the model sees six
+            # the mixture's rows carry their worst case and best reply: the model sees five (the sixth was within the override
+            # margin of the top in 1 of 41 replayed live turns; the payload stays inside the ops budget)
+            return candidates[:5]
     # The cut: the best four, plus the Protect / switch rows that cover a slot in a KO range (the Oct 8 loss, turn 3:
     # the row that Protected the exposed Thundurus ranked 5th and was cut; it decided the game).
     kept = candidates[:4]

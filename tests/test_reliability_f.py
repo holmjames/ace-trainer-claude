@@ -1016,7 +1016,8 @@ def test_prompt_carries_the_procedure_the_class_rules_and_the_override_lessons()
     assert KNOWN_SETS_PREAMBLE.startswith("known_sets")
 
 
-def test_a_row_answer_plays_that_row_and_the_payload_carries_rows_prediction_digest_and_tendencies(tmp_path):
+def test_a_row_answer_plays_that_row_and_the_payload_carries_rows_prediction_digest_and_tendencies(tmp_path, monkeypatch):
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the scorer's prediction source; test_replies_live has the mixture's
     agent, sheet, template, build = _position(MATCH_BCBAABE2, 0, 13)
     protect_row = next(i for i, c in enumerate(sheet.candidates) if c["name"] == "protect_threatened")
     provider = _FakeProvider(_turn_answer(row=protect_row), _turn_answer(row=protect_row))

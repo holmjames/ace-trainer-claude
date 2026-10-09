@@ -272,8 +272,9 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
         r = rows[i]
         j_best = min(floor_cols, key=lambda j: matrix[i][j])
         cand = dict(r.payload)
-        cand.update({"score": round(value, 1), "value": round(value, 1), "worst": round(worst, 1),
-                     "best_reply": cols[j_best].name, "what": ctx.describe(r, cols[j_best])})
+        if cand.get("why") in (None, "", r.name):
+            cand["why"] = ctx.describe(r)  # a row the scorer did not explain: our actions in words (the prompt promises a why)
+        cand.update({"score": round(value, 1), "worst": round(worst, 1), "best_reply": cols[j_best].name})
         target_pos = ctx.main_target(r)
         for tag, col in (("if_protect", ctx.protect_column(cols, target_pos)), ("if_switch", ctx.switch_column(cols, target_pos))):
             if col is not None:
@@ -281,7 +282,7 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
         out.append(cand)
     sheet.reply = {"seed": seed, "class": klass, "lambda": round(lam, 2),
                    "columns": [{"name": c.name, "prior": round(prior[j], 2), "eq": round(eq_cols[j], 2)} for j, c in enumerate(cols)],
-                   "rows": [{"name": c["name"], "value": c["value"], "worst": c["worst"], "best_reply": c["best_reply"]} for c in out[:8]]}
+                   "rows": [{"name": c["name"], "value": c["score"], "worst": c["worst"], "best_reply": c["best_reply"]} for c in out[:8]]}
     _remember_prediction(memory, ctx, cols, prior, turn)
     return out
 
@@ -457,8 +458,12 @@ class _Context:
     # -- tables ------------------------------------------------------------------------------------------------------
 
     def _revealed(self) -> set[str]:
-        """Our Pokémon the opponent has seen on the field this battle (its search models switches to those)."""
+        """Our Pokémon the opponent has seen on the field this battle (its search models switches to those): from the
+        protocol log's entries (memory.entered_by_turn, rebuilt every turn, so a restarted agent sees the same set) and
+        our own turn records."""
         seen = {species_key(m.species) for m in self.ours.values()}
+        for entries in (getattr(self.memory, "entered_by_turn", None) or {}).values():
+            seen |= {species_key(sp) for tag, sp in entries if tag == "mine" and sp}
         for fields in getattr(self.memory, "turns", None) or []:
             for s in fields.get("actives") or []:
                 if s:
@@ -741,7 +746,7 @@ class _Context:
             seen.add(key)
             rows.append(_JointRow(name, acts, payload or {}, cost))
 
-        def from_payload(name: str, p0: dict | None, p1: dict | None) -> None:
+        def from_payload(name: str, p0: dict | None, p1: dict | None, why: str | None = None) -> None:
             a0 = self.actor_for(0, p0, name) if p0 else None
             a1 = self.actor_for(1, p1, name) if p1 else None
             if self.sheet.alone and not self.sheet.stall_reasons and any(a is not None and a.kind == "protect" for a in (a0, a1)):
@@ -758,10 +763,10 @@ class _Context:
                         if not self.in_ko_range(a.slot) or (preview or {}).get("verdict", "safe") != "safe":
                             return
                         cost += battle.sleep_switch_cost(self.sheet, a.species, preview or {}, self.theirs, self.P)
-            add(name, a0, a1, {"name": name, "slot_0": p0, "slot_1": p1}, cost)
+            add(name, a0, a1, {"name": name, "slot_0": p0, "slot_1": p1, **({"why": why} if why else {})}, cost)
 
         for c in candidates:
-            from_payload(c["name"], c.get("slot_0"), c.get("slot_1"))
+            from_payload(c["name"], c.get("slot_0"), c.get("slot_1"), why=c.get("why"))  # the scorer's explanation travels with its row
         if len(self.ours) == 2 and all(n in self.ours for n in (0, 1)):
             best = {n: self.best_attack_answer(n) for n in (0, 1)}
             protect = {n: self.option_index(n, "protect") if self.option_index(n, "protect") is not None else self.option_index(n, "detect") for n in (0, 1)}
@@ -1840,9 +1845,9 @@ class _Context:
             flips += int(after and not before)
         return min(1.5, 0.3 + flips / len(pairs)) if flips else 0.1
 
-    def describe(self, row: "_JointRow", col: _JointColumn) -> str:
+    def describe(self, row: "_JointRow", col: _JointColumn | None = None) -> str:
         ours = "; ".join(self._actor_text(a) for a in row.actions)
-        return f"{ours} | worst reply: {col.name}"
+        return ours if col is None else f"{ours} | worst reply: {col.name}"
 
     def _actor_text(self, a: _Actor) -> str:
         if a.kind == "switch":
