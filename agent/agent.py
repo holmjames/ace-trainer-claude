@@ -29,6 +29,7 @@ Run it (after keys are in ``.env``):
 from __future__ import annotations
 
 import atexit
+import inspect
 import json
 import os
 import re
@@ -56,14 +57,47 @@ from agent.pokemon.tuning import DEFAULTS
 
 VERSION = os.environ.get("AGENT_VERSION") or "m3"
 MAX_ATTEMPTS = 2  # first answer + one retry carrying the validation error
-SECOND_CALL_CUTOFF_SECONDS = 10.0  # a retry/recheck after this many seconds could push a decision past Showdown's 55 s clock
-MIN_DECISION_SECONDS_FOR_MODEL = 25.0  # below this the model chain (worst case ~30 s) could run the decision out: play the computed move
-MIN_BANK_SECONDS_FOR_MODEL = 90.0      # a nearly empty bank forfeits the battle; stop spending it on model calls
 BREAKER_FAILURES = 2  # consecutive decisions on which every model failed before one decision skips the model entirely
 
+# The live clock (platform_skill_pokemon.txt:262-268): the platform plays a random legal move for us at 50 s per battle
+# decision and 85 s at Team Preview; both come out of a 420 s bank per side, and an empty bank forfeits the battle.
+DECISION_SECONDS = 50.0
+PREVIEW_DECISION_SECONDS = 85.0
+BANK_SECONDS = 420.0
+DECISION_SAFETY_SECONDS = 8.0  # network, validation and the send: the model's deadline is the decision's time left minus this
+MIN_MODEL_SECONDS = 6.0  # a deadline below this cannot be met by any model in the chain: play the computed move at once
+MIN_BANK_SECONDS_FOR_MODEL = 90.0  # the bank below which no model is asked at all (it forfeits at 0)
+MODEL_DEADLINE_CAP = {"turn": 20.0, "lineup": 60.0}  # even with a full bank: 20 s a turn keeps a 20-turn game inside the bank
+DEFAULT_REMAINING_TURNS = 14  # a fresh 4v4 (see expected_remaining_turns)
 
-def _clock_budget(clock: dict | None) -> tuple[float | None, float | None, float]:
-    """(decision seconds left, bank seconds left, cutoff for a second model call) from the server's clock, if any."""
+
+class ClockBudget:
+    """What this decision may spend on the model, from the server's clock (``observation["clock"]``)."""
+
+    __slots__ = ("decision_left", "bank_left", "deadline", "remaining_turns", "reason")
+
+    def __init__(self, decision_left: float | None, bank_left: float | None, deadline: float, remaining_turns: int, reason: str) -> None:
+        self.decision_left, self.bank_left, self.deadline, self.remaining_turns, self.reason = decision_left, bank_left, deadline, remaining_turns, reason
+
+    def as_log(self) -> dict:
+        return {"decision_seconds_left": self.decision_left, "bank_seconds_left": self.bank_left,
+                "deadline_s": round(self.deadline, 1), "remaining_turns": self.remaining_turns, "rule": self.reason}
+
+
+def expected_remaining_turns(ours_remaining: int | None, theirs_remaining: int | None) -> int:
+    """A simple estimate of the turns left from the Pokémon left: about 1.75 turns per Pokémon still standing on
+    either side (a fresh 4v4 is ~14 turns; 2v3 about 9), never under 4. It only spreads the bank: a position that
+    is wrong by a few turns moves a deadline by a second or two."""
+    ours = int(ours_remaining) if isinstance(ours_remaining, (int, float)) else 4
+    theirs = int(theirs_remaining) if isinstance(theirs_remaining, (int, float)) else 4
+    return max(4, int(round(1.75 * (ours + theirs))))
+
+
+def _clock_budget(clock: dict | None, *, remaining_turns: int | None = None, kind: str = "turn") -> ClockBudget:
+    """The model deadline for this decision: ``min(decision_left - 8, (bank_left - 90) / max(remaining_turns, 4))``,
+    capped at 20 s for a turn (60 s at Team Preview). The bank term spends only what is above the 90 s gate, spread
+    over the turns the position still needs, so a long game never runs the bank out (a 30 s deadline every turn
+    would reach the gate in ~11 turns). Without a clock (unit tests, an old simulator) the live allowances apply."""
     decision_left = bank_left = None
     if isinstance(clock, dict):
         try:
@@ -71,11 +105,18 @@ def _clock_budget(clock: dict | None) -> tuple[float | None, float | None, float
             bank_left = float(clock["bank_seconds_left"]) if clock.get("bank_seconds_left") is not None else None
         except (TypeError, ValueError):
             decision_left = bank_left = None
-    cutoff = SECOND_CALL_CUTOFF_SECONDS
-    if decision_left is not None:
-        # a second call must still finish inside the decision: leave the chain's worst case (~30 s) after it starts
-        cutoff = max(0.0, min(cutoff, decision_left - MIN_DECISION_SECONDS_FOR_MODEL - 5.0))
-    return decision_left, bank_left, cutoff
+    turns = max(4, int(remaining_turns)) if isinstance(remaining_turns, (int, float)) else DEFAULT_REMAINING_TURNS
+    allowance = decision_left if decision_left is not None else (PREVIEW_DECISION_SECONDS if kind == "lineup" else DECISION_SECONDS)
+    deadline = allowance - DECISION_SAFETY_SECONDS
+    reason = "decision"
+    if bank_left is not None:
+        per_turn = (bank_left - MIN_BANK_SECONDS_FOR_MODEL) / turns
+        if per_turn < deadline:
+            deadline, reason = per_turn, "bank"
+    cap = MODEL_DEADLINE_CAP.get(kind, MODEL_DEADLINE_CAP["turn"])
+    if deadline > cap:
+        deadline, reason = cap, "cap"
+    return ClockBudget(decision_left, bank_left, max(0.0, deadline), turns, reason)
 OBSERVATION_CHAR_LIMIT = 12_000
 REASONING_CHAR_LIMIT = 280
 
@@ -141,6 +182,9 @@ class PokemonAgent:
         self.memory = MatchMemory()
         self.decision_log: DecisionLog | None = None
         self._all_failed = 0  # decisions on which every model failed (the ALL MODELS FAILED banner)
+        self._efforts: dict[str, str | None] = {"turn": None, "lineup": None}  # per decision kind; None = the provider's default
+        self._provider_kwargs: set[str] | None = None  # which per-call parameters the provider accepts (looked up once)
+        self._decision_started = time.monotonic()
         self._breaker_skips = 0  # decisions the circuit breaker kept away from the model
         self._consecutive_failures = 0  # all-model failures in a row (reset by any model answer)
         self._breaker_open = False  # the next decision skips the model
@@ -187,6 +231,7 @@ class PokemonAgent:
 
     def choose_action(self, state: GameState, context: DecisionContext):
         started = time.monotonic()
+        self._decision_started = started
         log = self._safe_log_for(context)
         try:
             self._capture(state, context)
@@ -295,12 +340,12 @@ class PokemonAgent:
             "known_sets": {"mine": self.memory.known_sets("mine"), "opponent": self.memory.known_sets("opponent")},
             "observation": _compact(_preview_view(obs), ("your_roster", "opponent_roster", "battle_format")),
         }
-        value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"))
+        value, answer, info = self._ask(choice, payload, kind="lineup", clock=obs.get("clock"), remaining_turns=DEFAULT_REMAINING_TURNS)
         self._lineup_model = info.get("model")
         if isinstance(value, dict):
             self.memory.my_lineup = list(value.get("bring") or [])
         log.write("lineup", state_version=state.state_version, payload=_payload(value),
-                  candidates=payload["computed_candidates"], known_sets=payload["known_sets"], **info)
+                  candidates=payload["computed_candidates"], known_sets=payload["known_sets"], wall_ms=self._wall_ms(), **info)
         summary = (answer or {}).get("reasoning_summary") or f"Bringing {value.get('bring')}, leading {value.get('leads')}."
         return value, str(summary)
 
@@ -337,34 +382,37 @@ class PokemonAgent:
                            "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])},
             "observation": _compact(_battle_view(obs, roster, self.memory), _BATTLE_KEYS),
         }
+        remaining = expected_remaining_turns(roster["ours"].get("remaining"), roster["theirs"].get("remaining"))
         value, answer, info = self._ask(choice, payload, kind="turn", recheck=lambda v: _lethal_recheck(v, sheet),
-                                        clock=obs.get("clock"))
+                                        clock=obs.get("clock"), remaining_turns=remaining)
         forced = any(slot.get("force_switch") for slot in template.get("slots") or [])
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced)
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
-                  win_condition=(answer or {}).get("win_condition"), battle_roster=roster, turn_sheet=sheet.as_prompt(), **info)
+                  win_condition=(answer or {}).get("win_condition"), battle_roster=roster, turn_sheet=sheet.as_prompt(),
+                  wall_ms=self._wall_ms(), **info)
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 
     # -- the model call, with retry-once and deterministic fallback ---------------------
 
     def _ask(self, choice: Choice, payload: dict, *, kind: str, recheck: Any = None,
-             clock: dict | None = None) -> tuple[Any, dict | None, dict]:
+             clock: dict | None = None, remaining_turns: int | None = None) -> tuple[Any, dict | None, dict]:
         """Ask the model, retry once on an invalid answer, fall back to the computed move if it still fails.
         ``recheck(value)`` may return a message for a valid-but-suspicious first answer (e.g. attacking with a slot the
         sheet marks LETHAL); the model is then asked once more with that message and its second answer stands.
-        Clock: Showdown gives 55 s per battle decision from a 420 s bank, so a second model call (retry or recheck) is
-        only made while fewer than SECOND_CALL_CUTOFF_SECONDS have passed; past that the first valid answer stands or
-        the computed move is played."""
+        Clock: ``_clock_budget`` turns the server's clock into one deadline for the whole decision; every call gets
+        what is left of it, a second call (retry or recheck) only when at least MIN_MODEL_SECONDS remain, and a
+        deadline under MIN_MODEL_SECONDS plays the computed move without asking."""
         info: dict[str, Any] = {"model": None, "latency_ms": None, "attempts": 0, "errors": [], "fallback": False}
         started = time.monotonic()
         # The server's own clock (observation["clock"]): seconds left for this decision and in the battle bank.
-        decision_left, bank_left, cutoff = _clock_budget(clock)
-        if clock:
-            info["clock"] = {"decision_seconds_left": decision_left, "bank_seconds_left": bank_left}
-        if self._provider is not None and (decision_left is not None and decision_left < MIN_DECISION_SECONDS_FOR_MODEL
-                                           or bank_left is not None and bank_left < MIN_BANK_SECONDS_FOR_MODEL):
-            info["errors"].append(f"clock too short for a model call ({decision_left}s left, bank {bank_left}s); playing the computed move")
+        budget = _clock_budget(clock, remaining_turns=remaining_turns, kind=kind)
+        deadline = budget.deadline
+        info["clock"] = budget.as_log()
+        info["effort"] = self.effort_for(kind)
+        if self._provider is not None and deadline < MIN_MODEL_SECONDS:
+            info["errors"].append(f"clock too short for a model call (deadline {deadline:.1f}s from {budget.reason}: "
+                                  f"{budget.decision_left}s left, bank {budget.bank_left}s); playing the computed move")
             info["fallback"] = True
             self.memory.fallbacks += 1
             return choice.fallback(), None, info
@@ -392,12 +440,21 @@ class PokemonAgent:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
         ]
+        info["attempt_log"] = []
+        info["model_latency_ms"] = 0
         for attempt in range(1, MAX_ATTEMPTS + 1):
             info["attempts"] = attempt
             self.memory.llm_calls += 1
+            call_deadline = max(0.0, deadline - (time.monotonic() - started))
+            call_started = time.monotonic()
+            record = {"attempt": attempt, "deadline_s": round(call_deadline, 1), "effort": info["effort"]}
             try:
-                answer = self._provider.complete_structured(messages, choice.kind, choice.schema)
+                answer = self._call_model(messages, choice.kind, choice.schema, deadline=call_deadline, effort=info["effort"])
             except ProviderError as exc:
+                record.update(latency_ms=int((time.monotonic() - call_started) * 1000), outcome="all models failed",
+                              chain=list(getattr(self._provider, "last_attempts", None) or []))
+                info["attempt_log"].append(record)
+                info["model_latency_ms"] += record["latency_ms"]
                 info["errors"].append(str(exc))
                 self._all_failed += 1
                 self._consecutive_failures += 1
@@ -420,20 +477,26 @@ class PokemonAgent:
             info["usage"] = getattr(self._provider, "last_usage", None)
             # Why earlier models in the chain failed (e.g. Fable timed out and Sonnet answered). Empty when the first model answered.
             info["provider_errors"] = list(getattr(self._provider, "last_errors", None) or [])
+            record.update(model=info["model"], latency_ms=int((time.monotonic() - call_started) * 1000), outcome="answered",
+                          usage=info["usage"], chain=list(getattr(self._provider, "last_attempts", None) or []))
+            info["attempt_log"].append(record)
+            info["model_latency_ms"] += record["latency_ms"]
+            time_left = deadline - (time.monotonic() - started)
             try:
                 value = choice.build(answer)
             except InvalidChoice as exc:
+                record["outcome"] = "invalid"
                 info["errors"].append(f"invalid answer: {exc}")
-                if time.monotonic() - started > cutoff:
-                    info["errors"].append("no time left for a second model call; playing the computed move")
+                if time_left < MIN_MODEL_SECONDS:
+                    info["errors"].append(f"no time left for a second model call ({time_left:.1f}s of the {deadline:.1f}s deadline); playing the computed move")
                     break
                 messages.append({"role": "assistant", "content": json.dumps(answer, default=str)})
                 messages.append({"role": "user", "content": f"That answer was invalid: {exc}. Answer again using only the given options."})
                 continue
             if recheck is not None and attempt == 1:
                 message = recheck(value)
-                if message and time.monotonic() - started > cutoff:
-                    info["recheck_skipped"] = "no time left for a second model call; first answer stands"
+                if message and time_left < MIN_MODEL_SECONDS:
+                    info["recheck_skipped"] = f"no time left for a second model call ({time_left:.1f}s of the {deadline:.1f}s deadline); first answer stands"
                     message = None
                 if message:
                     info["recheck"] = message
@@ -448,6 +511,32 @@ class PokemonAgent:
         self._say(f"[agent] {kind}: FALLBACK to the deterministic move ({'; '.join(info['errors'])[:200]})")
         return choice.fallback(), None, info
 
+    def effort_for(self, kind: str) -> str | None:
+        """The effort for this decision kind, or None for the provider's own default (``AGENT_EFFORT`` at startup,
+        else the code default). Team Preview may differ from a battle turn (per-call parameter, one provider)."""
+        return self._efforts.get(kind)
+
+    def _call_model(self, messages: list[dict], kind: str, schema: dict, *, deadline: float, effort: str | None) -> dict:
+        """One chain call with the per-call clock and effort. A provider that does not take them (a test fake, the
+        starter's OpenAI provider) is called the old way."""
+        provider = self._provider
+        accepted = self._provider_kwargs
+        if accepted is None:
+            try:
+                params = inspect.signature(provider.complete_structured).parameters
+                accepted = {"*"} if any(p.kind == p.VAR_KEYWORD for p in params.values()) else set(params)
+            except (TypeError, ValueError):
+                accepted = set()
+            self._provider_kwargs = accepted
+        kwargs: dict[str, Any] = {}
+        if "*" in accepted or "deadline" in accepted:
+            kwargs["deadline"] = deadline
+        elif "timeout" in accepted:
+            kwargs["timeout"] = deadline
+        if ("*" in accepted or "effort" in accepted) and effort is not None:
+            kwargs["effort"] = effort
+        return provider.complete_structured(messages, kind, schema, **kwargs)
+
     # -- bookkeeping ------------------------------------------------------------------------
 
     def _safe_log_for(self, context: DecisionContext) -> "_SafeLog":
@@ -457,6 +546,11 @@ class PokemonAgent:
             self._say(f"[agent] decision log unavailable ({type(exc).__name__}: {exc}); playing on without it")
             return _SafeLog(None)
 
+    def _wall_ms(self) -> int:
+        """Wall time of the decision in progress, start to the log row: what the clock actually sees (two-call turns
+        used to log only the second call's latency)."""
+        return int((time.monotonic() - self._decision_started) * 1000)
+
     def _log_for(self, context: DecisionContext) -> DecisionLog:
         if self.decision_log is None:
             self.decision_log = DecisionLog(context.session_id, directory=self._log_dir, version=self._version)
@@ -465,9 +559,41 @@ class PokemonAgent:
             # repr names models, timeouts and effort only.
             self.decision_log.write("config", commit=git_commit(), agent_version=self._version,
                                     models=repr(self._provider) if self._provider is not None else "code-only",
+                                    effort={"provider_default": getattr(self._provider, "effort", None), **self._efforts,
+                                            "AGENT_EFFORT": os.environ.get("AGENT_EFFORT") or None},
+                                    clock={"decision_s": DECISION_SECONDS, "preview_s": PREVIEW_DECISION_SECONDS, "bank_s": BANK_SECONDS,
+                                           "safety_s": DECISION_SAFETY_SECONDS, "min_model_s": MIN_MODEL_SECONDS, "cap": MODEL_DEADLINE_CAP},
                                     params=self.params, python=sys.version.split()[0],
-                                    anthropic_sdk=_anthropic_sdk_version())
+                                    anthropic_sdk=_anthropic_sdk_version(),
+                                    game_config=self._absorb_game_config(getattr(context, "game_config", None)))
         return self.decision_log
+
+    def _absorb_game_config(self, config: Any) -> dict:
+        """What ``get_game_config`` gave us, described (top-level keys and sizes, never the payload), and any card
+        list in it fed to the match pool: the authorized interface would close the "card never seen before" gap. The
+        runner fetches it for real-time games only, so for a turn-based match it is normally absent: say so."""
+        if not isinstance(config, dict):
+            return {"present": False, "note": "absent (the runner fetches get_game_config for real-time games only)"}
+        described = {"present": True, "keys": {}}
+        try:
+            for key, value in config.items():
+                size = len(value) if isinstance(value, (dict, list, str)) else 1
+                described["keys"][str(key)] = size
+            cards = _find_card_list(config)
+            if cards:
+                added = 0
+                for card in cards:
+                    if card.get("card_id") and card["card_id"] not in self.memory.pool_cards:
+                        self.memory.pool_cards[card["card_id"]] = dict(card)
+                        added += 1
+                described["cards"] = len(cards)
+                described["cards_added_to_pool"] = added
+                self._say(f"[agent] game_config carries {len(cards)} cards; {added} new ones feed this match's pool")
+            else:
+                described["cards"] = 0
+        except Exception as exc:  # noqa: BLE001 — a description must never cost the first decision
+            described["error"] = f"{type(exc).__name__}: {exc}"
+        return described
 
     def _capture(self, state: GameState, context: DecisionContext) -> None:
         """Save the raw server state (for test fixtures) when AGENT_CAPTURE_DIR is set."""
@@ -608,6 +734,25 @@ def minimal_legal_payload(state: GameState) -> Any:
             raise ValueError(f"no roster of four to choose from: {roster!r}")
         return {"type": "select_lineup", "bring": roster[:4], "leads": roster[:2]}
     return first
+
+
+def _find_card_list(config: Any, depth: int = 0) -> list[dict]:
+    """The first list of card-shaped dicts (card_id + species + moves) anywhere in a game config, two levels deep."""
+    if depth > 3:
+        return []
+    if isinstance(config, list):
+        if config and all(isinstance(c, dict) and c.get("card_id") and c.get("species") and c.get("moves") for c in config[:3]):
+            return [c for c in config if isinstance(c, dict)]
+        for item in config:
+            found = _find_card_list(item, depth + 1)
+            if found:
+                return found
+    elif isinstance(config, dict):
+        for value in config.values():
+            found = _find_card_list(value, depth + 1)
+            if found:
+                return found
+    return []
 
 
 def _anthropic_sdk_version() -> str | None:
