@@ -944,6 +944,29 @@ def opening(ours: list[Unit], theirs: list[Unit], *, turns: int = OPENING_TURNS)
     return result
 
 
+def fake_out_exposed(ours: list[Unit], theirs: list[Unit]) -> list[tuple[str, str]]:
+    """Our speed-control setters (Tailwind / Trick Room) that a Fake Out user among ``theirs`` can flinch on turn 1,
+    as (setter, their Fake Out user) pairs. A setter is safe when the flinch cannot land (Ghost type, Inner Focus,
+    Shield Dust, Covert Cloak, Psychic Terrain under a grounded setter, an Armor Tail / Dazzling / Queenly Majesty
+    ally), when its partner carries Quick Guard, or when its partner's own Fake Out is faster than theirs and flinches
+    their user first. Redirection does not cover it: Fake Out (+3) moves before Follow Me / Rage Powder (+2)."""
+    sim = _Opening(ours, theirs)
+    fakers = [m for m in sim.mons if m.side == 1 and any(mv["id"] == "fakeout" for mv in m.unit.mon.moves)]
+    out: list[tuple[str, str]] = []
+    for setter in (m for m in sim.mons if m.side == 0 and m.unit.roles & {"tailwind", "trickroom"}):
+        if not fakers or not sim.flinchable(setter):
+            continue
+        partner = sim.ally(setter)
+        partner_moves = {mv["id"] for mv in partner.unit.mon.moves} if partner else set()
+        if "quickguard" in partner_moves:
+            continue
+        for faker in fakers:
+            if partner and "fakeout" in partner_moves and sim.flinchable(faker) and sim.speed(partner) > sim.speed(faker):
+                continue  # our Fake Out lands first
+            out.append((setter.unit.species, faker.unit.species))
+    return out
+
+
 # -- team level ----------------------------------------------------------------------------------------------------
 #
 # A doubles game is not a string of 1-on-1 races, but the races say who can deal with whom. The team score asks the
@@ -962,7 +985,9 @@ ROLE_CAPS = {"fakeout": 2, "redirect": 1, "intimidate": 2, "tailwind": 1, "trick
 MATCHUP_FEATURES = ("answers", "backup", "mean", "top4", "spread", "ohko", "tw_gain", "tr_gain")
 FEATURES = MATCHUP_FEATURES + tuple(f"role_{r}" for r in ROLE_CAPS)
 
-# Used only when data/draft_model.json is missing: hand-set, in the spirit of the fitted values.
+# Used when data/draft_model.json is missing, and as the VGC prior for every doubles-role weight the fit got wrong
+# (see ``load_model``): hand-set from how the roles are valued in real doubles play. (Oct 8: halving tw_gain / tr_gain
+# and crediting Trick Room 0.1 moved the bcbaabe2 pick-3 state off Archaludon, the card that won that game; kept.)
 DEFAULT_MODEL: dict = {
     "alpha_tw": 0.5, "alpha_tr": 0.5, "answer_cap": 0.5,
     "weights": {"answers": 0.35, "backup": 0.1, "mean": 2.0, "top4": 1.0, "spread": 0.5, "ohko": 0.1, "tw_gain": 1.0, "tr_gain": 1.0,
@@ -972,15 +997,25 @@ DEFAULT_MODEL: dict = {
                 "role_prankster": 0.0, "role_pivot": 0.0, "role_wideguard": 0.0},
     "cards": {},
 }
+# Weights a fit may never turn negative: a doubles role (Fake Out, Intimidate, speed control, redirection...) or the
+# gain from our own speed control. The fitted file carries negative values for several of them because it was fitted
+# on games piloted by an older battle brain that misplayed those roles (Fake Out -0.32, Tailwind -0.08, Trick Room
+# -0.16 at Team Preview); until a refit from games piloted by a brain that uses them, a negative fitted value is
+# replaced by the prior above.
+PRIOR_CLAMPED = ("tw_gain", "tr_gain") + tuple(f"role_{r}" for r in ROLE_CAPS)
 
 _MODEL_CACHE: dict[str, dict] = {}
 
 
-def load_model(path: str | Path | None = None, *, section: str = "draft") -> dict:
+def load_model(path: str | Path | None = None, *, section: str = "draft", clamp: bool = True) -> dict:
     """The fitted team model (``data/draft_model.json``, written by scripts/fit_draft_model.py), or the built-in
-    defaults. ``section`` is ``"draft"`` (six against six) or ``"preview"`` (four against four, with leads)."""
+    defaults. ``section`` is ``"draft"`` (six against six) or ``"preview"`` (four against four, with leads).
+    ``clamp`` replaces negative role / speed-control weights with the VGC priors (``clamp_roles``); Team Preview
+    passes ``clamp=False`` when it predicts the opponent's bring (Oct 8, eight live sessions with their fitted
+    per-card terms zeroed: the weights as fitted predicted their exact four 3 times, bcbaabe2 at 100%; the clamped
+    weights never did, crediting a Fake Out user this opponent benched)."""
     target = Path(path) if path else MODEL_PATH
-    cache_key = f"{target}:{section}"
+    cache_key = f"{target}:{section}:{'clamped' if clamp else 'fitted'}"
     if cache_key in _MODEL_CACHE:
         return _MODEL_CACHE[cache_key]
     model = DEFAULT_MODEL
@@ -990,8 +1025,27 @@ def load_model(path: str | Path | None = None, *, section: str = "draft") -> dic
             model = {**DEFAULT_MODEL, **blob[section]}
     except (OSError, ValueError, AttributeError):
         pass
+    if clamp:
+        model = clamp_roles(model)
     _MODEL_CACHE[cache_key] = model
     return model
+
+
+def clamp_roles(model: dict) -> dict:
+    """The model with every role / speed-control weight at >= 0: a negative fitted value becomes the VGC prior from
+    ``DEFAULT_MODEL`` (never below 0). The replaced keys are listed under ``model["clamped"]``. Other weights
+    (answers, mean, spread...) are left exactly as fitted."""
+    weights = dict(model.get("weights") or {})
+    prior = DEFAULT_MODEL["weights"]
+    clamped = {}
+    for key in PRIOR_CLAMPED:
+        value = float(weights.get(key, prior.get(key, 0.0)))
+        if value < 0:
+            clamped[key] = value
+            weights[key] = max(0.0, float(prior.get(key, 0.0)))
+    if not clamped:
+        return model
+    return {**model, "weights": weights, "clamped": clamped}
 
 
 _TIERS_CACHE: dict[str, dict] = {}
@@ -1015,9 +1069,10 @@ class Board:
     team pairs per second. ``score(us, them)`` takes index lists and returns the log-odds that ``us`` wins."""
 
     def __init__(self, units: list[Unit], model: dict | None = None, *, card_weight: float = 1.0,
-                 tiers: dict[str, dict] | None = None, tier_adjust: float = 1.0) -> None:
+                 tiers: dict[str, dict] | None = None, tier_adjust: float = 1.0, four_model: dict | None = None) -> None:
         self.units = list(units)
         self.model = model or load_model()
+        self.four_model = four_model  # weights for four-against-four (``score4``); the preview section when None
         tiers = load_tiers() if tiers is None else tiers
         n = len(self.units)
         self.n = n
@@ -1042,15 +1097,15 @@ class Board:
         cards = self.model.get("cards") or {}
         # Each card's base value is its tier rating (data/card_tiers.json): the fit's per-card term ("wins more than
         # its matchups explain") plus the tier list's written-down adjustment, while the matchup features below add
-        # the reactions to this particular opponent. card_weight scales the per-card part (0 = matchups and roles
-        # only); tier_adjust scales the adjustments (0 = the simulator's ratings as fitted).
+        # the reactions to this particular opponent. card_weight scales the fitted per-card part only (0 = matchups,
+        # roles and the written-down adjustments); tier_adjust scales the adjustments only (0 = the fit as it is).
         self.resid = []
         for u in self.units:
-            term = float((cards.get(u.key) or {}).get("s", 0.0))
+            term = card_weight * float((cards.get(u.key) or {}).get("s", 0.0))
             tier = tiers.get(u.key)
             if tier:
                 term += tier_adjust * (float(tier.get("rating", 0.0)) - float(tier.get("sim_rating", 0.0))) / 100.0
-            self.resid.append(card_weight * term)
+            self.resid.append(term)
         w = self.model.get("weights") or {}
         self.w = [float(w.get(f, 0.0)) for f in FEATURES]
         self.alpha_tw = float(self.model.get("alpha_tw", 0.5))
@@ -1144,6 +1199,21 @@ class Board:
         feats = self.features(us, them)
         value = sum(w * f for w, f in zip(self.w, feats))
         value += sum(self.resid[i] for i in us) - sum(self.resid[j] for j in them)
+        return value
+
+    def score4(self, us: list[int], them: list[int], *, resid_them: bool = True) -> float:
+        """``score`` with the Team Preview weights (the ``preview`` section: four against four), so the drafter can
+        value a finished draft by the four it would bring the way Team Preview values it. ``resid_them=False``
+        models their side by roles and matchups only (no fitted per-card term), as Team Preview does."""
+        w4 = getattr(self, "_w4", None)
+        if w4 is None:
+            weights = (self.four_model or load_model(section="preview")).get("weights") or {}
+            w4 = self._w4 = [float(weights.get(f, 0.0)) for f in FEATURES]
+        feats = self.features(us, them)
+        value = sum(w * f for w, f in zip(w4, feats))
+        value += sum(self.resid[i] for i in us)
+        if resid_them:
+            value -= sum(self.resid[j] for j in them)
         return value
 
 

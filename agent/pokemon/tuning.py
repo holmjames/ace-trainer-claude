@@ -32,9 +32,15 @@ DEFAULTS: dict[str, float] = {
     "draft_v2": 1.0,               # 1 = counter-aware drafter (matchup model + lookahead over their next picks); 0 = the greedy scorer above
     "draft_lookahead": 3.0,        # v2: how many of the opponent's best replies to try at their next pick (0 = greedy rollout only)
     "draft_minimax": 0.5,          # v2: weight on their most damaging reply vs the average of those tried (1 = pure worst case)
-    "draft_card_w": 1.0,           # v2: weight on the fitted per-card strengths (0 = matchups and roles only)
-    "draft_tier_adjust": 0.0,      # v2 + Team Preview v2: apply data/card_tiers.json's written-down adjustments (0 = simulator ratings only)
+    "draft_card_w": 1.0,           # v2: weight on the fitted per-card strengths (0 = matchups, roles and tier adjustments only). Oct 8: 0 + tier_adjust 1.25 lifted Incineroar to top-5 at pick 1 on the Oct 7 pools but showed no gain over the eight live drafts; kept at 1
+    "draft_tier_adjust": 0.0,      # v2 + Team Preview v2: weight on data/card_tiers.json's written-down adjustments (0 = off; see draft_card_w)
     "draft_reply_depth": 1.0,      # v2: their consecutive picks to branch on (2 = both picks of a snake double; else greedy)
+    "draft_counter_replies": 3.0,  # v2: their best replies by the counter-picker's scorer (agent/pokemon/counterpick.py) tried next to the team model's draft_lookahead best; 0 = team model only
+    "draft_counter_prior": 0.02,   # v2: our tier rating (data/card_tiers.json, 1/100 log-odds) x this, added to the counter-picker's score as its strength prior when it picks their replies (0.02: adds the L1 reply Gholdengo to its top three; 0.03+ pushed Incineroar below 5th at L4 pick 1, Oct 8)
+    "draft_four_eval": 1.0,        # v2: value a finished draft by the four we would bring (Team Preview's criterion, preview weights) instead of all six (Oct 8: early picks stayed home in four live games); 0 = six against six
+    "draft_their_fours": 3.0,      # v2: how many of their likeliest fours that value is taken against (the mean / worst blend uses lineup_v2_robust)
+    "draft_tiebreak_eps": 0.01,    # picks whose finished-draft win chance is within this of the best are a tie, broken by the match's secret seed (0 = always the best)
+    "lineup_tiebreak_eps": 0.01,   # same for the four we bring and the lead pair (win chance of the candidate value / the lead value)
     # lineup
     "lineup_offense_w": 6.0,
     "lineup_resist_w": 1.5,
@@ -54,6 +60,7 @@ DEFAULTS: dict[str, float] = {
     "lineup_v2_template": 0.5,     # v2: share of their predicted leads taken from the "Fake Out / speed control + best spread attacker" template
     "lineup_v2_lead_robust": 0.0,  # v2: weight on our lead pair's worst opening against any plausible lead of theirs (vs the expected one)
     "lineup_v2_four_template": 0.0,  # v2: share of their predicted FOUR from the same template (off: on the Oct 7 opponent's live lineups M1 38->34%, M4 24->0%, M2 unchanged)
+    "lead_veto_w": 0.5,            # v2 lead veto: a pair that loses a lead on turn 1 (or leads an exposed speed-control setter) against their two likeliest openings is never chosen while a pair of the same four is safe; with no safe pair, this much per lead lost (half for an exposed setter). 0 = off
     # battle
     "ko_bonus_guaranteed": 25.0,
     "ko_bonus_possible": 10.0,

@@ -10,13 +10,16 @@ numbers attached; the best one is also the fallback if the model fails.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from itertools import combinations
 
 from . import data
 from .battle import FieldState, build_mon, damage_percent, hit_profile
-from .draft import Profile, hit_quality, profile
+from .draft import Profile, hit_quality, known_seed, profile, tiebreak
 from .tuning import DEFAULTS
+
+log = logging.getLogger(__name__)
 
 BRING = 4
 LEADS = 2
@@ -260,12 +263,14 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
             mine.append(p)
     theirs = [profile(c) for c in opp_cards.values()]
     P = params or DEFAULTS
+    v2_note = None
     if P.get("lineup_v2", 0) and len(mine) >= BRING and len([t for t in theirs if t.moves]) >= LEADS \
             and all(p.moves for p in mine):
         try:
-            return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P)
-        except Exception:  # noqa: BLE001 — a bug in v2 must not cost Team Preview: fall through to the scorer below
-            pass
+            return shortlist_v2(mine, [t for t in theirs if t.moves], top=top, params=P, seed=known_seed(my_cards))
+        except Exception as exc:  # noqa: BLE001 — a bug in v2 must not cost Team Preview: fall through to the scorer below
+            v2_note = f"Team Preview v2 failed ({type(exc).__name__}: {exc}); old scorer used"
+            log.warning("Team Preview v2 failed (%s: %s); the old scorer picks the lineup", type(exc).__name__, exc)
 
     # Mirror-model the opponent: which four would THEY bring against our six, and which two lead?
     # Their drafted sets are public, so we can run our own lineup scorer from their side.
@@ -293,7 +298,10 @@ def shortlist(my_cards: dict[str, dict], opp_cards: dict[str, dict], roster: lis
         leads, lead_note = pick_leads(four, predicted_leads or theirs, params) if predicted_leads else pick_leads(four, theirs, params)
         candidates.append(Candidate([p.species for p in four], leads, score, notes + ([f"leads: {lead_note}"] if lead_note else [])))
     candidates.sort(key=lambda c: (-c.score, c.bring))
-    return candidates[:top]
+    out = candidates[:top]
+    if v2_note and out:
+        out[0].notes.append(v2_note)  # the decision log and the model both see why the old scorer answered
+    return out
 
 
 # -- v2: Team Preview from the matchup model (``lineup_v2`` = 1) ----------------------------------------------------
@@ -342,16 +350,29 @@ class PreviewModel:
         from . import matchup
 
         self.matchup = matchup
-        model = matchup.load_model(section="preview")
+        model = matchup.load_model(section="preview", clamp=False)  # as fitted: see matchup.load_model
         self.board = matchup.Board([matchup.unit(c) for c in mine + theirs], model, tier_adjust=tier_adjust)
         self.opening_w = float(model.get("opening_weight", 0.35))
         self.ours = list(range(len(mine)))
         self.theirs = list(range(len(mine), len(mine) + len(theirs)))
+        # Both sides are modelled by roles and matchups only: the fitted per-card terms come from games an older
+        # battle brain piloted. Theirs say nothing about how THIS opponent plays a card (Oct 8, bcbaabe2: with the
+        # terms on, Dragonite's -0.355 dropped it from their predicted four and gave their actual lead 0%; off, their
+        # actual four is predicted first). Ours benched our own early picks on near-ties (93a98b6f: the preview
+        # table's -0.143 for Iron Hands against the draft table's +0.091 decided ties of 0.037 and 0.001 log-odds).
+        self.board.resid = [0.0 for _ in self.board.resid]
         self._lead_cache: dict[tuple, float] = {}
 
-    def opening(self, ours: tuple[int, int], theirs: tuple[int, int]):
+    def opening(self, ours: tuple[int, int], theirs: tuple[int, int], *, turns: int | None = None):
         units = self.board.units
-        return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs])
+        if turns is None:
+            return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs])
+        return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs], turns=turns)
+
+    def fake_out_exposed(self, ours: tuple[int, int], theirs: tuple[int, int]) -> list[tuple[str, str]]:
+        """Our speed-control setters in ``ours`` that a Fake Out user in ``theirs`` flinches (``matchup.fake_out_exposed``)."""
+        units = self.board.units
+        return self.matchup.fake_out_exposed([units[i] for i in ours], [units[j] for j in theirs])
 
     def lead_score(self, ours: tuple[int, int], theirs: tuple[int, int]) -> float:
         key = (ours, theirs)
@@ -369,8 +390,10 @@ class PreviewModel:
         return our_pairs, their_pairs, p, q, value
 
     def template_leads(self, other: tuple[int, ...], against: list[int]) -> dict[tuple, float]:
-        """How a typical strong opponent leads (the Oct 7 opponent opened every live game this way): a Fake Out or
-        speed-control user next to its best spread attacker. Returns a distribution over their lead pairs."""
+        """How a strong opponent opens, from the eight live games of Oct 7-8: six times a Fake Out or speed-control
+        user next to its best spread attacker, twice two support users together (Dragonite + Salamence, Iron Hands +
+        Dragonite). Three quarters of the weight go to the first shape, a quarter to the second; no card is named.
+        Returns a distribution over their lead pairs."""
         board = self.board
         support = [i for i in other if board.roles[i] & {"fakeout", "tailwind", "trickroom", "speed_drop"}]
         pressure = {i: sum(board.spread[i][j] for j in against) / max(1, len(against)) for i in other}
@@ -382,12 +405,16 @@ class PreviewModel:
         else:
             fits = [p for p in pairs if any(i in support for i in p)]
         fits = fits or pairs
-        return {p: 1.0 / len(fits) for p in fits}
+        double = [p for p in pairs if all(i in support for i in p) and p not in fits]
+        out = {p: 0.75 / len(fits) for p in fits} if double else {p: 1.0 / len(fits) for p in fits}
+        for p in double:
+            out[p] = 0.25 / len(double)
+        return out
 
     def template_fours(self, their_fours: list[tuple[int, ...]]) -> list[float]:
-        """A distribution over their fours from the same template, applied to their whole six: the four contains their
-        Fake Out / speed-control user and their best spread attacker (the Oct 7 opponent brought Incineroar + its spread
-        attacker in every live game; predicting their four from our model alone left Incineroar out of match 2)."""
+        """A distribution over their fours from the same template, applied to their whole six: the four contains a
+        Fake Out / speed-control user and their best spread attacker. No card is anchored by name: on Oct 8 the
+        opponent benched its own first-pick Incineroar."""
         pairs = self.template_leads(tuple(self.theirs), self.ours)
         weights = [0.0] * len(their_fours)
         for pair, w in pairs.items():
@@ -411,8 +438,95 @@ class PreviewModel:
         _, _, _, _, lead_value = self.lead_game(four, other)
         return self.board.score(list(four), list(other)) + lead_value
 
+    def likely_leads(self, four: tuple[int, ...], likely: list[tuple[float, int]], their_fours: list[tuple[int, ...]],
+                     template: float) -> dict[tuple, float]:
+        """Their lead pairs against our ``four``, weighted by how likely each of their fours is (``likely``:
+        (weight, index into their_fours)) and, within a four, by the lead sub-game blended with the template."""
+        out: dict[tuple, float] = {}
+        for weight, j in likely:
+            for pair, w in self.their_leads(four, their_fours[j], template).items():
+                out[pair] = out.get(pair, 0.0) + weight * w
+        return out
 
-def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None) -> list[Candidate]:
+
+def choose_leads_v2(model: PreviewModel, four: tuple[int, ...], their_leads: dict[tuple, float],
+                    params: dict | None = None, seed: int | None = None) -> tuple[tuple[int, int], list[str]]:
+    """Our lead pair for ``four`` against their likely leads, and the notes that explain it.
+
+    Value: the expected opening margin (turns 1-2) against their likely leads, optionally blended with the worst
+    plausible opening (``lineup_v2_lead_robust``). The lead veto (``lead_veto_w``, Oct 7 lesson: in three of the
+    four losses our lead lost a Pokémon in the opening): a pair that loses one of its two in the opening
+    (``matchup.opening``, turns 1-2, the "we lose [...]" the notes show) against either of their two likeliest
+    openings, or that leads a Tailwind / Trick Room setter their Fake Out can flinch (``matchup.fake_out_exposed``),
+    is never chosen while another pair of the same four is safe on both counts; when no pair is safe, each lead lost
+    costs ``lead_veto_w`` and an exposed setter half of it, on top of the value. (A turn-1-only horizon was measured
+    first: on the Oct 7 pools it chose pairs that survive turn 1 and lose both leads on turn 2.)"""
+    P = params or DEFAULTS
+    names = {i: u.species for i, u in enumerate(model.board.units)}
+    lead_robust = float(P.get("lineup_v2_lead_robust", 0.0))
+    plausible = [opp for opp, w in their_leads.items() if w >= 0.05] or list(their_leads)
+    if lead_robust:  # strong-player openings from their whole six count as plausible even outside their predicted four
+        plausible += [pr for pr in model.template_leads(tuple(model.theirs), list(four)) if pr not in plausible]
+
+    def lead_value(pair: tuple) -> float:
+        expected = sum(w * model.lead_score(pair, opp) for opp, w in their_leads.items())
+        if not lead_robust or not plausible:
+            return expected
+        # A lead that collapses against one plausible opening of theirs (Iron Hands into Fake Out + a Pixilate
+        # spread attacker, Oct 7) is a risk worth paying for even if their single likeliest lead is different.
+        return (1 - lead_robust) * expected + lead_robust * min(model.lead_score(pair, opp) for opp in plausible)
+
+    pairs = list(combinations(four, LEADS))
+    if not pairs:
+        return tuple(four[:LEADS]), []
+    lead_values = {pair: lead_value(pair) for pair in pairs}
+    veto_w = float(P.get("lead_veto_w", 0.0))
+    top2 = [opp for opp, _ in sorted(their_leads.items(), key=lambda t: -t[1])[:2]]
+    lost: dict[tuple, list[str]] = {}  # the worst opening (turns 1-2) against their two likeliest leads
+    exposed: dict[tuple, list[tuple[str, str]]] = {}
+    for pair in pairs:
+        worst: list[str] = []
+        for opp in top2:
+            gone = model.opening(pair, opp).ko_against
+            if len(gone) > len(worst):
+                worst = list(gone)
+        lost[pair] = worst
+        exposed[pair] = [x for opp in top2 for x in model.fake_out_exposed(pair, opp)] if veto_w else []
+    safe = [pair for pair in pairs if not lost[pair] and not exposed[pair]] if veto_w else pairs
+
+    def order_key(pair: tuple) -> tuple:
+        return (lead_values[pair], [-x for x in pair])
+
+    eps = float(P.get("lineup_tiebreak_eps", 0.0))
+
+    def pick(candidates: list[tuple], value) -> tuple:
+        """The best candidate, or one within eps of it by the match's secret seed (draft.tiebreak)."""
+        ordered = sorted(candidates, key=order_key, reverse=True)
+        return ordered[tiebreak([value(pr) for pr in ordered], eps, seed, f"leads:{four}")]
+
+    notes: list[str] = []
+    if safe:
+        best_pair = pick(safe, lambda pr: lead_values[pr])
+        if veto_w and len(safe) < len(pairs):
+            vetoed = max((pr for pr in pairs if pr not in safe), key=order_key)
+            why = (f"loses {lost[vetoed]} in the opening" if lost[vetoed]
+                   else f"{exposed[vetoed][0][0]}'s speed control is open to {exposed[vetoed][0][1]}'s Fake Out")
+            notes.append(f"lead veto: not {names[vetoed[0]]} + {names[vetoed[1]]} ({why} against their likely leads)")
+            notes.append("leads lose nothing in the opening against their two likeliest leads")
+    else:
+        def penalised(pair: tuple) -> float:
+            return lead_values[pair] - veto_w * len(lost[pair]) - 0.5 * veto_w * bool(exposed[pair])
+        best_pair = pick(sorted(pairs, key=lambda pr: (penalised(pr), [-x for x in pr]), reverse=True), penalised)
+        notes.append(f"no lead pair of this four is safe against their likely leads; "
+                     f"{names[best_pair[0]]} + {names[best_pair[1]]} risks {lost[best_pair] or 'a flinched setter'}"
+                     + (f" ({exposed[best_pair][0][0]} open to {exposed[best_pair][0][1]}'s Fake Out)" if exposed[best_pair] else ""))
+    return best_pair, notes
+
+
+def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None,
+                 seed: int | None = None) -> list[Candidate]:
+    """Our best fours (first = the one we bring if the model does not answer) and their leads. ``seed`` (the match's
+    secret tie-break seed, draft.tiebreak_seed) decides among fours and lead pairs the model cannot tell apart."""
     P = params or DEFAULTS
     model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)))
     win = model.matchup.win_probability
@@ -435,31 +549,19 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
         worst = min(payoff[i])
         ranked.append(((1 - robust) * expected + robust * worst, expected, i))
     ranked.sort(key=lambda t: (-t[0], t[2]))
+    eps = float(P.get("lineup_tiebreak_eps", 0.0))
+    first = tiebreak([t[0] for t in ranked[:top]], eps, seed, "four") if ranked else 0
+    if first:
+        ranked.insert(0, ranked.pop(first))  # the seed's choice leads the shortlist (it is the fallback lineup)
     likely = sorted(((q[j], j) for j in range(len(their_fours)) if q[j] > 0), reverse=True)
     likely_note = "; ".join(f"{[names[k] for k in their_fours[j]]} {100 * w:.0f}%" for w, j in likely[:2])
     out: list[Candidate] = []
     for value, expected, i in ranked[:top]:
         four = our_fours[i]
-        # Leads: our pair that does best on turns 1-2 against the lead pairs their likely fours open with.
-        their_leads: dict[tuple, float] = {}
-        for weight, j in likely:
-            for pair, w in model.their_leads(four, their_fours[j], template).items():
-                their_leads[pair] = their_leads.get(pair, 0.0) + weight * w
-        lead_robust = float(P.get("lineup_v2_lead_robust", 0.0))
-        plausible = [opp for opp, w in their_leads.items() if w >= 0.05] or list(their_leads)
-        if lead_robust:  # strong-player openings from their whole six count as plausible even outside their predicted four
-            plausible += [pr for pr in model.template_leads(tuple(model.theirs), list(four)) if pr not in plausible]
-
-        def lead_value(pair: tuple) -> float:
-            expected = sum(w * model.lead_score(pair, opp) for opp, w in their_leads.items())
-            if not lead_robust or not plausible:
-                return expected
-            # A lead that collapses against one plausible opening of theirs (Iron Hands into Fake Out + a Pixilate
-            # spread attacker, Oct 7) is a risk worth paying for even if their single likeliest lead is different.
-            return (1 - lead_robust) * expected + lead_robust * min(model.lead_score(pair, opp) for opp in plausible)
-
-        lead_values = {pair: lead_value(pair) for pair in combinations(four, LEADS)}
-        best_pair = max(lead_values, key=lambda pr: (lead_values[pr], [-x for x in pr])) if lead_values else four[:LEADS]
+        # Leads: our pair that does best on turns 1-2 against the lead pairs their likely fours open with, never one
+        # the lead veto rejects (choose_leads_v2).
+        their_leads = model.likely_leads(four, likely, their_fours, template)
+        best_pair, lead_notes = choose_leads_v2(model, four, their_leads, P, seed=seed)
         expected_leads = sorted(their_leads.items(), key=lambda t: -t[1])[:2]
         notes = [f"v2: {100 * win(expected):.0f}% vs their likely fours ({likely_note})",
                  f"worst case {100 * win(min(payoff[i])):.0f}%"]
@@ -470,12 +572,11 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
             notes.append(f"opening vs {names[top_leads[0]]} + {names[top_leads[1]]}: margin {first.margin:+.2f}"
                          + (f", we lose {first.ko_against}" if first.ko_against else "")
                          + (f", we KO {first.ko_for}" if first.ko_for else ""))
-            avoided = [pr for pr in lead_values if pr != best_pair and model.opening(pr, top_leads).ko_against]
-            if avoided:
-                worst = min(avoided, key=lambda pr: lead_values[pr])
-                notes.append(f"avoid leading {names[worst[0]]} + {names[worst[1]]}: loses "
-                             f"{model.opening(worst, top_leads).ko_against} on turns 1-2")
+        notes.extend(lead_notes)
         out.append(Candidate([names[k] for k in four], [names[k] for k in best_pair], round(value, 3), notes))
     if out:
         out[0].notes.append(f"game value {100 * win(game_value):.0f}%")
+        if seed is not None:
+            out[0].notes.append(f"tie-break seed {seed:#x}" + (f": this four over {[c.bring for c in out[1:] if abs(win(c.score) - win(out[0].score)) <= eps]}"
+                                                               if first else ""))
     return out

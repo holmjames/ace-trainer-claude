@@ -94,7 +94,7 @@ def test_v2_last_pick_is_the_best_finisher():
     memory = memory_for(pool, mine=mine, theirs=theirs)
     legal = offered(memory)
     pick = draft.choose_pick(legal, memory, V2)
-    board = matchup.Board([matchup.unit(CATALOG[s]) for s in pool])
+    board = matchup.Board([matchup.unit(CATALOG[s]) for s in pool], card_weight=V2["draft_card_w"], tier_adjust=V2["draft_tier_adjust"])
     idx = lambda s: board.index(matchup.unit(CATALOG[s]).key)  # noqa: E731
     us, them = [idx(s) for s in mine], [idx(s) for s in theirs]
     best = max((board.score(us + [idx(CATALOG_BY_ID[draft.card_id_of(a)])], them), draft.card_id_of(a)) for a in legal)

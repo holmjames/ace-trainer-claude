@@ -400,6 +400,46 @@
   ]
  },
  {
+  "card_id": "vgc-iron-treads",
+  "species": "Iron Treads",
+  "item": "Booster Energy",
+  "ability": "Quark Drive",
+  "nature": "Jolly",
+  "level": 50,
+  "evs": {
+   "hp": 4,
+   "atk": 252,
+   "spe": 252
+  },
+  "ivs": {},
+  "moves": [
+   "Earthquake",
+   "Iron Head",
+   "High Horsepower",
+   "Protect"
+  ]
+ },
+ {
+  "card_id": "vgc-iron-valiant",
+  "species": "Iron Valiant",
+  "item": "Booster Energy",
+  "ability": "Quark Drive",
+  "nature": "Timid",
+  "level": 50,
+  "evs": {
+   "spa": 252,
+   "spd": 4,
+   "spe": 252
+  },
+  "ivs": {},
+  "moves": [
+   "Moonblast",
+   "Close Combat",
+   "Thunderbolt",
+   "Protect"
+  ]
+ },
+ {
   "card_id": "vgc-kingambit",
   "species": "Kingambit",
   "item": "Black Glasses",
@@ -662,6 +702,26 @@
   ]
  },
  {
+  "card_id": "vgc-talonflame",
+  "species": "Talonflame",
+  "item": "Sharp Beak",
+  "ability": "Gale Wings",
+  "nature": "Jolly",
+  "level": 50,
+  "evs": {
+   "hp": 252,
+   "atk": 4,
+   "spe": 252
+  },
+  "ivs": {},
+  "moves": [
+   "Tailwind",
+   "Brave Bird",
+   "Taunt",
+   "Protect"
+  ]
+ },
+ {
   "card_id": "vgc-thundurus",
   "species": "Thundurus",
   "item": "Life Orb",
@@ -738,6 +798,26 @@
    "Bleakwind Storm",
    "Taunt",
    "Tailwind",
+   "Protect"
+  ]
+ },
+ {
+  "card_id": "vgc-toxapex",
+  "species": "Toxapex",
+  "item": "Black Sludge",
+  "ability": "Regenerator",
+  "nature": "Careful",
+  "level": 50,
+  "evs": {
+   "hp": 252,
+   "def": 4,
+   "spd": 252
+  },
+  "ivs": {},
+  "moves": [
+   "Liquidation",
+   "Haze",
+   "Toxic",
    "Protect"
   ]
  },
