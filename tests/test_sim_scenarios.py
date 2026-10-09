@@ -234,6 +234,29 @@ def test_a_player_two_session_replays_from_seat_one():
     assert result["ok"] and result["seconds"] >= 0
 
 
+def test_run_hands_its_tuning_to_the_agent(monkeypatch):
+    """--tune / run(params=...): the reply mixture of tests/test_replies_live.py reaches the replaying agent, and an
+    unknown key is refused before anything runs."""
+    from agent.pokemon import tuning
+
+    seen = []
+    real = live_scenarios.PokemonAgent
+
+    def spy(*a, **k):
+        seen.append(k.get("params"))
+        return real(*a, **k)
+
+    monkeypatch.setattr(live_scenarios, "PokemonAgent", spy)
+    sc = live_scenarios.LiveScenario("tune_smoke", "da9c168e", 1, "the first battle decision of a player-2 match", lambda p, t: True, "anything")
+    assert live_scenarios.run(sc, code_only=True, params=tuning.merged({"reply_mixture": 1, "reply_seed": 7}))["ok"]
+    assert seen[-1]["reply_mixture"] == 1 and seen[-1]["reply_seed"] == 7
+    assert live_scenarios.run(sc, code_only=True)["ok"] and seen[-1] is None  # no --tune: the defaults
+    import pytest
+
+    with pytest.raises(KeyError):
+        live_scenarios.main(["--code-only", "--only", "no-such-position", "--tune", '{"not_a_tuning_key": 1}'])
+
+
 # ---- sheet-level checks on the Oct 8 player-2 loss (ace-trainer-data/scenarios/da9c168e.md): the engine's numbers at the
 # decisive positions, converted to HP with the sheet's own Mon stats (no hand arithmetic).
 import tempfile

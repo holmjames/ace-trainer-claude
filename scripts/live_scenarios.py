@@ -7,6 +7,7 @@ only — from the model chain in .env, or from the computed fallback with --code
     python scripts/live_scenarios.py --code-only          # free: what the code plays
     python scripts/live_scenarios.py                      # one model call per scenario (~$0.15 each on Opus)
     python scripts/live_scenarios.py --only m3_t6 --repeat 3
+    python scripts/live_scenarios.py --code-only --tune '{"reply_mixture": 1, "reply_seed": 7}'   # the reply mixture
 
 The positions come from the four Oct 7 losses (L1-L4 below = sessions d9405f02, 1aef9227, 7ce71025, 0a2b7c2a), the
 Oct 8 Testing win bcbaabe2, the Oct 8 loss as player 2 da9c168e and the Oct 8 evening loss 51c86e5c (see
@@ -44,6 +45,7 @@ from altruagent import DecisionContext  # noqa: E402
 from altruagent.models import GameState  # noqa: E402
 
 from agent.agent import PokemonAgent  # noqa: E402
+from agent.pokemon import tuning  # noqa: E402
 from agent.pokemon.memory import species_key  # noqa: E402
 
 LIVE = ROOT / "tests" / "fixtures" / "live"
@@ -357,11 +359,12 @@ def seat_of(folder: Path) -> int:
     return 1 if _sequence(folder, 1) and not _sequence(folder, 0) else 0
 
 
-def run(sc: LiveScenario, *, code_only: bool, provider=None) -> dict:
+def run(sc: LiveScenario, *, code_only: bool, provider=None, params: dict | None = None) -> dict:
+    """Replay ``sc``'s session through one agent (``params``: its tuning, the defaults when None) and judge the target."""
     folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(sc.session))
     seat = seat_of(folder)
     with tempfile.TemporaryDirectory() as tmp:
-        agent = PokemonAgent(None, version="live-scenario", log_dir=tmp, capture_dir="", log=lambda *_: None)
+        agent = PokemonAgent(None, version="live-scenario", log_dir=tmp, capture_dir="", log=lambda *_: None, params=params)
         seen_at_turn = 0
         for path in _sequence(folder, seat):
             raw = json.loads(path.read_text())
@@ -399,7 +402,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--code-only", action="store_true")
     ap.add_argument("--only", default="")
     ap.add_argument("--repeat", type=int, default=1)
+    ap.add_argument("--tune", default="", help="tuning overrides as a JSON object (agent/pokemon/tuning.py keys), e.g. the "
+                    "reply mixture of tests/test_replies_live.py: '{\"reply_mixture\": 1, \"reply_seed\": 7}'")
     args = ap.parse_args(argv)
+    params = tuning.merged(json.loads(args.tune)) if args.tune else None
+    if params:
+        print(tuning.label(params))
     provider = None
     if not args.code_only:
         from agent.llm.anthropic_provider import provider_from_env
@@ -411,7 +419,7 @@ def main(argv: list[str] | None = None) -> int:
     log_path.parent.mkdir(exist_ok=True)
     for sc in chosen:
         for _ in range(args.repeat):
-            result = run(sc, code_only=args.code_only, provider=provider)
+            result = run(sc, code_only=args.code_only, provider=provider, params=params)
             result["provisional"] = sc.provisional
             if sc.provisional:
                 prov_total += 1
@@ -425,7 +433,7 @@ def main(argv: list[str] | None = None) -> int:
             if not result["ok"]:
                 print(f"     want: {sc.accept_text}\n     why: {result['reasoning'] or result['top_candidate']}")
             with log_path.open("a") as f:
-                f.write(json.dumps({"ts": time.time(), "code_only": args.code_only, **result}, default=str) + "\n")
+                f.write(json.dumps({"ts": time.time(), "code_only": args.code_only, "tune": args.tune or None, **result}, default=str) + "\n")
     print(f"\n{passed}/{total} passed" + (f" ({prov_passed}/{prov_total} provisional, not counted)" if prov_total else ""))
     return 0 if passed == total else 1
 
