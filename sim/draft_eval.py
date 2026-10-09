@@ -7,6 +7,8 @@
     python sim/draft_eval.py preview --games 200                # Team Preview choices vs their live lineups (M2, M3)
     python sim/draft_eval.py match v2l checkout:<path>:checkout_shim:<python> --pairs 150   # paired vs another checkout
     python sim/draft_eval.py match v2l v1 --pairs 200 --seed 7 --pool-has Archaludon   # only pools holding that card
+    python sim/draft_eval.py match 'v2l{"draft_tiebreak_exposure": 1}' v1 --pairs 200 --seed 11 --pin-tiebreak   # arms share our tie-break draws
+    python sim/draft_eval.py match v2l v1 --pairs 200 --seed 9 --pool-has Archaludon --first-only b   # only the game B drafts first
 
 Players (``PLAYERS`` below): ``v1`` is the old greedy scorer with the old Team Preview, ``v2`` the counter-aware
 drafter (old Team Preview), ``v2l`` the counter-aware drafter with the new Team Preview, ``v1l`` the old drafter
@@ -23,7 +25,14 @@ Opus-piloted games; ``--log-dir`` keeps their decision logs). Every ``--out`` li
 seats, so each drafts first exactly once per pool. That cancels most of the pool and first-pick luck. Output: win
 rate of the first player with a 95% Wilson interval, overall and by who drafted first. ``--pool-has <Species>`` plays
 only the pools holding that card: seeds without it are skipped, deterministically, so every arm run with the same
-``--seed`` plays the same pools in the same seats (``--pairs`` then counts the pools played).
+``--seed`` plays the same pools in the same seats (``--pairs`` then counts the pools played). ``--first-only a`` (or
+``b``) plays only the game of each pool in which player A (or B) drafts first; ``--pairs`` still counts pools.
+
+``--pin-tiebreak`` pins the secret tie-break seed (agent/pokemon/draft.py ``tiebreak_seed``) of the in-process players
+game by game: ``draft._SEEDS`` is cleared and ``draft.secrets.randbits`` returns bits of sha256(f"{battle seed}:{swap}")
+(swap False / True, the seat order) for that game only, as scripts/preview_replay.py does for one session. Two arms run
+on the same ``--seed`` then make the same draft and Team Preview draws in every game and differ only where their
+settings act. A ``checkout:`` player runs in its own process and keeps its own randomness.
 
 Decision logs are switched off (the agent's DecisionLog is pointed at /dev/null) and each game appends one short
 JSON line to ``--out`` (default: none), so thousands of games cost a few megabytes at most. One engine process; do
@@ -33,6 +42,8 @@ not run two of these at once (two bridges on one machine have deadlocked before)
 from __future__ import annotations
 
 import argparse
+import contextlib
+import hashlib
 import json
 import math
 import os
@@ -202,15 +213,43 @@ def match_seeds(seed: int, pairs: int, pool_has: str | None = None) -> list[int]
     return seeds
 
 
+def pinned_seed(seed: int, swap: bool) -> int:
+    """``--pin-tiebreak``: the 64-bit tie-break seed of the game on battle seed ``seed``, seats swapped or not."""
+    return int.from_bytes(hashlib.sha256(f"{seed}:{swap}".encode()).digest()[:8], "big")
+
+
+@contextlib.contextmanager
+def pin_tiebreak(seed: int, swap: bool):
+    """For one game: an empty seed registry and ``draft.secrets.randbits`` answering from ``pinned_seed(seed, swap)``,
+    so every in-process player's match seed is that value; the real ``randbits`` is back afterwards, even on an error."""
+    from agent.pokemon import draft as draft_rules
+
+    value = pinned_seed(seed, swap)
+    original = draft_rules.secrets.randbits
+    draft_rules._SEEDS.clear()  # keyed by id(my_cards), which a later game's dict can reuse
+    draft_rules.secrets.randbits = lambda bits: value & ((1 << bits) - 1)
+    try:
+        yield value
+    finally:
+        draft_rules.secrets.randbits = original
+        draft_rules._SEEDS.clear()
+
+
 def cmd_match(args) -> int:
     global LOG_DIR
     LOG_DIR = getattr(args, "log_dir", None) or NO_LOG
     a, b = args.a, args.b
     pool_has = getattr(args, "pool_has", None)
+    pin = bool(getattr(args, "pin_tiebreak", False))
+    first_only = getattr(args, "first_only", None)
     seeds = match_seeds(args.seed, args.pairs, pool_has)
     if pool_has and seeds:
         print(f"--pool-has {pool_has}: {len(seeds)} pools from seeds {args.seed * 1_000_003}..{seeds[-1]} "
               f"({seeds[-1] - args.seed * 1_000_003 + 1 - len(seeds)} without it skipped)", flush=True)
+    if pin:
+        print("--pin-tiebreak: in-process tie-break seeds pinned per game (sha256 of battle seed and seat swap)", flush=True)
+    if first_only:
+        print(f"--first-only {first_only}: only the game of each pool in which {a if first_only == 'a' else b} drafts first", flush=True)
     out = open(args.out, "a", encoding="utf-8") if args.out else None
     bridge = harness.Bridge()
     wins = games = played = 0
@@ -219,11 +258,15 @@ def cmd_match(args) -> int:
     started = time.monotonic()
     try:
         for k, seed in enumerate(seeds):
+            first = pool_of(seed)[1] if first_only else None
             for swap in (False, True):
+                if first_only and (first == ("p2" if swap else "p1")) != (first_only == "a"):
+                    continue  # --first-only: the other player drafts first in this seat order
                 specs = {"p1": b, "p2": a} if swap else {"p1": a, "p2": b}
                 names = {"p1": "B" if swap else "A", "p2": "A" if swap else "B"}
                 try:
-                    result = play(bridge, f"eval-{seed}-{int(swap)}", seed, specs, names, clock=bool(getattr(args, "clock", False)))
+                    with pin_tiebreak(seed, swap) if pin else contextlib.nullcontext():
+                        result = play(bridge, f"eval-{seed}-{int(swap)}", seed, specs, names, clock=bool(getattr(args, "clock", False)))
                 except Exception as exc:  # noqa: BLE001 — one broken game must not end a long run
                     errors += 1
                     print(f"   pair {k} swap {swap}: ERROR {type(exc).__name__}: {exc}", flush=True)
@@ -467,6 +510,10 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--log-dir", default=None, help="write the in-process agents' decision logs here (default: off)")
     m.add_argument("--pool-has", default=None, metavar="SPECIES",
                    help="play only pools holding this card; seeds without it are skipped, the same ones for every arm on one --seed")
+    m.add_argument("--pin-tiebreak", action="store_true",
+                   help="pin the in-process players' secret tie-break seeds per game (sha256 of battle seed and seat swap), so arms on one --seed share them")
+    m.add_argument("--first-only", choices=("a", "b"), default=None,
+                   help="play only the game of each pool in which player a (or b) drafts first; --pairs still counts pools")
     c = sub.add_parser("collect", help="training data: rosters and results, one JSON line per game")
     c.add_argument("a")
     c.add_argument("b")
