@@ -1,6 +1,6 @@
 # Card tiers (live catalog)
 
-Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base value per card. Rating = average worth on a team in 1/100 log-odds of winning (sim rating + a small prior where the code-only simulator is known to misplay the card). Rebuild after refitting `data/draft_model.json`. Iron Valiant, Iron Treads, Talonflame and Toxapex (first seen live Oct 8) carry their matchup part only.
+Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base value per card. Rating = average worth on a team in 1/100 log-odds of winning (sim rating + a small prior where the code-only simulator is known to misplay the card). Rebuild after refitting `data/draft_model.json`. Iron Valiant, Iron Treads, Talonflame, Toxapex and Farigiraf (first seen live Oct 8) carry their matchup part only.
 
 | Tier | Card | Rating | Sim | Why | Flag / live |
 |---|---|---:|---:|---|---|
@@ -30,6 +30,7 @@ Built by `scripts/build_tiers.py` from the fitted team model; the drafter's base
 | B | Pelipper | -1 | -1 | wins 18/40 1-on-1s (best: Torkoal, Incineroar); countered by Archaludon, Flutter Mane; Tailwind |  |
 | C | Rillaboom | -5 | -5 | wins 20/40 1-on-1s (best: Flutter Mane, Gyarados); countered by Archaludon, Torkoal; Fake Out; wins more in simulated games than its matchups explain |  |
 | C | Dondozo | -6 | -6 | wins 15/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Archaludon, Iron Hands; spread | no Commander (no Tatsugiri in the catalog); this set is Unaware, which the race model does credit |
+| C | Farigiraf | -7 | -7 | wins 10/45 1-on-1s (best: Torkoal, Tornadus); countered by Archaludon, Gholdengo; Trick Room, spread; not in the fitted model (first seen live Oct 8): matchup part only | engine sets Trick Room whether or not its own team wants it; Armor Tail blocks Fake Out and other priority into its side |
 | C | Indeedee-F | -8 | -8 | wins 12/40 1-on-1s (best: Torkoal, Iron Hands); countered by Gholdengo, Flutter Mane; redirection, spread |  |
 | C | Thundurus | -8 | -8 | wins 13/40 1-on-1s (best: Gholdengo, Gyarados); countered by Archaludon, Flutter Mane |  |
 | C | Salamence | -8 | -8 | wins 12/40 1-on-1s (best: Torkoal, Arcanine); countered by Archaludon, Gholdengo; Intimidate, Tailwind |  |
