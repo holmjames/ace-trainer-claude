@@ -311,3 +311,91 @@ def test_the_reply_model_never_switches_into_a_fainted_card():
     assert sheet.opp_team["gholdengo"]["fainted"]
     assert not [c for c in sheet.reply["columns"] if "-> Gholdengo" in c["name"]], sheet.reply["columns"]
     assert all(c.get("best_reply", "").find("Gholdengo") < 0 for c in sheet.candidates)
+
+
+# -- merge request 2: the reply model (behind reply_mixture) -----------------------------------------------------------
+
+
+def _context(prefix: str, turn: int):
+    sheet, template, obs, memory = _sheet_at(prefix, turn)
+    P = tuning.merged({"reply_mixture": 1, "reply_seed": 7})
+    ours = {x.position: x for x in sheet.field.actives if x.side == "mine"}
+    theirs = {x.position: x for x in sheet.field.actives if x.side == "theirs"}
+    ctx = replies._Context(sheet, memory, sorted(template["slots"], key=lambda s: s["slot"]), ours, theirs, P,
+                           replies.opponent_class(memory), sheet.turn, obs.get("opponent_team"))
+    return ctx, ctx.our_menu(sheet.candidates), ctx.their_menu()
+
+
+def test_a_joint_reply_is_one_column_however_it_is_reached():
+    # m4 T2: "Gholdengo Make It Rain (spread) + Dragonite Scale Shot" repeated the attack pair, doubling its prior.
+    _, _, cols = _context(M4, 2)
+    keys = [tuple(sorted((a.slot, a.kind, a.move, str(a.target)) for a in c.actions)) for c in cols]
+    assert len(keys) == len(set(keys)), [c.name for c in cols]
+
+
+def test_a_fresh_protect_facing_our_ko_switches_one_time_in_nine():
+    # The verification's like-for-like count (1 of 16, Laplace 0.11); a spent Protect keeps the 0.38.
+    assert replies._p_switch("search", streak=0, ko_one=0.9, has_absorber=True) == pytest.approx(0.11)
+    assert replies._p_switch("search", streak=1, ko_one=0.9, has_absorber=True) == replies.SEEDS["spent_protect_ko_switch"]
+
+
+def test_their_special_columns_pair_with_every_partner_attack():
+    # m1 T6: "Gholdengo Protect / Nasty Plot / switch" came only with Dragonite's Extreme Speed, so its prior added up
+    # to 0.55 (6 of 29 observed); each now comes with Scale Shot too.
+    ctx, _, cols = _context("d9405f02", 6)
+    prior = ctx.prior(cols)
+    es = sum(p for c, p in zip(cols, prior) if any(a.move == "extremespeed" for a in c.actions))
+    plays = {a.move for c in cols if any(a.kind in ("protect", "setup") and a.species.lower() == "gholdengo" for a in c.actions)
+             for a in c.actions if a.species.lower() == "dragonite"}
+    assert {"extremespeed", "scaleshot"} <= plays, plays
+    assert es < 0.45, es
+
+
+def test_no_priority_bonus_for_a_hit_into_a_protect():
+    ctx, rows, cols = _context("d9405f02", 6)
+    fake = next(r for r in rows if r.actions[0].kind == "fakeout")
+    protect = next(c for c in cols if any(a.kind == "protect" and a.species.lower() == "dragonite" for a in c.actions))
+    base = ctx.cell(fake, protect)
+    ctx.P = {**ctx.P, "priority_w": 0.0}
+    assert ctx.cell(fake, protect) == pytest.approx(base)  # Fake Out into Dragonite's Protect earns nothing for its +3
+
+
+def test_the_fake_out_column_aims_at_a_slot_it_can_flinch():
+    # m4 T7: the bot's Fake Out went into Tornadus; Lucario (Inner Focus) was the 'stoppable' slot, so the column was missing.
+    _, _, cols = _context(M4, 7)
+    fakes = [a for c in cols for a in c.actions if a.kind == "fakeout"]
+    assert fakes and all(a.target == 1 for a in fakes), [c.name for c in cols]
+
+
+def test_the_spore_column_and_the_taunt_that_blocks_it():
+    # 51c86e5c T1: "Spore our biggest threat" is a column (Archaludon, whose sleep costs most), and the Taunt row keeps
+    # its value against it while the attack row pays for the sleep.
+    ctx, rows, cols = _context(S51, 1)
+    spore = [c for c in cols if any(a.kind == "sleep" for a in c.actions)]
+    assert spore and all(next(a for a in c.actions if a.kind == "sleep").target == 1 for c in spore), [c.name for c in cols]
+    taunt = next(r for r in rows if any(a.move == "taunt" for a in r.actions))
+    attack = next(r for r in rows if all(a.kind == "attack" for a in r.actions))
+    asleep = spore[0]
+    awake = next(c for c in cols if not any(a.kind == "sleep" for a in c.actions) and
+                 [a.move for a in c.actions if a.species.lower() == "chienpao"] == [a.move for a in asleep.actions if a.species.lower() == "chienpao"])
+    # Against the Spore the Taunt row gains on the attack row by what the sleep costs (Archaludon's next 1-3 turns),
+    # beyond whatever it gains against Amoonguss's attack
+    gap_spore = ctx.cell(taunt, asleep) - ctx.cell(attack, asleep)
+    gap_awake = ctx.cell(taunt, awake) - ctx.cell(attack, awake)
+    assert gap_spore > gap_awake + 20, (gap_spore, gap_awake)
+    lost = ctx._sleep_loss(next(a for a in asleep.actions if a.kind == "sleep"), 1.0, {}, {}, {}, {}, {})
+    assert lost > 20
+
+
+def test_the_next_turn_counts_our_switch_in():
+    # m4 T2: the Landorus pivot's next turn (its Earthquake into the foes) was never counted; the newcomer's best hit
+    # comes from its switch preview.
+    ctx, rows, cols = _context(M4, 2)
+    pivot = next((r for r in rows if any(a.kind == "switch" for a in r.actions)), None)
+    assert pivot is not None
+    switch = next(a for a in pivot.actions if a.kind == "switch")
+    mon, preview = switch.incoming
+    foe = next(iter(ctx.theirs.values()))
+    hits = ctx._our_next_hits(switch.slot, mon, preview, foe.position, foe, False)
+    deal = next(d for d in preview["deals_best"] if species_key(d["to"]) == species_key(foe.species))
+    assert hits and hits[0][0]["damage_pct_of_current_hp"] == deal["damage_pct"]

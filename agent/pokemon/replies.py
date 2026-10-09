@@ -55,6 +55,9 @@ SEARCH_BOT_SEEDS = {
     "setup_unthreatened": 0.36,          # 4/12
     "tailwind_when_available": 0.22,     # 5/25
     "voluntary_switch_rate": 0.16,       # 14/130 decisions (8/35 when facing our >= 0.5 KO with a bench)
+    "fresh_protect_ko_switch": 0.11,     # 1/16 like-for-like: a fresh Protect, our one-move KO, a bench (the Oct 8 verification of m4 T2; 8/35 mixed in spent Protects)
+    "sleep_unthreatened": 0.6,           # a sleep user with an awake target uses its sleep move (start value; Oct 8 evening loss: 6 of 7 turns)
+    "sleep_threatened": 0.4,             # the same while our one-move KO threatens it
 }
 TALLIES_PATH = os.environ.get("ACE_OPPONENT_TALLIES", os.path.expanduser("~/projects/ace-trainer-data/opponent-tallies-2026-10-08.json"))
 
@@ -151,7 +154,7 @@ def _p_switch(klass: str, *, streak: int, ko_one: float, ko_two: float = 0.0, ha
     if ko_one >= 0.5 and (streak or not has_protect):
         return SEEDS["spent_protect_ko_switch"]
     if ko_one >= 0.5:
-        return 0.23  # 8/35 facing a >= 0.5 KO with a bench (voluntary_switch_rate's split)
+        return SEEDS["fresh_protect_ko_switch"]  # 1/16 like-for-like with a fresh Protect (8/35 counted spent Protects too)
     if ko_two >= 0.5:
         return max(0.02, 1.0 - SEEDS["double_only_ko_stays"] - SEEDS["double_only_ko_protect"] * 0.3)
     return SEEDS["voluntary_switch_rate"] * 0.5
@@ -165,6 +168,14 @@ def _p_setup(klass: str, *, threatened: bool, turn: int | None, move_id: str) ->
     if move_id == "tailwind":
         return SEEDS["tailwind_when_available"] if klass == "search" else 0.15
     return 0.15 if klass == "llm" else SEEDS["setup_unthreatened"]
+
+
+def _p_sleep(klass: str, *, threatened: bool, used: int = 0, chances: int = 0) -> float:
+    """Chance a sleep user with an awake, sleepable target uses its sleep move this turn: the start value (0.6, 0.4
+    while our one-move KO threatens it) updated by this game's own count (``used`` of ``chances`` turns it moved), two
+    pseudo-counts at the start value. Part 3: the Oct 8 evening loss's Amoonguss used Spore on 6 of its 7 turns."""
+    base = 0.25 if klass == "random" else SEEDS["sleep_threatened" if threatened else "sleep_unthreatened"]
+    return (used + 2.0 * base) / (chances + 2.0)
 
 
 def _p_fakeout(klass: str, *, turn: int | None) -> float:
@@ -836,12 +847,18 @@ class _Context:
     # -- their menu -------------------------------------------------------------------------------------------------
 
     def their_menu(self) -> list[_JointColumn]:
+        """Their joint replies: each foe's best attack into each of our slots, paired; then for each foe its Protect, its
+        switch to the best absorber, a fresh Fake Out on the slot it can stop, its setup, its spread move and its sleep
+        move on our biggest threat, each next to EVERY attack of its partner (one 'most dangerous' partner put the whole
+        weight of those columns on one move: m1 T6 priced Extreme Speed at 0.55 against 6 of 29 observed). A column is
+        a set of actions: the same joint action reached twice (a spread column repeating an attack pair) is one column
+        (m4 T2 counted Scale Shot + Make It Rain twice, 0.36 for 0.18)."""
         cols: list[_JointColumn] = []
         seen: set = set()
         positions = sorted(self.theirs)
 
         def add(name: str, acts: list[_Actor]) -> None:
-            key = tuple((a.slot, a.kind, a.move, a.target, a.species) for a in acts)
+            key = tuple(sorted((a.slot, a.kind, a.move, str(a.target), a.species) for a in acts))
             if key in seen:
                 return
             seen.add(key)
@@ -857,8 +874,10 @@ class _Context:
                 info = data.move_info(hit["move"]) or {}
                 spread = info.get("target") in battle.SPREAD_TARGETS
                 rows = self.their_rows(pos, hit["move"]) if spread else {slot: hit}
-                attacks[pos].append(_Actor("theirs", pos, "attack", move=hit["move"], priority=hit.get("priority", 0) or 0, rows=rows,
-                                           target=(0 if spread else slot), species=foe.species, spread=spread))
+                actor = _Actor("theirs", pos, "attack", move=hit["move"], priority=hit.get("priority", 0) or 0, rows=rows,
+                               target=(0 if spread else slot), species=foe.species, spread=spread)
+                if not any((x.move, x.target) == (actor.move, actor.target) for x in attacks[pos]):
+                    attacks[pos].append(actor)
             if not attacks[pos]:
                 attacks[pos].append(_Actor("theirs", pos, "pass", species=foe.species, priority=-9))
         if len(positions) == 2:
@@ -870,42 +889,68 @@ class _Context:
         else:
             for ia in attacks[positions[0]]:
                 add(f"{self.theirs[positions[0]].species} {ia.move}->{self._tgt(ia)}", [ia])
+        sleepers = battle.sleep_users(self.sheet, self.theirs)
         for pos, foe in self.theirs.items():
             partner_pos = next((p for p in positions if p != pos), None)
-            partner_best = attacks[partner_pos][0] if partner_pos is not None and attacks.get(partner_pos) else None
-            partner = self._most_dangerous(attacks.get(partner_pos, [])) if partner_pos is not None else None
-            others = [partner] if partner is not None else []
+            partners = [q for q in attacks.get(partner_pos, []) if q.kind != "pass"] if partner_pos is not None else []
+            variants = [[q] for q in partners] or [[]]
+
+            def text(acts: list[_Actor]) -> str:
+                return "".join(f" + {self.theirs[partner_pos].species} {q.move}->{self._tgt(q)}" for q in acts)
+
+            specials: list[tuple[str, _Actor]] = []
             if any(m["id"] in battle.PROTECT_LIKE for m in foe.moves):
-                add(f"{foe.species} Protect" + (f" + {self.theirs[partner_pos].species} {partner.move}->{self._tgt(partner)}" if partner else ""),
-                    [_Actor("theirs", pos, "protect", move="protect", priority=4, species=foe.species)] + others)
+                specials.append((f"{foe.species} Protect", _Actor("theirs", pos, "protect", move="protect", priority=4, species=foe.species)))
             absorber = self.best_absorber(pos)
             if absorber is not None:
-                add(f"{foe.species} -> {absorber.species}" + (f" + {self.theirs[partner_pos].species} {partner.move}->{self._tgt(partner)}" if partner else ""),
-                    [_Actor("theirs", pos, "switch", priority=6, species=foe.species, incoming=absorber)] + others)
+                specials.append((f"{foe.species} -> {absorber.species}", _Actor("theirs", pos, "switch", priority=6, species=foe.species, incoming=absorber)))
             if "fakeout" in {m["id"] for m in foe.moves} and species_key(foe.species) in self.their_fresh:
                 stop = self.stoppable_slot()
                 if stop is not None and battle._flinchable(self.ours[stop], self.ours, self.fs):
                     rows = self.their_rows(pos, "fakeout")
-                    add(f"{foe.species} Fake Out->slot {stop}" + (f" + {self.theirs[partner_pos].species} {partner.move}->{self._tgt(partner)}" if partner else ""),
-                        [_Actor("theirs", pos, "fakeout", move="fakeout", priority=3, rows={stop: rows[stop]} if stop in rows else {}, target=stop, species=foe.species)] + others)
+                    specials.append((f"{foe.species} Fake Out->slot {stop}", _Actor("theirs", pos, "fakeout", move="fakeout", priority=3,
+                                                                                   rows={stop: rows[stop]} if stop in rows else {}, target=stop, species=foe.species)))
             setup = next((m["id"] for m in foe.moves if m["id"] in SETUP_IDS and not data.is_damaging(m)), None)
             if setup:
                 prio = 1 if data.to_id(foe.ability) == "prankster" else 0
-                add(f"{foe.species} {setup}" + (f" + {self.theirs[partner_pos].species} {partner.move}->{self._tgt(partner)}" if partner else ""),
-                    [_Actor("theirs", pos, "setup", move=setup, priority=prio, species=foe.species)] + others)
+                specials.append((f"{foe.species} {setup}", _Actor("theirs", pos, "setup", move=setup, priority=prio, species=foe.species)))
             spread_hit = next((h for t in self.sheet.threats if t["position"] == pos for h in t["hits"]
                                if (data.move_info(h["move"]) or {}).get("target") in battle.SPREAD_TARGETS), None)
-            if spread_hit and partner is not None:
-                rows = self.their_rows(pos, spread_hit["move"])
-                add(f"{foe.species} {spread_hit['move']} (spread) + {self.theirs[partner_pos].species} {partner.move}->{self._tgt(partner)}",
-                    [_Actor("theirs", pos, "attack", move=spread_hit["move"], priority=spread_hit.get("priority", 0) or 0, rows=rows, target=0,
-                            species=foe.species, spread=True), partner])
+            if spread_hit and partners:
+                specials.append((f"{foe.species} {spread_hit['move']} (spread)",
+                                 _Actor("theirs", pos, "attack", move=spread_hit["move"], priority=spread_hit.get("priority", 0) or 0,
+                                        rows=self.their_rows(pos, spread_hit["move"]), target=0, species=foe.species, spread=True)))
+            sleep = self.sleep_target(pos) if pos in sleepers else None
+            if sleep is not None:
+                mv, slot = sleep
+                prio = (mv.get("priority") or 0) + (1 if data.to_id(foe.ability) == "prankster" else 0)
+                specials.append((f"{foe.species} {mv['id']}->slot {slot}", _Actor("theirs", pos, "sleep", move=mv["id"], priority=prio,
+                                                                                 target=slot, species=foe.species)))
+            for label, actor in specials:
+                for others in variants:
+                    add(label + text(others), [actor] + others)
         cap = int(self.P.get("reply_columns", 12))
         if len(cols) > cap:
             prior = self.prior(cols)
             order = sorted(range(len(cols)), key=lambda j: -prior[j])[:cap]
             cols = [cols[j] for j in sorted(order)]
         return cols
+
+    def sleep_target(self, pos: int) -> tuple[dict, int] | None:
+        """(sleep move, our slot) for the foe's 'sleep our biggest threat' column: the slot whose sleep costs us most by
+        the sheet's sleep rows (Part 3), or None when no slot of ours can be slept."""
+        cache = self.__dict__.setdefault("_sleep_cache", {})
+        if pos in cache:
+            return cache[pos]
+        threat = next((t for t in self.sheet.threats if t["position"] == pos), None)
+        rows = [r for r in (threat or {}).get("sleep") or [] if r["into_slot"] in self.ours]
+        found = None
+        if rows:
+            best = max(rows, key=lambda r: r["value"])
+            mv = next((m for m in battle.sleep_users(self.sheet, self.theirs).get(pos, []) if m["id"] == best["move"]), None)
+            found = (mv, best["into_slot"]) if mv is not None else None
+        cache[pos] = found
+        return found
 
     def _tgt(self, a: _Actor) -> str:
         if a.kind == "pass":
@@ -945,9 +990,12 @@ class _Context:
         return best if best is not None and best_taken < current else None
 
     def stoppable_slot(self) -> int | None:
-        """The slot whose action a fresh Fake Out would stop: the one with more to deny."""
+        """The slot whose action a fresh Fake Out would stop: the one with more to deny among those it can flinch (an
+        Inner Focus Lucario left the Fake Out column out of m4 T7, where the bot's Fake Out went into Tornadus)."""
         best, best_v = None, -1.0
         for n in self.ours:
+            if not battle._flinchable(self.ours[n], self.ours, self.fs) or self.sheet.wake.get(n, 1.0) <= 0:
+                continue
             v = max(battle._best_attack(self.by_slot.get(n, {}), P=self.P, threats=self.weights)[2], 0.0)
             for setup in ("tailwind", "trickroom"):
                 if self.option_index(n, setup) is not None:
@@ -991,7 +1039,10 @@ class _Context:
         p_fake = _p_fakeout(self.klass, turn=self.turn) if ("fakeout" in {m["id"] for m in foe.moves} and fresh_in) else 0.0
         setup_move = next((m["id"] for m in foe.moves if m["id"] in SETUP_IDS and not data.is_damaging(m)), None)
         p_setup = _p_setup(self.klass, threatened=ko_one >= 0.3 or facing >= 30, turn=self.turn, move_id=setup_move) if setup_move else 0.0
-        rest = max(0.05, 1.0 - min(0.95, p_protect + p_switch + p_fake + p_setup))
+        p_sleep = self.p_sleep(a.slot, threatened=ko_one >= 0.5) if self.sleep_target(a.slot) is not None else 0.0
+        rest = max(0.05, 1.0 - min(0.95, p_protect + p_switch + p_fake + p_setup + p_sleep))
+        if a.kind == "sleep":
+            return p_sleep
         if a.kind == "protect":
             return p_protect
         if a.kind == "switch":
@@ -1013,6 +1064,14 @@ class _Context:
         if partner is not None and partner.kind == "attack" and not partner.spread and not a.spread and partner.target == a.target:
             share *= 1.0 + SEEDS["both_attack_same_target"]  # both on one target 10/16 turns
         return rest * share
+
+    def p_sleep(self, pos: int, *, threatened: bool) -> float:
+        """This foe's sleep-move rate: the class start value updated by its own moves this game (memory's protocol-log
+        table: turns it used a sleep move / turns it moved)."""
+        foe = self.theirs.get(pos)
+        moves = ((getattr(self.memory, "moves_by_turn", None) or {}).get("theirs") or {}).get(species_key(foe.species) if foe else "", {})
+        used = sum(1 for m in moves.values() if m in battle.SLEEP_MOVES)
+        return _p_sleep(self.klass, threatened=threatened, used=used, chances=len(moves))
 
     def _two_move_ko(self, pos: int) -> bool:
         parts = []
@@ -1085,11 +1144,13 @@ class _Context:
         boosted: dict[tuple[str, int], float] = {}     # chance a slot's attack carries a Helping Hand
         hh_boost = getattr(data, "helping_hand_boost", None)
         moved: dict[tuple[str, int], tuple[float, dict]] = {}  # our slot -> (chance it has acted, its post-move rows)
+        taunted: dict[tuple[str, int], float] = {}     # chance our Taunt landed on a foe before its status move
+        slept: dict[tuple[str, int], float] = {}       # chance a sleep move put our slot to sleep before it acted
         tempo = 0.0
         for a in order:
             me_key = (a.side, a.slot)
             p_alive = self._alive_before(me_key, parts, a, order)
-            p_act = p_alive * (1.0 - flinched.get(me_key, 0.0))
+            p_act = p_alive * (1.0 - flinched.get(me_key, 0.0)) * (1.0 - slept.get(me_key, 0.0))
             if a.side == "mine" and a.kind != "switch":
                 p_act *= self.sheet.wake.get(a.slot, 1.0)  # asleep: its move (and its Protect) happens only if it wakes
             if a.kind == "pass":
@@ -1119,13 +1180,20 @@ class _Context:
                 if a.side == "mine":
                     tempo += value * p_act * self._speed_control_gain(a.move)
                 else:
-                    tempo -= value * p_act * (1.0 if a.move not in ("tailwind", "trickroom") else self._their_speed_control_gain(a.move))
+                    tempo -= value * p_act * (1.0 - taunted.get(me_key, 0.0)) \
+                        * (1.0 if a.move not in ("tailwind", "trickroom") else self._their_speed_control_gain(a.move))
+                continue
+            if a.kind == "sleep":
+                tempo -= self._sleep_loss(a, p_act * (1.0 - taunted.get(me_key, 0.0)), protected, gone, incoming, acts, slept)
                 continue
             if a.kind == "status":
                 if a.move in ("helpinghand", "coaching") and a.side == "mine":
                     boosted[("mine", 1 - a.slot)] = p_act  # the partner's attack this turn is x1.5
                 elif a.side == "mine":
                     blocked = protected.get(("theirs", a.target), 0.0) if isinstance(a.target, int) and a.target in self.theirs else 0.0
+                    if a.move == "taunt" and isinstance(a.target, int) and a.target in self.theirs:
+                        key_t = ("theirs", a.target)
+                        taunted[key_t] = 1.0 - (1.0 - taunted.get(key_t, 0.0)) * (1.0 - p_act * (1.0 - blocked) * (1.0 - gone.get(key_t, 0.0)))
                     tempo += battle.status_value(a.move, self.ours[a.slot], self.theirs, self.sheet, a.slot, has_ally=len(self.ours) > 1)[0] \
                         * p_act * 0.5 * (1.0 - blocked)  # a Taunt or a Spore into a working Protect does nothing
                 continue
@@ -1190,8 +1258,10 @@ class _Context:
                     parts.setdefault(ally, []).append((p_hit - p_in, r))
                 if p_in > 0:
                     parts.setdefault(("in",) + ally, []).append((p_in, r))  # the newcomer takes it (same share, an estimate)
-            if a.side == "mine":
-                tempo += P["priority_w"] * a.priority * p_act
+            if a.side == "mine" and a.rows:
+                # the priority bonus is for a hit that lands first: none for a Fake Out into a Protect (m1 T6)
+                landed = sum(1.0 - protected.get(("theirs", t), 0.0) for t in a.rows) / len(a.rows)
+                tempo += P["priority_w"] * a.priority * p_act * landed
         # value: damage into each foe, KOs by the threat removed; our losses as material
         value = 0.0
         for pos, foe in self.theirs.items():
@@ -1225,6 +1295,35 @@ class _Context:
                 value -= P.get("reply_dead_lock_w", 15.0) * acts.get(("mine", a.slot), 1.0)
         return value + tempo + self._next_turn(parts, gone, incoming, order)
 
+    def _sleep_loss(self, a: _Actor, p_use: float, protected: dict, gone: dict, incoming: dict, acts: dict, slept: dict) -> float:
+        """What their sleep move costs us in this cell, in damage points: the target slot's later actions lost (this
+        turn's too when it lands before the slot moves: ``slept`` stops it), nothing through a working Protect, and the
+        newcomer's actions when our slot switched into it (a fresh target; a sleeping or immune newcomer is none)."""
+        tgt = ("mine", a.target)
+        mon = self.ours.get(a.target)
+        if mon is None or p_use <= 0:
+            return 0.0
+        foe = self.theirs.get(a.slot)
+        mv = next((m for m in battle.sleep_users(self.sheet, self.theirs).get(a.slot, []) if m["id"] == a.move), {"id": a.move})
+        acc = data.hit_chance(mv, self.fs.weather if self.fs else None)
+        p_land = p_use * acc * (1.0 - protected.get(tgt, 0.0))
+        p_in = p_land * gone.get(tgt, 0.0)
+        p_stay = p_land - p_in
+        w = float(self.P.get("sleep_future_w", 0.5))
+        value = battle._slot_action_value(self.sheet, a.target, self.slots, self.P)
+        first = tgt not in acts  # it has not acted yet this turn: the sleep takes this turn's action too
+        if first:
+            slept[tgt] = 1.0 - (1.0 - slept.get(tgt, 0.0)) * (1.0 - p_stay)
+        loss = p_stay * value * w * (battle.SLEEP_TURNS - (1.0 if first else 0.0))  # this turn's own action is lost through ``slept``
+        if p_in > 0 and incoming.get(tgt):
+            newcomer = incoming[tgt][0] if isinstance(incoming[tgt], tuple) else incoming[tgt]
+            if isinstance(newcomer, battle.Mon) and foe is not None and not battle._sleep_blocked(mv, newcomer, foe, self.ours, self.fs) \
+                    and not self.sheet.bench_status.get(species_key(newcomer.species)):
+                preview = incoming[tgt][1] if isinstance(incoming[tgt], tuple) else {}
+                deals = max((min(battle._avg(d["damage_pct"]), 100.0) for d in (preview or {}).get("deals_best") or []), default=30.0)
+                loss += p_in * deals * w * battle.SLEEP_TURNS
+        return loss
+
     def _next_turn(self, parts: dict, gone: dict, incoming: dict, order: list[_Actor]) -> float:
         """One ply ahead, discounted: what is left after this turn and who threatens whom next turn. For each Pokémon
         still standing (its chance and its remaining HP from this turn's hits), the KO each side can take next turn
@@ -1244,57 +1343,57 @@ class _Context:
         protected_now = {a.slot for a in order if a.side == "mine" and a.kind == "protect"}
         their_protected_now = {a.slot for a in order if a.side == "theirs" and a.kind == "protect"}
 
-        def protect_answer(side: str, slot: int, mon: battle.Mon) -> float:
-            """How much of a KO threat next turn a Protect answers: a fresh one all but the tempo (0.6), a spent one 1 in 3."""
+        def protect_answer(side: str, slot: int, mon: battle.Mon, newcomer: bool = False) -> float:
+            """How much of a KO threat next turn a Protect answers: a fresh one all but the tempo (0.6), a spent one 1 in 3
+            (a newcomer's is fresh)."""
             if not any(m["id"] in battle.PROTECT_LIKE for m in mon.moves):
                 return 0.0
-            spent = slot in (protected_now if side == "mine" else their_protected_now)
+            spent = not newcomer and slot in (protected_now if side == "mine" else their_protected_now)
             return 0.6 / 3 if spent else 0.6
 
-        theirs_alive: dict[int, tuple[float, float, battle.Mon]] = {}
+        # who stands next turn: (chance, HP left as a share of its HP at the start of this turn, the Pokémon, its rows)
+        theirs_alive: list[tuple[int, float, float, battle.Mon, bool]] = []
         for pos, foe in self.theirs.items():
-            left = 1.0 - gone.get(("theirs", pos), 0.0)
-            alive, rem = state(("theirs", pos))
+            key = ("theirs", pos)
+            left = 1.0 - gone.get(key, 0.0)
+            alive, rem = state(key)
             if left > 0:
-                theirs_alive[pos] = (left * alive, rem, foe)
-        ours_alive: dict[int, tuple[float, float, battle.Mon, float]] = {}
+                theirs_alive.append((pos, left * alive, rem, foe, False))
+            newcomer = incoming.get(key)
+            if gone.get(key, 0.0) > 0 and isinstance(newcomer, battle.Mon):
+                alive_in, rem_in = state(("in",) + key)
+                theirs_alive.append((pos, gone[key] * alive_in, rem_in, newcomer, True))  # their switch-in fights next turn too
+        ours_alive: list[tuple[int, float, float, battle.Mon, float, dict | None]] = []
         for n, me in self.ours.items():
             key = ("mine", n)
             left = 1.0 - gone.get(key, 0.0)
             alive, rem = state(key)
-            mat = self.material[n]
             if left > 0:
-                ours_alive[n] = (left * alive, rem, me, mat)
+                ours_alive.append((n, left * alive, rem, me, self.material[n], None))
             if key in incoming and incoming[key]:
                 mon = incoming[key][0] if isinstance(incoming[key], tuple) else incoming[key]
+                preview = incoming[key][1] if isinstance(incoming[key], tuple) else {}
                 if isinstance(mon, battle.Mon):
                     alive_in, rem_in = state(("in",) + key)
-                    ours_alive[n] = (gone[key] * alive_in, rem_in * mon.hp_fraction / max(me.hp_fraction, 0.05), mon,
-                                     battle.material(mon, P))
+                    # our switch-in acts next turn: its hits and its exposure come from its own preview rows (Part 3b: the
+                    # Landorus pivot's Earthquake into a Balloon-less Gholdengo was never counted)
+                    ours_alive.append((n, gone[key] * alive_in, rem_in, mon, battle.material(mon, P), preview or {}))
         total = 0.0
-        for pos, (q, rem_f, foe) in theirs_alive.items():
+        for pos, q, rem_f, foe, fresh in theirs_alive:
             # our best KO on it next turn, over our standing Pokémon, rescaled to what it has left
             best_p, best_first = 0.0, False
-            for n, (p, _, me, _) in ours_alive.items():
-                ans = self.best_single_answer(n, pos) if me is self.ours.get(n) else None
-                if not ans:
-                    continue
-                opt = self.move_option(n, ans["option"])
-                row = next((r for r in (opt or {}).get("targets") or [] if r.get("side") == "theirs"
-                            and (r.get("target") == pos or (r.get("target", 0) == 0 and self.pos_of(r["species"]) == pos))), None)
-                if row is None:
-                    continue
-                lo, hi = row["damage_pct_of_current_hp"]
-                p_ko = battle.linear_ko(lo / rem_f, hi / rem_f) * float(row.get("hit_chance", 1.0)) * p
-                if p_ko > best_p:
-                    best_p = p_ko
-                    best_first = (opt.get("priority", 0) or 0) > 0 or self.speed_rank.get(("mine", n), 99) < self.speed_rank.get(("theirs", pos), 99)
+            for n, p, _, me, _, preview in ours_alive:
+                for row, first in self._our_next_hits(n, me, preview, pos, foe, fresh):
+                    lo, hi = row["damage_pct_of_current_hp"]
+                    p_ko = battle.linear_ko(lo / rem_f, hi / rem_f) * float(row.get("hit_chance", 1.0)) * p
+                    if p_ko > best_p:
+                        best_p, best_first = p_ko, first
             if best_p > 0:
-                total += w * q * best_p * (1.0 - protect_answer("theirs", pos, foe)) \
+                total += w * q * best_p * (1.0 - protect_answer("theirs", pos, foe, fresh)) \
                     * (P["ko_bonus_guaranteed"] + P.get("ko_threat_w", 0.0) * self.weights.get(species_key(foe.species), 0.0))
             # its best KO on one of ours next turn, unless we take it out first
-            for n, (p, rem_s, me, mat) in ours_alive.items():
-                hit = self.best_hit_into(pos, n) if me is self.ours.get(n) else None
+            for n, p, rem_s, me, mat, preview in ours_alive:
+                hit = self._their_next_hit(pos, foe, fresh, n, me, preview)
                 if hit is None:
                     continue
                 lo, hi = hit["damage_pct_of_current_hp"]
@@ -1302,8 +1401,68 @@ class _Context:
                 if p_ko <= 0:
                     continue
                 removed_first = best_p if best_first else 0.0
-                total -= w * q * p * p_ko * (1.0 - removed_first) * (1.0 - protect_answer("mine", n, me)) * mat
+                total -= w * q * p * p_ko * (1.0 - removed_first) * (1.0 - protect_answer("mine", n, me, preview is not None)) * mat
         return total
+
+    def _our_next_hits(self, n: int, me: battle.Mon, preview: dict | None, pos: int, foe: battle.Mon, fresh: bool) -> list[tuple[dict, bool]]:
+        """Our slot's best hit next turn into the foe at ``pos`` (or into their switch-in when ``fresh``), with whether it
+        lands first: the sheet's rows for a Pokémon already out, the switch-in preview's best hit for our newcomer, the
+        switch rows for theirs."""
+        if preview is not None:  # our newcomer: the preview's best hit into that foe
+            if fresh:
+                return []
+            deal = next((d for d in preview.get("deals_best") or [] if species_key(d.get("to")) == species_key(foe.species)), None)
+            if deal is None:
+                return []
+            row = {"damage_pct_of_current_hp": deal["damage_pct"], **({"hit_chance": deal["hit_chance"]} if "hit_chance" in deal else {})}
+            return [(row, foe.species in (preview.get("outspeeds") or []))]
+        if fresh:  # their newcomer: our moves into it as it came in (switch rows), at our speed against its
+            out = []
+            for opt in self.by_slot.get(n, {}).get("options") or []:
+                row = self.switch_rows.get((species_key(foe.species), n, opt["option"]))
+                if row is not None and not opt.get("fails"):
+                    first = (opt.get("priority", 0) or 0) > 0 or (me.stat("spe") > foe.stat("spe")) != bool(self.fs and self.fs.trick_room)
+                    out.append((row, first))
+            return sorted(out, key=lambda x: -battle.ko_probability(x[0], with_accuracy=True))[:1]
+        ans = self.best_single_answer(n, pos) if me is self.ours.get(n) else None
+        if not ans:
+            return []
+        opt = self.move_option(n, ans["option"])
+        row = next((r for r in (opt or {}).get("targets") or [] if r.get("side") == "theirs"
+                    and (r.get("target") == pos or (r.get("target", 0) == 0 and self.pos_of(r["species"]) == pos))), None)
+        if row is None:
+            return []
+        first = (opt.get("priority", 0) or 0) > 0 or self.speed_rank.get(("mine", n), 99) < self.speed_rank.get(("theirs", pos), 99)
+        return [(row, first)]
+
+    def _their_next_hit(self, pos: int, foe: battle.Mon, fresh: bool, n: int, me: battle.Mon, preview: dict | None) -> dict | None:
+        """The foe's most dangerous hit next turn into our slot: the sheet's threat rows, our switch-in's entry rows, or
+        (their switch-in) its own moves into ours, computed once per pair."""
+        if fresh:
+            cache = self.__dict__.setdefault("_newcomer_hits", {})
+            key = (species_key(foe.species), species_key(me.species))
+            if key not in cache:
+                best, best_v = None, -1.0
+                for mv in foe.moves:
+                    if not data.is_damaging(mv) or mv["id"] in ("fakeout", "firstimpression"):
+                        continue
+                    prof = battle.hit_profile(foe, mv, me, field=self.fs, spread=battle.is_spread(mv, foes=len(self.ours), allies=len(self.theirs) - 1))
+                    if prof is None:
+                        continue
+                    v = battle._danger(battle._avg(prof["damage_pct_of_current_hp"]), prof.get("hit_chance", 1.0), battle.ko_probability(prof, with_accuracy=True))
+                    if v > best_v:
+                        best, best_v = prof, v
+                cache[key] = best
+            return cache[key]
+        if preview is not None:
+            best, best_v = None, -1.0
+            for (k, p, _), row in ((k, r) for k, r in self.our_switch_rows.items() if len(k) == 3):
+                if k == species_key(me.species) and p == pos:
+                    v = battle._danger(battle._avg(row["damage_pct_of_current_hp"]), row.get("hit_chance", 1.0), battle.ko_probability(row, with_accuracy=True))
+                    if v > best_v:
+                        best, best_v = row, v
+            return best
+        return self.best_hit_into(pos, n) if me is self.ours.get(n) else None
 
     def _alive_before(self, key: tuple[str, int], parts: dict, actor: _Actor, order: list[_Actor]) -> float:
         """Chance this Pokémon is still standing when its turn comes: the hits already recorded on it."""

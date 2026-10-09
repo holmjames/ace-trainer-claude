@@ -46,9 +46,6 @@ BATTLE = [s for s in LS.SCENARIOS if s.turn > 0]
 # the accept rules in scripts/live_scenarios.py are its verified answers) these are known gaps of the reply model, each
 # with its cause, not documented disagreements: remove an entry once the mixture plays the verified line.
 EXCEPTIONS = {
-    "m1_t3_pressure_gholdengo": "a coin flip by the sheet: Sneasler's switch to Landorus is the row either way, and Cresselia's Moonblast into "
-                                "Dragonite (46.5-56.1%) and Icy Wind (41.7-51.3% into Dragonite at 95% accuracy, 3.7-4.9% into Gholdengo) sit ten "
-                                "points apart with Dragonite's fresh-Protect prior at 0.32; the accept rejects any single-target hit into Dragonite",
     "m1_t6_dire_claw_ko": "verified for Dire Claw + Cresselia Protect (-39.0 vs -55.0); the mixture's priors are off (Extreme Speed 0.55 "
                           "vs 6/29 observed, Shadow Ball aimed at Cresselia's slot 0.46 vs 7/7 at slot a or both, a 9-point priority bonus "
                           "for a Fake Out into a Protect, Dire Claw KO 0.21 vs 0.25): Part 3b item 3",
