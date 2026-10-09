@@ -9,8 +9,9 @@ only — from the model chain in .env, or from the computed fallback with --code
     python scripts/live_scenarios.py --only m3_t6 --repeat 3
 
 The positions come from the four Oct 7 losses (L1-L4 below = sessions d9405f02, 1aef9227, 7ce71025, 0a2b7c2a), the
-Oct 8 Testing win bcbaabe2 and the Oct 8 loss as player 2 da9c168e (see scripts/postmortem.py for the transcripts; the
-latter's spec in ace-trainer-data/scenarios/); a draft pick or the Team Preview can be a target too (``phase``);
+Oct 8 Testing win bcbaabe2, the Oct 8 loss as player 2 da9c168e and the Oct 8 evening loss 51c86e5c (see
+scripts/postmortem.py for the transcripts; the last two have specs in ace-trainer-data/scenarios/, and 51c86e5c's numbers
+are that spec's @smogon/calc calls); a draft pick or the Team Preview can be a target too (``phase``);
 a session is replayed from whichever seat we
 sat in (player-2 matches are captured as ``*-seat1.json``); the damage numbers in the lessons are the
 sheet's own (agent/pokemon/battle.py:damage_percent) at that position, except the seven disputed positions settled by
@@ -293,6 +294,40 @@ SCENARIOS = [
                  "25th-percentile fallback or the median the pick flips (they answered 'Flutter Mane: spread damage, beats Iron "
                  "Valiant'). Re-evaluate once the catalog gives Iron Valiant a real strength.",
                  lambda p, t: p.get("card_id") != "vgc-iron-valiant", "the first pick is not Iron Valiant", phase="draft"),
+    # ---- the Oct 8 evening loss to the search bot (51c86e5c, player 1; spec: ace-trainer-data/scenarios/51c86e5c.md). T1 and
+    # T3 are documented lines that code #1 cannot play yet (Taunt has no value on the sheet and a sleeper's attack counts in
+    # full): provisional only until tests/test_replies_live.py lists them, so that file stays green.
+    LiveScenario("s51_t1_taunt_the_spore", "51c86e5c", 1,
+                 "Gyarados (102) + Archaludon vs Chien-Pao (205; Sash, fresh Protect) + Amoonguss (50; Rocky Helmet, Regenerator; "
+                 "Spore, Rage Powder, no Protect). Gyarados's Taunt lands before Spore and blocks Spore + Rage Powder T1-T3; nothing "
+                 "on their side blocks Taunt, and only an Icicle Crash flinch on Gyarados (30%) stops it. Nothing else reliably "
+                 "stops the first Spore: the best two hits into Amoonguss total 83.6% (Draco 43.6-51.8% + EQ 26.8-31.8%) and it "
+                 "moves last. Live: Waterfall + Flash Cannon into a Protecting Chien-Pao; Spore slept Archaludon; we lost 0-4.",
+                 lambda p, t: uses(p, 0, t, "taunt", "amoonguss"), "slot 0 (Gyarados) Taunts Amoonguss", provisional=True),
+    LiveScenario("s51_t3_no_fresh_sleeper_into_spore", "51c86e5c", 3,
+                 "Gyarados 117/202 (Sitrus; Protect fresh) + Archaludon ASLEEP (missed 1 turn: acts 1 in 3) vs Chien-Pao 94% + an "
+                 "untaunted Amoonguss. Spore fails on a Pokemon already asleep (T6): switching the sleeper out hands Spore a fresh "
+                 "target, and an unprotected, untaunting Gyarados is one too. Taunt survives a non-crit double: Icicle Crash at -1 "
+                 "(75-88) + Sludge Bomb (45-54) = 120-142 HP vs 117 + 50 Sitrus. Protect with the sleeper staying in leaves Spore "
+                 "no target. Live: Protect + Archaludon -> Chi-Yu after a false 'goes down' warning; Spore hit Chi-Yu on entry.",
+                 lambda p, t: uses(p, 0, t, "taunt", "amoonguss")
+                 or (move_of(p, 0) == "protect" and not any(switches_to(p, 1, sp) for sp in ("chiyu", "indeedeef"))),
+                 "slot 0 Taunts Amoonguss, or slot 0 Protects while the sleeping slot 1 stays in", provisional=True),
+    LiveScenario("s51_t4_no_indeedee_into_spore", "51c86e5c", 4,
+                 "Gyarados 117/202 (Protected last turn) + Chi-Yu ASLEEP (Spored last turn: 0% to act) vs Iron Hands (fresh Fake "
+                 "Out; Wild Charge OHKOs Gyarados; Drain Punch 137-162% OHKOs Chi-Yu) + an untaunted Amoonguss. Live: Gyarados -> "
+                 "Indeedee-F; Spore hit Indeedee-F on entry (KO'd asleep T6) and Chi-Yu died without moving.",
+                 lambda p, t: not any(switches_to(p, s, "indeedeef") for s in (0, 1)),
+                 "Indeedee-F is not switched in", provisional=True),
+    LiveScenario("s51_preview_bring_both_amoonguss_answers", "51c86e5c", 0,
+                 "Team Preview as player 1 vs Iron Hands / Chien-Pao / Landorus-T / Ursaluna / Hatterene / Amoonguss. Chi-Yu (Heat "
+                 "Wave 122.7-144.5% OHKOs Amoonguss before it moves, 90% acc; spread, so Rage Powder can't pull it) + Rillaboom "
+                 "(Spore/Rage Powder-immune; T1 Fake Out covers Chi-Yu from Sacred Sword). Lead Chi-Yu + Rillaboom is the model's own "
+                 "best opening vs the actual leads (+1.50) and vs predicted Iron Hands + Landorus-T (+1.17). BUT the model's "
+                 "four-vs-four value prefers the live four even vs their actual four (prod 89.9% vs 84.8%, next 78.1% vs 68.6%), and "
+                 "on next this four trails the live bring by 0.001. Provisional until the four-vs-four value credits Spore immunity.",
+                 lambda p, t: {"chiyu", "rillaboom"} <= set(p.get("bring") or []),
+                 "the bring includes both Chi-Yu and Rillaboom", provisional=True, phase="team_preview"),
 ]
 
 

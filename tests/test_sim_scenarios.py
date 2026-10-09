@@ -169,6 +169,50 @@ def test_the_verified_positions_accept_what_the_verification_rules():
             assert bool(sc.accept(payload, template)) == want, (name, s0, s1, sc.accept_text)
 
 
+# The Oct 8 evening loss (ace-trainer-data/scenarios/51c86e5c.md): the spec's accept rules on the captured templates (the
+# live plays and both scorers' current picks fail; the documented lines pass). Targets: 1/2 = their slots a/b.
+SPEC_51C = {
+    "s51_t1_taunt_the_spore": [  # 1 Chien-Pao, 2 Amoonguss
+        ((_mv("taunt", 2), _mv("bodypress", 1)), True),
+        ((_mv("taunt", 2), _mv("protect")), True),
+        ((_mv("taunt", 1), _mv("bodypress", 1)), False),
+        ((_mv("waterfall", 1), _mv("flashcannon", 1)), False),  # the live play
+        ((_mv("earthquake"), _mv("bodypress", 1)), False),
+    ],
+    "s51_t3_no_fresh_sleeper_into_spore": [  # 1 Chien-Pao, 2 Amoonguss; slot 1 Archaludon asleep
+        ((_mv("taunt", 2), _mv("bodypress", 1)), True),
+        ((_mv("taunt", 2), _sw("chiyu")), True),  # the Taunt still runs on T4
+        ((_mv("protect"), _mv("bodypress", 1)), True),  # the sleeper stays in: Spore has no target
+        ((_mv("protect"), _sw("chiyu")), False),  # the live play
+        ((_mv("protect"), _sw("indeedeef")), False),
+        ((_mv("waterfall", 2), _mv("bodypress", 1)), False),  # an attacking Gyarados is the Spore target
+        ((_sw("indeedeef"), _mv("bodypress", 1)), False),
+    ],
+    "s51_t4_no_indeedee_into_spore": [  # 1 Iron Hands, 2 Amoonguss
+        ((_mv("waterfall", 1), _mv("overheat", 1)), True),
+        ((_sw("archaludon"), _mv("heatwave")), True),
+        ((_sw("indeedeef"), _mv("heatwave")), False),  # the live play
+        ((_mv("taunt", 2), _sw("indeedeef")), False),
+    ],
+}
+
+
+def test_the_51c86e5c_positions_accept_what_the_spec_rules():
+    by_name = {sc.name: sc for sc in live_scenarios.SCENARIOS}
+    by_prefix = {p.name[:8]: p for p in LIVE.iterdir() if p.is_dir()}
+    assert live_scenarios.seat_of(by_prefix["51c86e5c"]) == 0  # player 1
+    for name, lines in SPEC_51C.items():
+        sc = by_name[name]
+        template = _template(sc.session, sc.turn, sc.index)
+        for (s0, s1), want in lines:
+            payload = {"type": "doubles_turn", "slot_0": s0, "slot_1": s1}
+            assert bool(sc.accept(payload, template)) == want, (name, s0, s1, sc.accept_text)
+    preview = by_name["s51_preview_bring_both_amoonguss_answers"]
+    assert preview.phase == "team_preview" and preview.provisional
+    assert preview.accept({"bring": ["chiyu", "gyarados", "archaludon", "rillaboom"], "leads": ["chiyu", "rillaboom"]}, {})
+    assert not preview.accept({"bring": ["chiyu", "gyarados", "archaludon", "indeedeef"], "leads": ["gyarados", "archaludon"]}, {})  # live
+
+
 def test_the_seat_we_sat_in_comes_from_the_observation():
     by_prefix = {p.name[:8]: p for p in LIVE.iterdir() if p.is_dir()}
     assert live_scenarios.seat_of(by_prefix["bcbaabe2"]) == 0  # player 1
