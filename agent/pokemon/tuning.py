@@ -45,6 +45,7 @@ DEFAULTS: dict[str, float] = {
     "draft_first_exposure_w": 0.2,   # B1: x (pool cards that beat the candidate by >= 0.2) / 6: the counters the opponent can still take
     "draft_first_guard_w": 0.1,      # B1: x the hand guard list for the live catalog (+1 / -1 / 0)
     "draft_hole_w": 0.5,           # B4: log-odds per coverage hole in the finished-draft value (their card none of our four hits for 40% of its HP with its best real attack; immunities and Air Balloon count); 0 = off
+    "draft_sleep_w": 0.4,          # sleep in the finished-draft value (four against four, as Team Preview adds it): x matchup.Board.sleep_pressure, i.e. log-odds per Spore user against a four with no sleep-proof card (half against one, 0 against two); 0 = off
     "draft_tiebreak_eps": 0.01,    # picks whose finished-draft win chance is within this of the best are a tie, broken by the match's secret seed (0 = always the best)
     "lineup_tiebreak_eps": 0.01,   # same for the four we bring and the lead pair (win chance of the candidate value / the lead value)
     # lineup
@@ -67,6 +68,7 @@ DEFAULTS: dict[str, float] = {
     "lineup_v2_lead_robust": 0.0,  # v2: weight on our lead pair's worst opening against any plausible lead of theirs (vs the expected one)
     "lineup_v2_four_template": 0.0,  # v2: share of their predicted FOUR from the same template (off: on the Oct 7 opponent's live lineups M1 38->34%, M4 24->0%, M2 unchanged)
     "lineup_hole_w": 0.5,          # B4: per coverage hole, in Team Preview v2's pairing (log-odds) and the old scorer's score_four (points); 0 = off
+    "lineup_sleep_w": 0.4,         # the same in Team Preview v2's pairing (51c86e5c: every Amoonguss four of theirs had 0%, and Amoonguss slept four of ours); 0 = off
     "lead_veto_w": 0.5,            # v2 lead veto: a pair that loses a lead on turn 1 (or leads an exposed speed-control setter) against their two likeliest openings is never chosen while a pair of the same four is safe; with no safe pair, this much per lead lost (half for an exposed setter). 0 = off
     # battle
     "ko_bonus_guaranteed": 25.0,

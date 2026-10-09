@@ -201,6 +201,58 @@ def test_prankster_tailwind_helps_the_partner_the_same_turn():
     assert prankster >= plain
 
 
+# -- sleep (Oct 8, 51c86e5c: Amoonguss slept four of ours in seven turns) -------------------------------------------
+
+
+def test_sleep_proof_follows_the_mech_lanes_status_rules_on_the_catalog():
+    species = sorted(c["species"] for c in CATALOG.values())
+    spore = u("Amoonguss")
+    assert {s for s in species if s != "Amoonguss" and matchup.sleep_proof(u(s), spore)} == {
+        "Rillaboom", "Whimsicott", "Wo-Chien",  # Grass types ignore powder moves
+        "Arcanine", "Incineroar", "Hatterene",  # Safety Goggles (Hatterene's Magic Bounce too)
+        "Gholdengo"}  # Good as Gold
+    assert not matchup.sleep_proof(u("Salamence"), spore) and not matchup.sleep_proof(u("Milotic"), spore)  # Lum / Chesto: once
+    yawn = u("Torkoal")  # Yawn is no powder: Grass and Goggles do not stop it
+    assert {s for s in species if s != "Torkoal" and matchup.sleep_proof(u(s), yawn)} == {"Gholdengo", "Hatterene"}
+    assert matchup.sleep_proof(u("Garchomp"), spore, "electric") and matchup.sleep_proof(u("Garchomp"), spore, "misty")
+    assert not matchup.sleep_proof(u("Garchomp"), spore) and not matchup.sleep_proof(u("Tornadus"), spore, "misty")  # Flying: not grounded
+    assert (matchup.sleep_threat(spore), matchup.sleep_threat(yawn), matchup.sleep_threat(u("Garchomp"))) == (1.0, 0.5, 0.0)
+    assert not matchup.sleep_proof(u("Rillaboom"), u("Garchomp"))  # no sleep move, nothing to be proof against
+
+
+def test_sleep_pressure_is_spore_against_the_two_slots_it_can_reach():
+    names = ["Amoonguss", "Garchomp", "Kingambit", "Iron Hands", "Gyarados", "Rillaboom", "Incineroar", "Torkoal"]
+    board = matchup.Board([u(s) for s in names])
+    spore, yawn = [0], [7]
+    exposed, one, two = [1, 2, 3, 4], [1, 2, 3, 5], [1, 2, 5, 6]
+    assert board.sleep_pressure(exposed, spore) == pytest.approx(-1.0)  # a Spore user against no sleep-proof card
+    assert board.sleep_pressure(one, spore) == pytest.approx(-0.5)  # Rillaboom keeps one of the two slots awake
+    assert board.sleep_pressure(two, spore) == pytest.approx(0.0)  # Rillaboom + Incineroar keep both
+    assert board.sleep_pressure(two, yawn) == pytest.approx(-0.5)  # Yawn at half; Grass and Goggles do not stop it
+    assert board.sleep_pressure(spore + [1], exposed) == pytest.approx(1.0) == -board.sleep_pressure(exposed, spore + [1])
+    assert board.sleep_pressure([1, 2], [3, 4]) == 0.0  # no sleeper on either side
+    # It is a measurement: Board.score stays the fitted model (Team Preview and the finished draft add it, weighted).
+    plain = matchup.Board([u(s) for s in names if s not in ("Amoonguss", "Torkoal")])
+    assert board.score([1, 2], [3, 4]) == pytest.approx(plain.score([0, 1], [2, 3]))
+    # An Electric / Misty Terrain from either side keeps grounded cards awake while it is up (half a slot each).
+    pincurchin = matchup.unit({"card_id": "x-pincurchin", "species": "Pincurchin", "item": "Leftovers", "ability": "Electric Surge",
+                               "nature": "Serious", "evs": {}, "moves": ["Spark", "Protect"]})
+    terrain = matchup.Board([u("Amoonguss"), u("Garchomp"), u("Kingambit"), u("Tornadus"), pincurchin])
+    assert terrain.cover([1, 2], 0) == 0.0 and terrain.cover([1, 2, 4], 0) == pytest.approx(0.75)  # three grounded halves, capped at two slots
+    assert terrain.cover([1, 3], 0, field=[0, 4]) == pytest.approx(0.25)  # their terrain: Garchomp half a slot, Tornadus flies
+
+
+def test_the_opening_asks_the_mech_lane_who_can_be_slept():
+    sim = matchup._Opening(lead("Salamence", "Garchomp"), lead("Amoonguss", "Rillaboom"))
+    salamence, garchomp, amoonguss, rillaboom = sim.mons
+    assert not sim.sleepable(salamence, "spore", amoonguss)  # Lum Berry wakes it at once ...
+    salamence.item = ""
+    assert sim.sleepable(salamence, "spore", amoonguss)  # ... once
+    assert sim.sleepable(garchomp, "spore", amoonguss) and not sim.sleepable(rillaboom, "spore", amoonguss)
+    garchomp.status = "par"
+    assert not sim.sleepable(garchomp, "spore", amoonguss)  # already has a status condition
+
+
 # -- the tier list (data/card_tiers.json, scripts/build_tiers.py) --------------------------------------------------
 
 

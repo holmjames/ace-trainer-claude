@@ -421,8 +421,11 @@ def test_first_round_picks_follow_the_review_targets():
     cards, seq, ours6, theirs6 = live_draft("da9c168e")
     pool = sorted({sp for _, sp in seq} | set(ours6) | set(theirs6))
     assert ranking_with(cards, pool, [], [])[0] != "Iron Valiant"  # benched at Team Preview, and the game was lost
-    off = tuning.merged({"draft_first_pick_w": 0.0})
-    assert ranking(POOLS["L3"][2], params=off)[0] not in strong  # the search alone does not get L3 right
+    # The search alone (B1's measurement, before sleep entered the finished-draft value) does not get L3 right: Sylveon
+    # first by 0.3 points of win chance. That margin is inside the tie-break window, and draft_sleep_w 0.4 turns it into
+    # a 0.1-point tie Archaludon wins (Amoonguss is in the L3 pool), so this control keeps the sleep term off.
+    off = tuning.merged({"draft_first_pick_w": 0.0, "draft_sleep_w": 0.0})
+    assert ranking(POOLS["L3"][2], params=off)[0] not in strong
 
 
 def test_the_policy_reads_the_pool_and_fades_after_our_second_pick():
@@ -510,3 +513,34 @@ def test_the_loses_to_note_names_the_biggest_counter_first():
     assert note.startswith("loses to Flutter Mane +1.00"), note  # the one-hit KO they took next, first
     margins = [float(part.rsplit(" ", 1)[1]) for part in note[len("loses to "):].split(" still in the pool")[0].split(", ")]
     assert margins == sorted(margins, reverse=True)
+
+
+# -- Sleep in the finished-draft value (Oct 8 evening, 51c86e5c) ------------------------------------------------------
+
+
+def test_the_finished_draft_value_prices_their_spore_as_team_preview_does():
+    # 51c86e5c, our last pick: their six holds Amoonguss (Spore). The finished-draft value adds draft_sleep_w x
+    # Board.sleep_pressure four against four, the term Team Preview's pairing adds, so a sleep-proof Grass type loses
+    # half as much to their Spore as Toxapex does, and its notes say why.
+    folder = next((p for p in LIVE_DIR.iterdir() if p.is_dir() and p.name.startswith("51c86e5c")), None)
+    if folder is None:
+        pytest.skip("live capture 51c86e5c not present")
+    drafts = sorted(folder.glob("draft-*-seat0.json"))
+    first, last = (json.loads(d.read_text())["observation"] for d in (drafts[0], drafts[-1]))
+    pool = sorted({c["species"] for c in first["available_cards"]} | {p["species"] for p in last["picks"]})
+    ours = ["Chi-Yu", "Gyarados", "Archaludon", "Tornadus", "Indeedee-F"]
+    theirs = ["Iron Hands", "Chien-Pao", "Landorus-Therian", "Ursaluna", "Hatterene", "Amoonguss"]
+    w = tuning.DEFAULTS["draft_sleep_w"]
+    assert w == tuning.DEFAULTS["lineup_sleep_w"] > 0
+
+    def values(params):
+        memory = memory_for(pool, ours, theirs)
+        return {s.species: s for s in draft.rank_picks_v2(offered(memory), memory, params)}
+    priced, plain = values(tuning.DEFAULTS), values(tuning.merged({"draft_sleep_w": 0.0}))
+    assert {"Rillaboom", "Whimsicott", "Toxapex"} <= set(priced)
+    gain = {s: priced[s].score - plain[s].score for s in ("Rillaboom", "Whimsicott", "Toxapex")}
+    assert gain["Toxapex"] <= -0.9 * w  # their Spore against a four with no sleep-proof card: the full weight
+    assert gain["Rillaboom"] - gain["Toxapex"] >= 0.4 * w and gain["Whimsicott"] - gain["Toxapex"] >= 0.4 * w
+    assert next(iter(priced)) == "Rillaboom"  # what we took live, and the four it fits holds a Spore answer
+    assert "sleep-proof against their Amoonguss" in priced["Rillaboom"].notes
+    assert not any("sleep-proof" in n for n in priced["Toxapex"].notes)

@@ -520,7 +520,7 @@ class DraftSearch:
 
     def __init__(self, board, *, lookahead: int = 3, minimax: float = 0.5, reply_depth: int = 1, counter_replies: int = 3,
                  counter_prior: float = 0.0, four_eval: bool = True, their_fours: int = 3, robust: float = 0.25,
-                 hole_w: float = 0.0) -> None:
+                 hole_w: float = 0.0, sleep_w: float = 0.0) -> None:
         self.board = board
         self.lookahead = max(0, int(lookahead))
         self.minimax = max(0.0, min(1.0, float(minimax)))
@@ -531,6 +531,7 @@ class DraftSearch:
         self.their_fours = max(1, int(their_fours))  # ... against this many of their likeliest fours
         self.robust = max(0.0, min(1.0, float(robust)))  # weight on the worst of those fours (lineup_v2_robust)
         self.hole_w = float(hole_w)  # log-odds per coverage hole (Board.holes): their card none of our four can hit for 40%
+        self.sleep_w = float(sleep_w)  # x Board.sleep_pressure in the four-against-four value, as Team Preview's pairing adds it
         self.items = board.items
         self._counter_base: list[float] | None = None  # per card: role points + raw strength (counterpick.counter_value)
         self._beats: dict[tuple[int, int], float | None] = {}
@@ -603,7 +604,9 @@ class DraftSearch:
         six); the 6-against-6 team score when ``four_eval`` is off. With ``include`` (the pick being valued) only
         fours holding that card count, so a pick the finished six would bench is worth the best four it still fits
         in, never the six built around it. (Their fitted per-card terms stay in here: taking them out, as Team
-        Preview does for their bring, moved the bcbaabe2 pick-3 state off Archaludon.)"""
+        Preview does for their bring, moved the bcbaabe2 pick-3 state off Archaludon.) Each four-against-four value
+        carries ``sleep_w`` x Board.sleep_pressure (their Spore against our sleep-proof cards and ours against
+        theirs), as Team Preview's pairing does, and their likeliest fours are picked with it."""
         key = (tuple(sorted(us)), tuple(sorted(them)), include)
         cached = self._finished.get(key)
         if cached is not None:
@@ -612,14 +615,15 @@ class DraftSearch:
             result = (self.board.score(us, them), tuple(us))
         else:
             score4, holes, hole_w = self.board.score4, self.board.holes, self.hole_w
-            theirs = sorted(combinations(them, 4), key=lambda g: -score4(list(g), us))[: self.their_fours]
+            sleep_w, sleep = self.sleep_w if self.board.sleepers else 0.0, self.board.sleep_pressure
+            theirs = sorted(combinations(them, 4), key=lambda g: -(score4(list(g), us) + sleep_w * sleep(list(g), us)))[: self.their_fours]
             theirs = [list(g) for g in theirs]
             best: tuple[float, tuple[int, ...]] | None = None
             for four in combinations(us, 4):
                 if include is not None and include not in four:
                     continue
                 f = list(four)
-                values = [score4(f, g) - hole_w * (len(holes(f, g)) - len(holes(g, f))) for g in theirs]
+                values = [score4(f, g) + sleep_w * sleep(f, g) - hole_w * (len(holes(f, g)) - len(holes(g, f))) for g in theirs]
                 value = (1 - self.robust) * sum(values) / len(values) + self.robust * min(values)
                 if best is None or value > best[0]:
                     best = (value, four)
@@ -737,7 +741,8 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
                          reply_depth=int(P.get("draft_reply_depth", 1)), counter_replies=int(P.get("draft_counter_replies", 3)),
                          counter_prior=float(P.get("draft_counter_prior", 0.0)),
                          four_eval=bool(P.get("draft_four_eval", 1)), their_fours=int(P.get("draft_their_fours", 3)),
-                         robust=float(P.get("lineup_v2_robust", 0.25)), hole_w=float(P.get("draft_hole_w", 0.0)))
+                         robust=float(P.get("lineup_v2_robust", 0.25)), hole_w=float(P.get("draft_hole_w", 0.0)),
+                         sleep_w=float(P.get("draft_sleep_w", 0.0)))
     # Our first two picks also read the pool itself (first_pick_bonus): full weight on the first, half on the second.
     policy_w = float(P.get("draft_first_pick_w", 0.0)) * max(0.0, 1.0 - len(us) / 2.0)
     scored: list[tuple[_Plan, LegalAction, int, float, dict]] = []
@@ -761,6 +766,13 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
         answered = [board.units[j].species for j in them if board.base[i][j] >= 0.2]
         if answered:
             notes.append(f"beats {answered[:3]}")
+        # Sleep (Board.sleep_pressure, draft_sleep_w): their sleep-move users this card cannot be slept by, and ours.
+        proof_vs = [board.units[j].species for j in them if board.sleep_r[j] and board.proof[j][i]]
+        if proof_vs:
+            notes.append(f"sleep-proof against their {', '.join(proof_vs)}")
+        if board.sleep_r[i] and them:
+            safe = [board.units[j].species for j in them if board.proof[i][j]]
+            notes.append(f"its sleep move cannot touch their {', '.join(safe)}" if safe else "its sleep move reaches all their picks")
         threats = sorted(((board.base[j][i], j) for j in pool if j != i and board.base[j][i] >= 0.2), key=lambda t: -t[0])
         if rank == 0 and len(scored) > 1:
             runner = scored[1]
