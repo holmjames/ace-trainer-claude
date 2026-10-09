@@ -1438,8 +1438,9 @@ def _double_target_threats(sheet: "TurnSheet", ours: dict[int, "Mon"], P: dict) 
         foes = [(t, hits) for t, hits in foes if hits]
         if len(foes) != 2:
             continue
-        if any(h["ko"] == "guaranteed" for _, hits in foes for h in hits):
-            continue  # one of them already KOs alone: the single-threat warning covers it
+        if any(h["ko"] == "guaranteed" and first(t, h) for t, hits in foes for h in hits):
+            continue  # one of them already KOs alone BEFORE we move: the LETHAL warning covers it (a sure KO that lands
+            # after we move is no reason to skip the double: Oct 8, Fake Out + Extreme Speed did 93-110% with no warning)
         pairs = [((foes[0][0], a), (foes[1][0], b)) for a in foes[0][1] for b in foes[1][1]]
 
         def order_key(t: dict, h: dict) -> tuple[int, int]:
@@ -2527,9 +2528,12 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 alt_val = _expected(alt_row, alt_opt.get("priority", 0) or 0, P, weights.get(species_key(foe.species), 0.0))
                 why_extra = f" (its Focus Sash is broken by slot {killer}'s {k_opt['move']} first, so this hit is a full {est[0]}-{est[1]}%)"
         answers = {killer: slot_answer(k_opt["option"], k_row["target"]), other: slot_answer(alt_opt["option"], survivor)}
+        # the bonus is for a KO that happens: a killer that dies before it moves earns none of it (the Oct 8 win as
+        # player 2, turn 2: +15 for a Rillaboom that never moved tied the winning switch)
+        killer_acts = survival_factor(killer, sheet, k_prio, speed_rank, k_row, P)
         add("finish_the_other", answers[0], answers[1],
             f"slot {killer} {k_opt['move']} already KOs {theirs[victim].species}; slot {other} {alt_opt['move']} goes into {foe.species} ({alt_row['damage_pct_of_current_hp']}%){why_extra}",
-            joint_value([(killer, k_opt, k_row, k_val), (other, alt_opt, alt_row, alt_val)]) + P["focus_fire_bonus"] * 0.5)
+            joint_value([(killer, k_opt, k_row, k_val), (other, alt_opt, alt_row, alt_val)]) + P["focus_fire_bonus"] * 0.5 * killer_acts)
 
     def protect_index(slot: dict | None) -> int | None:
         return next((i for i, o in enumerate((slot or {}).get("options") or []) if o.get("type") == "move"

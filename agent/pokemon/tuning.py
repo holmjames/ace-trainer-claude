@@ -95,6 +95,8 @@ DEFAULTS: dict[str, float] = {
     "reply_floor_margin": 100.0,   # never a row whose worst plausible reply trails the best worst case by more than this (one Pokémon)
     "reply_loss_w": 1.0,           # the mixture's charge for one of ours KO'd (x its material) and reply_chip_w for damage taken
     "reply_chip_w": 0.35,
+    "reply_next_w": 0.4,           # the mixture's one-ply next-turn term: next turn's KOs each side can take, discounted by this
+    "reply_protect_tempo": 8.0,    # the mixture's charge per Protect of ours: the turn it gives away
 }
 
 

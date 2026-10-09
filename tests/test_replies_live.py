@@ -57,6 +57,9 @@ EXCEPTIONS = {
                                "switch is the worst row by the sheet's own numbers",
     "m4_t7_lucario_protects": "Close Combat KOs the 58% Incineroar before it moves (Lucario outspeeds it), removing the Flare Blitz that KOs "
                               "Tornadus; the -2 Def Scale Shot is priced (post-move rows) and the trade still values above Lucario Protect",
+    "m1_t3_pressure_gholdengo": "a coin flip by the sheet: Sneasler's switch to Landorus is the row either way, and Cresselia's Moonblast into "
+                                "Dragonite (46.5-56.1%) and Icy Wind (41.7-51.3% into Dragonite at 95% accuracy, 3.7-4.9% into Gholdengo) sit ten "
+                                "points apart with Dragonite's fresh-Protect prior at 0.32; the accept rejects any single-target hit into Dragonite",
     "o8_t14_no_fake_priority_escape": "in a code-only replay Arcanine (39%) Protected on T13, so its T14 Protect works 1 in 3; Extreme Speed + Body "
                                       "Press put Dragonite at 4-19% before Arcanine is lost and Archaludon finishes next turn either way (the "
                                       "live turn's second Protect happened to work); the sheet no longer calls the Extreme Speed an escape",
