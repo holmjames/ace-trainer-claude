@@ -1,5 +1,5 @@
 {
- "note": "Built by scripts/build_tiers.py. rating = sim_rating + adjust; the drafter's base value per card. sim_rating = matchup_part + card_part from the fitted team model (data/draft_model.json); adjust is a written-down prior where the code-only simulator misplays the card (see flag / live). Iron Valiant, Iron Treads, Talonflame and Toxapex (first seen live Oct 8) carry their matchup part only: the fitted model has no card part for them and a full rebuild would move every other rating.",
+ "note": "Built by scripts/build_tiers.py. rating = sim_rating + adjust; the drafter's base value per card. sim_rating = matchup_part + card_part from the fitted team model (data/draft_model.json); adjust is a written-down prior where the code-only simulator misplays the card (see flag / live). Iron Valiant, Iron Treads, Talonflame, Toxapex and Farigiraf (first seen live Oct 8) carry their matchup part only: the fitted model has no card part for them and a full rebuild would move every other rating.",
  "units": "1/100 log-odds of winning",
  "tiers": {
   "S": ">= 40",
@@ -305,6 +305,18 @@
    "card_part": -3.4,
    "why": "wins 15/40 1-on-1s (best: Torkoal, Flutter Mane); countered by Archaludon, Iron Hands; spread",
    "flag": "no Commander (no Tatsugiri in the catalog); this set is Unaware, which the race model does credit"
+  },
+  "vgc-farigiraf": {
+   "species": "Farigiraf",
+   "fingerprint": "bea8d1004c9fdb01",
+   "tier": "C",
+   "rating": -7.2,
+   "sim_rating": -7.2,
+   "adjust": 0,
+   "matchup_part": -7.2,
+   "card_part": 0.0,
+   "why": "wins 10/45 1-on-1s (best: Torkoal, Tornadus); countered by Archaludon, Gholdengo; Trick Room, spread; not in the fitted model (first seen live Oct 8): matchup part only",
+   "flag": "engine sets Trick Room whether or not its own team wants it; Armor Tail blocks Fake Out and other priority into its side"
   },
   "vgc-indeedee-f": {
    "species": "Indeedee-F",

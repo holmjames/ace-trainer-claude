@@ -180,6 +180,26 @@
   ]
  },
  {
+  "card_id": "vgc-farigiraf",
+  "species": "Farigiraf",
+  "item": "Electric Seed",
+  "ability": "Armor Tail",
+  "nature": "Quiet",
+  "level": 50,
+  "evs": {
+   "hp": 252,
+   "spa": 252,
+   "spd": 4
+  },
+  "ivs": {},
+  "moves": [
+   "Trick Room",
+   "Dazzling Gleam",
+   "Psychic",
+   "Helping Hand"
+  ]
+ },
+ {
   "card_id": "vgc-flutter-mane",
   "species": "Flutter Mane",
   "item": "Booster Energy",
