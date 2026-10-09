@@ -399,3 +399,19 @@ def test_the_next_turn_counts_our_switch_in():
     hits = ctx._our_next_hits(switch.slot, mon, preview, foe.position, foe, False)
     deal = next(d for d in preview["deals_best"] if species_key(d["to"]) == species_key(foe.species))
     assert hits and hits[0][0]["damage_pct_of_current_hp"] == deal["damage_pct"]
+
+
+def test_the_search_read_expects_the_protect_the_bot_made():
+    # m2 T3: every version of the bot Protects Sylveon (the verification); the pooled tally gives those columns under
+    # 0.5, the search read (a quantal response to our likely rows, the way a search scores its replies) raises them (0.64),
+    # and the mixture then plays Body Press / Waterfall into Incineroar instead of Earthquake next to Archaludon. The
+    # replay is the mixture's own (our earlier choices set our Protect streaks, so they shape the read).
+    from tests.test_replies_live import decision
+
+    payload, template, row = decision(M2, 3)
+    table = row["turn_sheet"]["reply_table"]
+    protect = sum(c["prior"] for c in table["columns"] if c["name"].startswith("sylveon Protect"))
+    assert protect > 0.55, table["columns"]
+    assert (payload.get("slot_1") or {}).get("move_id") != "earthquake", payload
+    sheet, *_ = _sheet_at(M2, 3, {"reply_mixture": 1, "reply_seed": 7, "reply_search_qr": 0.0})
+    assert sum(c["prior"] for c in sheet.reply["columns"] if c["name"].startswith("sylveon Protect")) < 0.5  # the tally alone

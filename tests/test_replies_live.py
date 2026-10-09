@@ -46,18 +46,12 @@ BATTLE = [s for s in LS.SCENARIOS if s.turn > 0]
 # the accept rules in scripts/live_scenarios.py are its verified answers) these are known gaps of the reply model, each
 # with its cause, not documented disagreements: remove an entry once the mixture plays the verified line.
 EXCEPTIONS = {
-    "m1_t6_dire_claw_ko": "verified for Dire Claw + Cresselia Protect (-39.0 vs -55.0); the mixture's priors are off (Extreme Speed 0.55 "
-                          "vs 6/29 observed, Shadow Ball aimed at Cresselia's slot 0.46 vs 7/7 at slot a or both, a 9-point priority bonus "
-                          "for a Fake Out into a Protect, Dire Claw KO 0.21 vs 0.25): Part 3b item 3",
-    "m2_t3_not_into_the_protecting_sylveon": "verified: every bot version Protects Sylveon (P = 1), so Earthquake's 28.4-33.5% into our "
-                                             "Archaludon decides it; the equilibrium already prefers Body Press + Waterfall (51.4 vs 49.3), "
-                                             "but the class prior gives the Protect column 0.25 and its weight keeps Earthquake + Flash Cannon first",
+    "m1_t6_dire_claw_ko": "verified for Dire Claw + Cresselia Protect (-39.0 vs -55.0 against the bot's own replies); with the search "
+                          "read the mixture expects Dragonite to Protect (0.73) and plays the double Protect, a row the verification "
+                          "did not price; the KO odds stay linear in the roll (Dire Claw 0.21 vs 0.25: mech's ko_probability)",
     "m2_t4_protect_the_doubled_archaludon": "verified for Archaludon Protect + Earthquake / Waterfall into Flutter Mane (win 0.87-0.97 vs "
                                             "0.54-0.66 doubling Sylveon): the double leaves Archaludon at 70-91 HP to a faster Flutter Mane "
                                             "that doubles it again on T5-T6, which the one-ply next-turn term underprices",
-    "m4_t7_lucario_protects": "verified for the double Protect (0.401 vs 0.088 for the Close Combat trade against the bot's Fake Out + "
-                              "Scale Shot reply); the fainted-Gholdengo worst reply is gone (Part 3b bug 1) but Close Combat + Bleakwind "
-                              "still values above it",
 }
 
 

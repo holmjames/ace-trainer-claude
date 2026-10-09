@@ -229,6 +229,10 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
         return list(candidates or [])
     matrix = [[ctx.cell(r, c) for c in cols] for r in rows]
     prior = ctx.prior(cols)
+    kappa = float(P.get("reply_search_qr", 0.0))
+    if kappa > 0 and klass == "search":
+        searched = _search_reply(matrix, prior, P)
+        prior = [(1.0 - kappa) * a + kappa * b for a, b in zip(prior, searched)]
     lam = _lambda(memory, ctx, cols, prior)
     floor_cols = [j for j in range(len(cols)) if prior[j] >= float(P.get("reply_floor_min_prior", 0.08))] or list(range(len(cols)))
     # the equilibrium is over the PLAUSIBLE columns: a reply the class never makes (a second Protect in a row) is not
@@ -275,6 +279,37 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
                    "rows": [{"name": c["name"], "value": c["value"], "worst": c["worst"], "best_reply": c["best_reply"]} for c in out[:8]]}
     _remember_prediction(memory, ctx, cols, prior, turn)
     return out
+
+
+def _softmax(values: list[float], beta: float) -> list[float]:
+    top = max(values)
+    weights = [math.exp(beta * (v - top)) for v in values]
+    total = sum(weights) or 1.0
+    return [w / total for w in weights]
+
+
+def _search_reply(matrix: list[list[float]], prior: list[float], P: dict) -> list[float]:
+    """The search class's own read of the turn, the way such a bot decides: it expects our rows by a softmax over their
+    value against its current mix (``reply_qr_beta``), scores each of its replies by 0.7 of our expected value plus 0.3
+    of our best likely row (it minimises ours: robust), and moves its mix halfway to a softmax at twice that sharpness;
+    a few rounds from the class prior. It is a model of a search, not of a table of past choices: the Oct 7 search bot
+    Protected the threatened Sylveon in every version (m2 T3), where the pooled tally says 0.40."""
+    beta = float(P.get("reply_qr_beta", 0.06))
+    n, m = len(matrix), len(matrix[0])
+    mix = list(prior)
+    for _ in range(int(P.get("reply_qr_rounds", 4))):
+        ours = _softmax([sum(matrix[i][j] * mix[j] for j in range(m)) for i in range(n)], beta)
+        ranked = sorted(range(n), key=lambda i: -ours[i])
+        likely, mass = [], 0.0
+        for i in ranked:
+            likely.append(i)
+            mass += ours[i]
+            if mass >= 0.8:
+                break
+        scores = [-(0.7 * sum(ours[i] * matrix[i][j] for i in range(n)) + 0.3 * max(matrix[i][j] for i in likely)) for j in range(m)]
+        best = _softmax(scores, 2.0 * beta)
+        mix = [0.5 * a + 0.5 * b for a, b in zip(mix, best)]
+    return mix
 
 
 def _match_seed(memory: MatchMemory | None, P: dict | None = None) -> int:

@@ -99,6 +99,9 @@ DEFAULTS: dict[str, float] = {
     "reply_chip_w": 0.35,
     "reply_next_w": 0.4,           # the mixture's one-ply next-turn term: next turn's KOs each side can take, discounted by this
     "reply_protect_tempo": 8.0,    # the mixture's charge per Protect of ours: the turn it gives away
+    "reply_search_qr": 1.0,        # weight of the search class's own read of the turn (replies._search_reply: a quantal response to our likely rows) in its prior; 0 = the tally prior alone
+    "reply_qr_beta": 0.06,         # that read's sharpness over our rows (twice this over its replies), in damage points
+    "reply_qr_rounds": 4.0,        # rounds of that read, from the class prior
     "sleep_future_w": 0.5,         # Part 3: weight of a later turn's action against this turn's (the turns a sleep move takes, a Taunt blocks)
     "sleep_use_prior": 0.6,        # Part 3: chance a sleep user with a target uses its sleep move this turn (aimed 0.8 at the slot that loses most)
     # model layer (ops lane)
