@@ -166,7 +166,10 @@ def test_quick_tier_log_lines_and_verdicts(gate, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 0 and "GATE PASS" in out and not g["lock"].exists()
     rows = {r["stage"]: r for r in ship_gate.load_log(g["log"])}
-    assert list(rows) == ["check:pytest", "check:scenarios", "check:live_scenarios", "quick:mirror", "quick:clone", "quick:old"]
+    expected = ["check:pytest", "check:scenarios", "check:live_scenarios"]
+    if (Path(ship_gate.__file__).resolve().parent.parent / ship_gate.LIVE_POSITION_TESTS).exists():
+        expected.append("check:live_positions")  # the core lane's live-position tests add a stage once they exist
+    assert list(rows) == expected + ["quick:mirror", "quick:clone", "quick:old"]
     assert rows["check:pytest"]["pass"] is True and rows["check:scenarios"]["pass"] is None  # a failing scenario on the first run is the baseline
     assert (rows["check:scenarios"]["passed"], rows["check:scenarios"]["total"]) == (21, 22)
     mirror = rows["quick:mirror"]
