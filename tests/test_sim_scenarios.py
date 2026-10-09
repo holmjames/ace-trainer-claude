@@ -176,7 +176,10 @@ def test_p2_pick_one_is_not_iron_valiant_and_the_reply_set_names_incineroar(p2_l
     row = rows["draft-00000-seat1.json"]
     assert row["pick_number"] == 1 and row["card_id"] != "vgc-iron-valiant"
     notes = row.get("notes") or []
-    assert any("likely replies" in n and "Incineroar" in n for n in notes), notes
+    # The first-pick policy now takes Incineroar itself here (the pool's only Intimidate, a Fake Out user); when we hold
+    # it, the reply set cannot name it, so the "replies name Incineroar" check applies only when our pick is another card.
+    if row["card_id"] != "vgc-incineroar":
+        assert any("likely replies" in n and "Incineroar" in n for n in notes), notes
     assert any(n.startswith("loses to") for n in notes), notes
 
 
