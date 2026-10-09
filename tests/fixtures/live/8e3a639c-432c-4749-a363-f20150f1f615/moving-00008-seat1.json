@@ -1,0 +1,1507 @@
+{
+ "session_id": "8e3a639c-432c-4749-a363-f20150f1f615",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 8,
+ "observation": {
+  "battle_tag": "battle-gen9vgc2025regi-312",
+  "turn": 8,
+  "format": "gen9vgc2025regi",
+  "finished": false,
+  "won": null,
+  "lost": null,
+  "weather": {
+   "SUNNYDAY": 7
+  },
+  "fields": {},
+  "side_conditions": {},
+  "opponent_side_conditions": {},
+  "team": {
+   "p2: Iron Hands": {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 87,
+    "max_hp": 259,
+    "current_hp_fraction": 0.3359073359073359,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "assaultvest",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "closecombat",
+     "wildcharge",
+     "drainpunch"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Archaludon": {
+    "species": "archaludon",
+    "name": "Archaludon",
+    "current_hp": 174,
+    "max_hp": 197,
+    "current_hp_fraction": 0.883248730964467,
+    "status": null,
+    "ability": "stamina",
+    "item": "leftovers",
+    "types": [
+     "STEEL",
+     "DRAGON"
+    ],
+    "base_stats": {
+     "atk": 105,
+     "def": 130,
+     "hp": 90,
+     "spa": 125,
+     "spd": 65,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -2,
+     "def": 4,
+     "evasion": 0,
+     "spa": -2,
+     "spd": 0,
+     "spe": -4
+    },
+    "moves": [
+     "bodypress",
+     "dracometeor",
+     "flashcannon",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Torkoal": {
+    "species": "torkoal",
+    "name": "Torkoal",
+    "current_hp": 96,
+    "max_hp": 177,
+    "current_hp_fraction": 0.5423728813559322,
+    "status": null,
+    "ability": "drought",
+    "item": "",
+    "types": [
+     "FIRE"
+    ],
+    "base_stats": {
+     "atk": 85,
+     "def": 140,
+     "hp": 70,
+     "spa": 85,
+     "spd": 70,
+     "spe": 20
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": -2
+    },
+    "moves": [
+     "eruption",
+     "heatwave",
+     "yawn",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Dragonite": {
+    "species": "dragonite",
+    "name": "Dragonite",
+    "current_hp": 198,
+    "max_hp": 198,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "multiscale",
+    "item": "loadeddice",
+    "types": [
+     "DRAGON",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 95,
+     "hp": 91,
+     "spa": 100,
+     "spd": 100,
+     "spe": 80
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "extremespeed",
+     "scaleshot",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   "p2: Ursaluna": {
+    "species": "ursaluna",
+    "name": "Ursaluna",
+    "current_hp": 126,
+    "max_hp": 237,
+    "current_hp_fraction": 0.5316455696202531,
+    "status": null,
+    "ability": "guts",
+    "item": "",
+    "types": [
+     "GROUND",
+     "NORMAL"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 105,
+     "hp": 130,
+     "spa": 45,
+     "spd": 80,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "facade",
+     "headlongrush",
+     "earthquake",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p2: Arcanine": {
+    "species": "arcanine",
+    "name": "Arcanine",
+    "current_hp": 197,
+    "max_hp": 197,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "safetygoggles",
+    "types": [
+     "FIRE"
+    ],
+    "base_stats": {
+     "atk": 110,
+     "def": 80,
+     "hp": 90,
+     "spa": 100,
+     "spd": 80,
+     "spe": 95
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "flareblitz",
+     "extremespeed",
+     "snarl",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  },
+  "opponent_team": {
+   "p1: Incineroar": {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": "intimidate",
+    "item": "unknown_item",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout"
+    ],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Tyranitar": {
+    "species": "tyranitar",
+    "name": "Tyranitar",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": null,
+    "item": null,
+    "types": [
+     "ROCK",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 134,
+     "def": 110,
+     "hp": 100,
+     "spa": 95,
+     "spd": 100,
+     "spe": 61
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "knockoff",
+     "protect"
+    ],
+    "fainted": true,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Cresselia": {
+    "species": "cresselia",
+    "name": "Cresselia",
+    "current_hp": 44,
+    "max_hp": 100,
+    "current_hp_fraction": 0.44,
+    "status": null,
+    "ability": "levitate",
+    "item": null,
+    "types": [
+     "PSYCHIC"
+    ],
+    "base_stats": {
+     "atk": 70,
+     "def": 110,
+     "hp": 120,
+     "spa": 75,
+     "spd": 120,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "moonblast",
+     "icywind"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   "p1: Baxcalibur": {
+    "species": "baxcalibur",
+    "name": "Baxcalibur",
+    "current_hp": 0,
+    "max_hp": 100,
+    "current_hp_fraction": 0,
+    "status": "FNT",
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DRAGON",
+     "ICE"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 92,
+     "hp": 115,
+     "spa": 75,
+     "spd": 86,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": true,
+    "active": false,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  },
+  "is_doubles": true,
+  "force_switch": [
+   false,
+   false
+  ],
+  "can_tera": [
+   true,
+   true
+  ],
+  "active_pokemon": [
+   {
+    "species": "torkoal",
+    "name": "Torkoal",
+    "current_hp": 96,
+    "max_hp": 177,
+    "current_hp_fraction": 0.5423728813559322,
+    "status": null,
+    "ability": "drought",
+    "item": "",
+    "types": [
+     "FIRE"
+    ],
+    "base_stats": {
+     "atk": 85,
+     "def": 140,
+     "hp": 70,
+     "spa": 85,
+     "spd": 70,
+     "spe": 20
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": -2
+    },
+    "moves": [
+     "eruption",
+     "heatwave",
+     "yawn",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   },
+   {
+    "species": "archaludon",
+    "name": "Archaludon",
+    "current_hp": 174,
+    "max_hp": 197,
+    "current_hp_fraction": 0.883248730964467,
+    "status": null,
+    "ability": "stamina",
+    "item": "leftovers",
+    "types": [
+     "STEEL",
+     "DRAGON"
+    ],
+    "base_stats": {
+     "atk": 105,
+     "def": 130,
+     "hp": 90,
+     "spa": 125,
+     "spd": 65,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": -2,
+     "def": 4,
+     "evasion": 0,
+     "spa": -2,
+     "spd": 0,
+     "spe": -4
+    },
+    "moves": [
+     "bodypress",
+     "dracometeor",
+     "flashcannon",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_active_pokemon": [
+   null,
+   {
+    "species": "cresselia",
+    "name": "Cresselia",
+    "current_hp": 44,
+    "max_hp": 100,
+    "current_hp_fraction": 0.44,
+    "status": null,
+    "ability": "levitate",
+    "item": null,
+    "types": [
+     "PSYCHIC"
+    ],
+    "base_stats": {
+     "atk": 70,
+     "def": 110,
+     "hp": 120,
+     "spa": 75,
+     "spd": 120,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "moonblast",
+     "icywind"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": true,
+    "is_terastallized": false
+   }
+  ],
+  "available_moves": [
+   [
+    {
+     "id": "eruption",
+     "type": "FIRE",
+     "category": "SPECIAL",
+     "base_power": 150,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 8,
+     "max_pp": 8,
+     "target": "ALL_ADJACENT_FOES",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "heatwave",
+     "type": "FIRE",
+     "category": "SPECIAL",
+     "base_power": 95,
+     "accuracy": 0.9,
+     "priority": 0,
+     "current_pp": 15,
+     "max_pp": 16,
+     "target": "ALL_ADJACENT_FOES",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    },
+    {
+     "id": "yawn",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "NORMAL",
+     "targets": [
+      -2,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -2,
+       "side": "ally",
+       "species": "archaludon"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": null
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "cresselia"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "id": "bodypress",
+     "type": "FIGHTING",
+     "category": "PHYSICAL",
+     "base_power": 80,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 10,
+     "max_pp": 16,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "torkoal"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": null
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "cresselia"
+      }
+     ]
+    },
+    {
+     "id": "dracometeor",
+     "type": "DRAGON",
+     "category": "SPECIAL",
+     "base_power": 130,
+     "accuracy": 0.9,
+     "priority": 0,
+     "current_pp": 7,
+     "max_pp": 8,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "torkoal"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": null
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "cresselia"
+      }
+     ]
+    },
+    {
+     "id": "flashcannon",
+     "type": "STEEL",
+     "category": "SPECIAL",
+     "base_power": 80,
+     "accuracy": 1.0,
+     "priority": 0,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "NORMAL",
+     "targets": [
+      -1,
+      1,
+      2
+     ],
+     "target_options": [
+      {
+       "target": -1,
+       "side": "ally",
+       "species": "torkoal"
+      },
+      {
+       "target": 1,
+       "side": "opponent",
+       "species": null
+      },
+      {
+       "target": 2,
+       "side": "opponent",
+       "species": "cresselia"
+      }
+     ]
+    },
+    {
+     "id": "protect",
+     "type": "NORMAL",
+     "category": "STATUS",
+     "base_power": 0,
+     "accuracy": 1.0,
+     "priority": 4,
+     "current_pp": 16,
+     "max_pp": 16,
+     "target": "SELF",
+     "targets": [
+      0
+     ],
+     "target_options": [
+      {
+       "target": 0,
+       "side": "none",
+       "species": null
+      }
+     ]
+    }
+   ]
+  ],
+  "available_switches": [
+   [
+    {
+     "species": "ursaluna",
+     "name": "Ursaluna",
+     "current_hp": 126,
+     "max_hp": 237,
+     "current_hp_fraction": 0.5316455696202531,
+     "status": null,
+     "ability": "guts",
+     "item": "",
+     "types": [
+      "GROUND",
+      "NORMAL"
+     ],
+     "base_stats": {
+      "atk": 140,
+      "def": 105,
+      "hp": 130,
+      "spa": 45,
+      "spd": 80,
+      "spe": 50
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "facade",
+      "headlongrush",
+      "earthquake",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": true,
+     "is_terastallized": false
+    },
+    {
+     "species": "ironhands",
+     "name": "Iron Hands",
+     "current_hp": 87,
+     "max_hp": 259,
+     "current_hp_fraction": 0.3359073359073359,
+     "status": null,
+     "ability": "quarkdrive",
+     "item": "assaultvest",
+     "types": [
+      "FIGHTING",
+      "ELECTRIC"
+     ],
+     "base_stats": {
+      "atk": 140,
+      "def": 108,
+      "hp": 154,
+      "spa": 50,
+      "spd": 68,
+      "spe": 50
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "fakeout",
+      "closecombat",
+      "wildcharge",
+      "drainpunch"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": true,
+     "is_terastallized": false
+    }
+   ],
+   [
+    {
+     "species": "ursaluna",
+     "name": "Ursaluna",
+     "current_hp": 126,
+     "max_hp": 237,
+     "current_hp_fraction": 0.5316455696202531,
+     "status": null,
+     "ability": "guts",
+     "item": "",
+     "types": [
+      "GROUND",
+      "NORMAL"
+     ],
+     "base_stats": {
+      "atk": 140,
+      "def": 105,
+      "hp": 130,
+      "spa": 45,
+      "spd": 80,
+      "spe": 50
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "facade",
+      "headlongrush",
+      "earthquake",
+      "protect"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": true,
+     "is_terastallized": false
+    },
+    {
+     "species": "ironhands",
+     "name": "Iron Hands",
+     "current_hp": 87,
+     "max_hp": 259,
+     "current_hp_fraction": 0.3359073359073359,
+     "status": null,
+     "ability": "quarkdrive",
+     "item": "assaultvest",
+     "types": [
+      "FIGHTING",
+      "ELECTRIC"
+     ],
+     "base_stats": {
+      "atk": 140,
+      "def": 108,
+      "hp": 154,
+      "spa": 50,
+      "spd": 68,
+      "spe": 50
+     },
+     "boosts": {
+      "accuracy": 0,
+      "atk": 0,
+      "def": 0,
+      "evasion": 0,
+      "spa": 0,
+      "spd": 0,
+      "spe": 0
+     },
+     "moves": [
+      "fakeout",
+      "closecombat",
+      "wildcharge",
+      "drainpunch"
+     ],
+     "fainted": false,
+     "active": false,
+     "revealed": true,
+     "is_terastallized": false
+    }
+   ]
+  ],
+  "target_legend": {
+   "-1": "board position A on your side (always slot 0's position)",
+   "-2": "board position B on your side (always slot 1's position)",
+   "1": "board position A on the opponent's side",
+   "2": "board position B on the opponent's side",
+   "0": "no target needed (self/field/spread move)"
+  },
+  "protocol_log": [
+   "|init|battle",
+   "|title|able-p0-8e3a63 1 vs. able-p1-8e3a63 1",
+   "|j|☆able-p0-8e3a63 1",
+   "|j|☆able-p1-8e3a63 1",
+   "|gametype|doubles",
+   "|player|p1|able-p0-8e3a63 1|2|",
+   "|player|p2|able-p1-8e3a63 1|101|",
+   "|gen|9",
+   "|tier|[Gen 9] VGC 2025 Reg I",
+   "|rule|Species Clause: Limit one of each Pokémon",
+   "|rule|Item Clause: Limit 1 of each item",
+   "|clearpoke",
+   "|poke|p1|Tyranitar, L50, F|",
+   "|poke|p1|Rillaboom, L50, F|",
+   "|poke|p1|Incineroar, L50, M|",
+   "|poke|p1|Thundurus, L50, M|",
+   "|poke|p1|Cresselia, L50, F|",
+   "|poke|p1|Baxcalibur, L50, M|",
+   "|poke|p2|Iron Hands, L50|",
+   "|poke|p2|Archaludon, L50, F|",
+   "|poke|p2|Torkoal, L50, F|",
+   "|poke|p2|Dragonite, L50, M|",
+   "|poke|p2|Ursaluna, L50, F|",
+   "|poke|p2|Arcanine, L50, M|",
+   "|teampreview|4",
+   "|uhtml|otsrequest|<button name=\"send\" value=\"/acceptopenteamsheets\" class=\"button\" style=\"margin-right: 10px;\"><strong>Accept Open Team Sheets</strong></button><button name=\"send\" value=\"/rejectopenteamsheets\" class=\"button\" style=\"margin-top: 10px\"><strong>Deny Open Team Sheets</strong></button>",
+   "|inactive|Battle timer is ON: inactive players will automatically lose when time's up. (requested by able-p1-8e3a63 1)",
+   "|inactive|Time left: 90 sec this turn | 420 sec total | 90 sec grace",
+   "|inactive|able-p0-8e3a63 1 also wants the timer to be on.",
+   "|inactive|able-p0-8e3a63 1 has 60 seconds left.",
+   "|",
+   "|teamsize|p1|4",
+   "|teamsize|p2|4",
+   "|start",
+   "|switch|p1a: Incineroar|Incineroar, L50, M|100/100",
+   "|switch|p1b: Tyranitar|Tyranitar, L50, F|100/100",
+   "|switch|p2a: Iron Hands|Iron Hands, L50|259/259",
+   "|switch|p2b: Archaludon|Archaludon, L50, F|197/197",
+   "|-weather|Sandstorm|[from] ability: Sand Stream|[of] p1b: Tyranitar",
+   "|-ability|p1a: Incineroar|Intimidate|boost",
+   "|-unboost|p2a: Iron Hands|atk|1",
+   "|-unboost|p2b: Archaludon|atk|1",
+   "|turn|1",
+   "|inactive|Time left: 55 sec this turn | 420 sec total",
+   "|",
+   "|switch|p1b: Cresselia|Cresselia, L50, F|100/100",
+   "|move|p1a: Incineroar|Fake Out|p2a: Iron Hands",
+   "|-damage|p2a: Iron Hands|241/259",
+   "|move|p2b: Archaludon|Body Press|p1a: Incineroar",
+   "|-supereffective|p1a: Incineroar",
+   "|-damage|p1a: Incineroar|43/100",
+   "|cant|p2a: Iron Hands|flinch",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p1b: Cresselia|94/100|[from] Sandstorm",
+   "|-damage|p2a: Iron Hands|225/259|[from] Sandstorm",
+   "|upkeep",
+   "|turn|2",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|switch|p1a: Baxcalibur|Baxcalibur, L50, M|100/100",
+   "|move|p2b: Archaludon|Draco Meteor|p1b: Cresselia",
+   "|-damage|p1b: Cresselia|60/100",
+   "|-unboost|p2b: Archaludon|spa|2",
+   "|move|p1b: Cresselia|Moonblast|p2a: Iron Hands",
+   "|-supereffective|p2a: Iron Hands",
+   "|-damage|p2a: Iron Hands|167/259",
+   "|move|p2a: Iron Hands|Close Combat|p1a: Baxcalibur",
+   "|-supereffective|p1a: Baxcalibur",
+   "|-damage|p1a: Baxcalibur|0 fnt",
+   "|-unboost|p2a: Iron Hands|def|1",
+   "|-unboost|p2a: Iron Hands|spd|1",
+   "|faint|p1a: Baxcalibur",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p1b: Cresselia|54/100|[from] Sandstorm",
+   "|-damage|p2a: Iron Hands|151/259|[from] Sandstorm",
+   "|upkeep",
+   "|",
+   "|switch|p1a: Incineroar|Incineroar, L50, M|43/100",
+   "|-ability|p1a: Incineroar|Intimidate|boost",
+   "|-unboost|p2a: Iron Hands|atk|1",
+   "|-unboost|p2b: Archaludon|atk|1",
+   "|turn|3",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|move|p1a: Incineroar|Fake Out|p2a: Iron Hands",
+   "|-damage|p2a: Iron Hands|123/259",
+   "|move|p1b: Cresselia|Icy Wind|p2b: Archaludon|[spread] p2a,p2b",
+   "|-damage|p2a: Iron Hands|103/259",
+   "|-damage|p2b: Archaludon|176/197",
+   "|-unboost|p2a: Iron Hands|spe|1",
+   "|-unboost|p2b: Archaludon|spe|1",
+   "|-ability|p2b: Archaludon|Stamina|boost",
+   "|-boost|p2b: Archaludon|def|1",
+   "|move|p2b: Archaludon|Body Press|p1a: Incineroar",
+   "|-supereffective|p1a: Incineroar",
+   "|-crit|p1a: Incineroar",
+   "|-damage|p1a: Incineroar|0 fnt",
+   "|faint|p1a: Incineroar",
+   "|cant|p2a: Iron Hands|flinch",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p1b: Cresselia|48/100|[from] Sandstorm",
+   "|-damage|p2a: Iron Hands|87/259|[from] Sandstorm",
+   "|-enditem|p1b: Cresselia|Sitrus Berry|[eat]",
+   "|-heal|p1b: Cresselia|72/100|[from] item: Sitrus Berry",
+   "|-heal|p2b: Archaludon|188/197|[from] item: Leftovers",
+   "|upkeep",
+   "|",
+   "|switch|p1a: Tyranitar|Tyranitar, L50, F|100/100",
+   "|turn|4",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|-end|p2a: Iron Hands|Quark Drive|[silent]",
+   "|switch|p2a: Ursaluna|Ursaluna, L50, F|237/237",
+   "|move|p1b: Cresselia|Moonblast|p2a: Ursaluna",
+   "|-damage|p2a: Ursaluna|199/237",
+   "|move|p1a: Tyranitar|Knock Off|p2a: Ursaluna",
+   "|-damage|p2a: Ursaluna|126/237",
+   "|-enditem|p2a: Ursaluna|Flame Orb|[from] move: Knock Off|[of] p1a: Tyranitar",
+   "|move|p2b: Archaludon|Body Press|p1a: Tyranitar",
+   "|-supereffective|p1a: Tyranitar",
+   "|-enditem|p1a: Tyranitar|Chople Berry|[eat]",
+   "|-enditem|p1a: Tyranitar|Chople Berry|[weaken]",
+   "|-damage|p1a: Tyranitar|33/100",
+   "|",
+   "|-weather|Sandstorm|[upkeep]",
+   "|-damage|p1b: Cresselia|66/100|[from] Sandstorm",
+   "|-heal|p2b: Archaludon|197/197|[from] item: Leftovers",
+   "|upkeep",
+   "|turn|5",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|move|p1a: Tyranitar|Protect|p1a: Tyranitar",
+   "|-singleturn|p1a: Tyranitar|Protect",
+   "|move|p2a: Ursaluna|Protect|p2a: Ursaluna",
+   "|-singleturn|p2a: Ursaluna|Protect",
+   "|move|p1b: Cresselia|Icy Wind|p2b: Archaludon|[spread] p2b",
+   "|-activate|p2a: Ursaluna|move: Protect",
+   "|-damage|p2b: Archaludon|176/197",
+   "|-unboost|p2b: Archaludon|spe|1",
+   "|-ability|p2b: Archaludon|Stamina|boost",
+   "|-boost|p2b: Archaludon|def|1",
+   "|move|p2b: Archaludon|Body Press|p1a: Tyranitar",
+   "|-activate|p1a: Tyranitar|move: Protect",
+   "|",
+   "|-weather|none",
+   "|-heal|p2b: Archaludon|188/197|[from] item: Leftovers",
+   "|upkeep",
+   "|turn|6",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|switch|p2a: Torkoal|Torkoal, L50, F|177/177",
+   "|-weather|SunnyDay|[from] ability: Drought|[of] p2a: Torkoal",
+   "|move|p1b: Cresselia|Icy Wind|p2b: Archaludon|[spread] p2a,p2b",
+   "|-resisted|p2a: Torkoal",
+   "|-damage|p2a: Torkoal|169/177",
+   "|-damage|p2b: Archaludon|170/197",
+   "|-unboost|p2a: Torkoal|spe|1",
+   "|-unboost|p2b: Archaludon|spe|1",
+   "|-ability|p2b: Archaludon|Stamina|boost",
+   "|-boost|p2b: Archaludon|def|1",
+   "|move|p1a: Tyranitar|Knock Off|p2a: Torkoal",
+   "|-damage|p2a: Torkoal|106/177",
+   "|-enditem|p2a: Torkoal|Charcoal|[from] move: Knock Off|[of] p1a: Tyranitar",
+   "|move|p2b: Archaludon|Body Press|p1a: Tyranitar",
+   "|-supereffective|p1a: Tyranitar",
+   "|-damage|p1a: Tyranitar|0 fnt",
+   "|faint|p1a: Tyranitar",
+   "|",
+   "|-weather|SunnyDay|[upkeep]",
+   "|-heal|p2b: Archaludon|182/197|[from] item: Leftovers",
+   "|upkeep",
+   "|turn|7",
+   "|inactive|Time left: 55 sec this turn | 415 sec total",
+   "|",
+   "|move|p1b: Cresselia|Icy Wind|p2b: Archaludon|[spread] p2a,p2b",
+   "|-resisted|p2a: Torkoal",
+   "|-damage|p2a: Torkoal|96/177",
+   "|-damage|p2b: Archaludon|162/197",
+   "|-unboost|p2a: Torkoal|spe|1",
+   "|-unboost|p2b: Archaludon|spe|1",
+   "|-ability|p2b: Archaludon|Stamina|boost",
+   "|-boost|p2b: Archaludon|def|1",
+   "|move|p2b: Archaludon|Body Press|p1b: Cresselia",
+   "|-resisted|p1b: Cresselia",
+   "|-damage|p1b: Cresselia|44/100",
+   "|move|p2a: Torkoal|Heat Wave|p1b: Cresselia|[miss]",
+   "|-miss|p2a: Torkoal|p1b: Cresselia",
+   "|",
+   "|-weather|SunnyDay|[upkeep]",
+   "|-heal|p2b: Archaludon|174/197|[from] item: Leftovers",
+   "|upkeep",
+   "|turn|8"
+  ],
+  "waiting_for_action": true,
+  "clock": {
+   "decision_seconds_left": 50,
+   "bank_seconds_left": 410
+  }
+ },
+ "phase": "moving",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "ccc247ab-c022-4d6b-9bd5-93820e8fda7c",
+  "position": 1
+ },
+ "legal_actions": {
+  "session_id": "8e3a639c-432c-4749-a363-f20150f1f615",
+  "state_version": 8,
+  "actions": [
+   {
+    "action_id": "doubles_turn",
+    "label": "Choose actions for both active Pokémon",
+    "input": {
+     "session_id": "8e3a639c-432c-4749-a363-f20150f1f615",
+     "action": {
+      "type": "doubles_turn",
+      "slots": [
+       {
+        "slot": 0,
+        "board_position": -1,
+        "active": {
+         "species": "torkoal",
+         "name": "Torkoal",
+         "current_hp": 96,
+         "max_hp": 177,
+         "current_hp_fraction": 0.5423728813559322,
+         "status": null,
+         "ability": "drought",
+         "item": "",
+         "types": [
+          "FIRE"
+         ],
+         "base_stats": {
+          "atk": 85,
+          "def": 140,
+          "hp": 70,
+          "spa": 85,
+          "spd": 70,
+          "spe": 20
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": -2
+         },
+         "moves": [
+          "eruption",
+          "heatwave",
+          "yawn",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "eruption",
+          "base_power": 150,
+          "category": "SPECIAL",
+          "move_type": "FIRE",
+          "current_pp": 8,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "heatwave",
+          "base_power": 95,
+          "category": "SPECIAL",
+          "move_type": "FIRE",
+          "current_pp": 15,
+          "accuracy": 0.9,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "yawn",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           -2,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -2,
+            "side": "ally",
+            "species": "archaludon"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": null
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "cresselia"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "ursaluna"
+         },
+         {
+          "type": "switch",
+          "species": "ironhands"
+         }
+        ]
+       },
+       {
+        "slot": 1,
+        "board_position": -2,
+        "active": {
+         "species": "archaludon",
+         "name": "Archaludon",
+         "current_hp": 174,
+         "max_hp": 197,
+         "current_hp_fraction": 0.883248730964467,
+         "status": null,
+         "ability": "stamina",
+         "item": "leftovers",
+         "types": [
+          "STEEL",
+          "DRAGON"
+         ],
+         "base_stats": {
+          "atk": 105,
+          "def": 130,
+          "hp": 90,
+          "spa": 125,
+          "spd": 65,
+          "spe": 85
+         },
+         "boosts": {
+          "accuracy": 0,
+          "atk": -2,
+          "def": 4,
+          "evasion": 0,
+          "spa": -2,
+          "spd": 0,
+          "spe": -4
+         },
+         "moves": [
+          "bodypress",
+          "dracometeor",
+          "flashcannon",
+          "protect"
+         ],
+         "fainted": false,
+         "active": true,
+         "revealed": true,
+         "is_terastallized": false
+        },
+        "force_switch": false,
+        "options": [
+         {
+          "type": "move",
+          "move_id": "bodypress",
+          "base_power": 80,
+          "category": "PHYSICAL",
+          "move_type": "FIGHTING",
+          "current_pp": 10,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "torkoal"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": null
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "cresselia"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "dracometeor",
+          "base_power": 130,
+          "category": "SPECIAL",
+          "move_type": "DRAGON",
+          "current_pp": 7,
+          "accuracy": 0.9,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "torkoal"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": null
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "cresselia"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "flashcannon",
+          "base_power": 80,
+          "category": "SPECIAL",
+          "move_type": "STEEL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           -1,
+           1,
+           2
+          ],
+          "target_options": [
+           {
+            "target": -1,
+            "side": "ally",
+            "species": "torkoal"
+           },
+           {
+            "target": 1,
+            "side": "opponent",
+            "species": null
+           },
+           {
+            "target": 2,
+            "side": "opponent",
+            "species": "cresselia"
+           }
+          ]
+         },
+         {
+          "type": "move",
+          "move_id": "protect",
+          "base_power": 0,
+          "category": "STATUS",
+          "move_type": "NORMAL",
+          "current_pp": 16,
+          "accuracy": 1.0,
+          "targets": [
+           0
+          ],
+          "target_options": [
+           {
+            "target": 0,
+            "side": "none",
+            "species": null
+           }
+          ]
+         },
+         {
+          "type": "switch",
+          "species": "ursaluna"
+         },
+         {
+          "type": "switch",
+          "species": "ironhands"
+         }
+        ]
+       }
+      ],
+      "target_legend": {
+       "-1": "board position A on your side (always slot 0's position)",
+       "-2": "board position B on your side (always slot 1's position)",
+       "1": "board position A on the opponent's side",
+       "2": "board position B on the opponent's side",
+       "0": "no target needed (self/field/spread move)"
+      },
+      "instructions": "Submit one action for slot 0 and one for slot 1 together via play_action with action={'type':'doubles_turn','slot_0':{...},'slot_1':{...}}. Each slot is {'type':'move','move_id':...,'target': <int>} (target required unless the move's only legal target is 0), {'type':'switch','species':...}, or {'type':'pass'} (required when this slot's own options list is just [{'type':'pass'}]). IMPORTANT: -1 and -2 are FIXED board positions (see target_legend), not 'self'/'ally' labels -- check each slot's own board_position to know which one it is. For slot 0 (board_position -1), -1 means targeting itself and -2 means its ally. For slot 1 (board_position -2), it's the reverse: -2 is itself and -1 is its ally. Never assume -1 always means self. Simplest: read each move's target_options, which names every legal target for that slot as side 'opponent', 'ally' or 'self' with the species standing there now -- then submit that option's integer as 'target'. Targeting your own ally is legal but hits your own Pokémon."
+     },
+     "action_id": "doubles_turn",
+     "state_version": 8
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}
