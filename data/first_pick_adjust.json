@@ -1,5 +1,5 @@
 {
-  "_doc": "Per-card first-pick adjustment in log-odds (the draft search's unit), added to the B1 first-pick policy (agent/pokemon/draft.py first_pick_bonus): in full at our first pick, half at our second, not after. All zeros = the stage2 draft exactly. Scaled by the tuning key draft_first_adjust_w. For a simulator A/B arm, DRAFT_FIRST_PICK_ADJUST=<path to a file of this shape> replaces this table in that process. A card missing here counts as 0.",
+  "_doc": "First-pick table for the B1 policy (agent/pokemon/draft.py first_pick_adjust / first_pick_bonus), in log-odds (the draft search's unit). adjust: species -> log-odds in either draft order; adjust_we_first / adjust_they_first: added only in that draft order; pairs: \"A + B\" -> log-odds added to B at our second pick when A is our first pick (and vice versa). Every entry is applied in full at our first pick and half at our second, never after, times the tuning key draft_first_adjust_w. All zeros = the stage2 draft exactly. For a simulator A/B arm, DRAFT_FIRST_PICK_ADJUST=<path to a file of this shape> replaces this table in that process. Missing cards count as 0.",
   "adjust": {
     "Amoonguss": 0.0,
     "Arcanine": 0.0,
@@ -49,5 +49,8 @@
     "Urshifu-Rapid-Strike": 0.0,
     "Whimsicott": 0.0,
     "Wo-Chien": 0.0
-  }
+  },
+  "adjust_we_first": {},
+  "adjust_they_first": {},
+  "pairs": {}
 }

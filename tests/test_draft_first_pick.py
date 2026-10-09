@@ -60,9 +60,9 @@ def l3_board():
     return board, list(range(len(board.units))), index
 
 
-def write_table(tmp_path, entries: dict) -> str:
+def write_table(tmp_path, entries: dict | None = None, **sections) -> str:
     path = tmp_path / "first_pick_adjust.json"
-    path.write_text(json.dumps({"adjust": entries}))
+    path.write_text(json.dumps({"adjust": entries or {}, **sections}))
     return str(path)
 
 
@@ -70,7 +70,9 @@ def test_the_shipped_table_is_all_zeros_and_names_only_catalog_cards():
     raw = json.loads(draft.FIRST_PICK_ADJUST_FILE.read_text())
     assert raw["adjust"] and set(raw["adjust"]) <= set(CATALOG)  # a misspelt card would silently adjust nothing
     assert all(v == 0.0 for v in raw["adjust"].values())
-    assert set(draft.first_pick_adjust().values()) == {0.0}
+    assert raw["adjust_we_first"] == raw["adjust_they_first"] == raw["pairs"] == {}
+    table = draft.first_pick_adjust()
+    assert table.entries() == 0 and set(table.adjust.values()) == {0.0}
     assert tuning.DEFAULTS["draft_first_adjust_w"] == 1.0  # a filled-in table counts as written
 
 
@@ -128,5 +130,40 @@ def test_a_mistyped_table_path_fails_loudly_and_a_missing_shipped_table_is_zeros
     # The live agent never sets the variable: a shipped table that is gone or broken is the zero table, never a crash.
     monkeypatch.delenv(draft.FIRST_PICK_ADJUST_ENV)
     monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", tmp_path / "missing.json")
-    assert draft.first_pick_adjust() == {}
+    assert draft.first_pick_adjust() == draft.FirstPickTable()
     assert ranked()["Incineroar"].score == pytest.approx(ranked(params=tuning.merged({"draft_first_adjust_w": 0.0}))["Incineroar"].score)
+
+
+def test_draft_order_sections_apply_only_in_that_order(tmp_path, monkeypatch):
+    # The Oct 9 analysis: a Gyarados / Porygon2 / Dragonite first pick lost when they drafted first (our pick 2), not
+    # when we did, so the table can say "only when they draft first".
+    path = write_table(tmp_path, adjust_they_first={"Incineroar": -0.4}, adjust_we_first={"Archaludon": 0.3})
+    table = draft.first_pick_adjust(path)
+    assert table.value("Incineroar", we_first=False) == -0.4 and table.value("Incineroar", we_first=True) == 0.0
+    assert table.value("Archaludon", we_first=True) == 0.3 and table.value("Archaludon", we_first=False) == 0.0
+    assert table.value("Incineroar") == 0.0  # order unknown: the order sections stay out
+    us_first = ranked()  # L3 at pick 1: we draft first
+    them_first = ranked(theirs=["Iron Hands"])  # pick 2: they drafted first
+    monkeypatch.setenv(draft.FIRST_PICK_ADJUST_ENV, path)
+    assert ranked()["Incineroar"].score == us_first["Incineroar"].score
+    assert ranked()["Archaludon"].score == pytest.approx(us_first["Archaludon"].score + 0.3, abs=2e-3)
+    assert ranked(theirs=["Iron Hands"])["Incineroar"].score == pytest.approx(them_first["Incineroar"].score - 0.4, abs=2e-3)
+    assert ranked(theirs=["Iron Hands"])["Archaludon"].score == them_first["Archaludon"].score
+
+
+def test_a_pair_entry_charges_the_second_card_of_the_pair_at_our_second_pick(tmp_path, monkeypatch):
+    # Two of Gyarados / Porygon2 / Dragonite in our first two picks won about 1 in 5 against the search bot's code in
+    # every series since B1, while each alone did not lose: a pair entry prices the second one, only next to the first.
+    path = write_table(tmp_path, pairs={"Incineroar + Archaludon": -0.6})
+    table = draft.first_pick_adjust(path)
+    assert table.value("Incineroar", team=["Archaludon"]) == table.value("Archaludon", team=("Incineroar",)) == -0.6
+    assert table.value("Incineroar") == table.value("Incineroar", team=["Sylveon"]) == 0.0
+    first, second = ranked(), ranked(["Archaludon"], ["Iron Hands", "Sylveon"])
+    other = ranked(["Rillaboom"], ["Iron Hands", "Sylveon"])
+    monkeypatch.setenv(draft.FIRST_PICK_ADJUST_ENV, path)
+    assert ranked()["Incineroar"].score == first["Incineroar"].score  # no partner yet at our first pick
+    assert ranked(["Archaludon"], ["Iron Hands", "Sylveon"])["Incineroar"].score == pytest.approx(second["Incineroar"].score - 0.3, abs=2e-3)
+    assert ranked(["Rillaboom"], ["Iron Hands", "Sylveon"])["Incineroar"].score == other["Incineroar"].score
+    monkeypatch.setattr(draft, "_ADJUST_TABLES", {})  # the table is read once per path and process
+    with pytest.raises(ValueError, match="two different species"):
+        draft.first_pick_adjust(write_table(tmp_path, pairs={"Incineroar": -1.0}))

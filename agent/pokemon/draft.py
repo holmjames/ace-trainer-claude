@@ -482,43 +482,94 @@ FIRST_PICK_GUARD: dict[str, int] = {"Gholdengo": 1, "Incineroar": 1, "Archaludon
 SPEED_CONTROL_ROLES = frozenset({"tailwind", "trickroom", "speed_drop"})
 BEATS_MARGIN = 0.2
 
-# A per-card first-pick table (log-odds, the search value's unit), for calibrating the policy from simulator series
-# without touching the search: data/first_pick_adjust.json ships all zeros, which is the policy exactly as before.
+# A first-pick table (log-odds, the search value's unit), for calibrating the policy from simulator series without
+# touching the search: data/first_pick_adjust.json ships all zeros, which is the policy exactly as before. Sections:
+# "adjust" (species -> log-odds, either draft order), "adjust_we_first" / "adjust_they_first" (added in that order
+# only), and "pairs" ("A + B" -> log-odds, added to B at our second pick when A is our first pick, and vice versa:
+# the Oct 9 series analysis found a pair of picks losing where each card alone did not). Every entry follows the
+# policy's schedule (full at our first pick, half at our second, nothing after) and draft_first_adjust_w.
 # DRAFT_FIRST_PICK_ADJUST=<path to a file of the same shape> swaps in another table for one process (a simulator A/B
 # arm); that file must read cleanly or the pick raises (so a mistyped path cannot quietly turn an arm into the
-# control). A missing or unreadable shipped table counts as all zeros. Weighted by draft_first_adjust_w.
+# control). A missing or unreadable shipped table counts as all zeros.
 FIRST_PICK_ADJUST_FILE = data.DATA_DIR / "first_pick_adjust.json"
 FIRST_PICK_ADJUST_ENV = "DRAFT_FIRST_PICK_ADJUST"
-_ADJUST_TABLES: dict[str, dict[str, float]] = {}
 
 
-def first_pick_adjust(path: str | None = None) -> dict[str, float]:
-    """The first-pick table in use: species id (data.to_id) -> log-odds. ``path`` (else $DRAFT_FIRST_PICK_ADJUST, else
-    the shipped file) is read once per process."""
+@dataclass(frozen=True)
+class FirstPickTable:
+    adjust: dict[str, float] = field(default_factory=dict)  # species id -> log-odds, either draft order
+    we_first: dict[str, float] = field(default_factory=dict)  # ... added when we draft first
+    they_first: dict[str, float] = field(default_factory=dict)  # ... added when they draft first
+    pairs: dict[frozenset, float] = field(default_factory=dict)  # {species id, species id} -> log-odds
+
+    def value(self, species: str, *, we_first: bool | None = None, team: tuple[str, ...] | list[str] = ()) -> float:
+        """The table's log-odds for taking ``species`` now, with ``team`` (species) already ours."""
+        sid = data.to_id(species)
+        v = self.adjust.get(sid, 0.0)
+        if we_first is not None:
+            v += (self.we_first if we_first else self.they_first).get(sid, 0.0)
+        for mate in team:
+            v += self.pairs.get(frozenset((sid, data.to_id(mate))), 0.0)
+        return v
+
+    def entries(self) -> int:
+        """How many non-zero entries the table holds (0 for the shipped table)."""
+        return sum(1 for section in (self.adjust, self.we_first, self.they_first, self.pairs) for v in section.values() if v)
+
+
+_ADJUST_TABLES: dict[str, FirstPickTable] = {}
+
+
+def _table_section(raw: dict, key: str) -> dict[str, float]:
+    entries = raw.get(key) or {}
+    if not isinstance(entries, dict):
+        raise ValueError(f"{key!r} must map species to log-odds")
+    out = {data.to_id(k): float(v) for k, v in entries.items() if not str(k).startswith("_")}
+    bad = [k for k, v in out.items() if not math.isfinite(v)]
+    if bad:
+        raise ValueError(f"non-finite values in {key!r}: {bad}")
+    return out
+
+
+def first_pick_adjust(path: str | None = None) -> FirstPickTable:
+    """The first-pick table in use. ``path`` (else $DRAFT_FIRST_PICK_ADJUST, else the shipped file) is read once per
+    process; keys are matched as species ids (data.to_id), so "Iron Hands" and "iron-hands" are the same card."""
     chosen = path or os.environ.get(FIRST_PICK_ADJUST_ENV) or ""
     source = chosen or str(FIRST_PICK_ADJUST_FILE)
     table = _ADJUST_TABLES.get(source)
     if table is None:
         try:
             raw = json.loads(Path(source).read_text(encoding="utf-8"))
-            entries = raw.get("adjust", raw) if isinstance(raw, dict) else None
-            if not isinstance(entries, dict):
-                raise ValueError("expected {\"adjust\": {species: log-odds}}")
-            table = {data.to_id(k): float(v) for k, v in entries.items() if not str(k).startswith("_")}
-            bad = [k for k, v in table.items() if not math.isfinite(v)]
-            if bad:
-                raise ValueError(f"non-finite values for {bad}")
+            if not isinstance(raw, dict):
+                raise ValueError("expected a JSON object with \"adjust\" / \"adjust_we_first\" / \"adjust_they_first\" / \"pairs\"")
+            raw_pairs = raw.get("pairs") or {}
+            if not isinstance(raw_pairs, dict):
+                raise ValueError("'pairs' must map \"A + B\" to log-odds")
+            pairs: dict[frozenset, float] = {}
+            for key, v in raw_pairs.items():
+                if str(key).startswith("_"):
+                    continue
+                names = [data.to_id(part) for part in str(key).split("+")]
+                if len(names) != 2 or len(set(names)) != 2 or not all(names):
+                    raise ValueError(f"pair {key!r} must name two different species as \"A + B\"")
+                if not math.isfinite(float(v)):
+                    raise ValueError(f"non-finite value for pair {key!r}")
+                pairs[frozenset(names)] = float(v)
+            table = FirstPickTable(_table_section(raw, "adjust"), _table_section(raw, "adjust_we_first"),
+                                   _table_section(raw, "adjust_they_first"), pairs)
         except (OSError, ValueError, TypeError) as exc:
             if chosen:
                 raise ValueError(f"first-pick table {source!r} ({FIRST_PICK_ADJUST_ENV} or path) unusable: {exc}") from exc
-            table = {}
+            table = FirstPickTable()
         _ADJUST_TABLES[source] = table
     return table
 
 
-def first_pick_terms(board, c: int, pool: list[int]) -> dict[str, float]:
+def first_pick_terms(board, c: int, pool: list[int], *, we_first: bool | None = None,
+                     team: tuple[str, ...] | list[str] = ()) -> dict[str, float]:
     """The policy's readings of candidate ``c`` against the remaining ``pool`` (which still holds ``c``): four from the
-    pool and the guard list, plus the card's entry in the first-pick table (``first_pick_adjust``)."""
+    pool and the guard list, plus the first-pick table's entry for it (``first_pick_adjust``: its draft-order section
+    when ``we_first`` is known, its pair entries with the species in ``team``, our picks so far)."""
     units = board.units
     rest = [j for j in pool if j != c]
     me = units[c]
@@ -540,13 +591,14 @@ def first_pick_terms(board, c: int, pool: list[int]) -> dict[str, float]:
         "scarcity": scarcity,
         "exposure": sum(1 for j in rest if board.base[j][c] >= BEATS_MARGIN),  # pool cards that beat it, theirs to take
         "guard": float(FIRST_PICK_GUARD.get(me.species, 0)),
-        "adjust": first_pick_adjust().get(data.to_id(me.species), 0.0),
+        "adjust": first_pick_adjust().value(me.species, we_first=we_first, team=team),
     }
 
 
-def first_pick_bonus(board, c: int, pool: list[int], params: dict) -> tuple[float, dict[str, float]]:
+def first_pick_bonus(board, c: int, pool: list[int], params: dict, *, we_first: bool | None = None,
+                     team: tuple[str, ...] | list[str] = ()) -> tuple[float, dict[str, float]]:
     """(log-odds to add to the search value, the terms) for a first-round pick."""
-    t = first_pick_terms(board, c, pool)
+    t = first_pick_terms(board, c, pool, we_first=we_first, team=team)
     bonus = (float(params.get("draft_first_strength_w", 0.0)) * t["strength"]
              + float(params.get("draft_first_scarcity_w", 0.0)) * t["scarcity"]
              - float(params.get("draft_first_exposure_w", 0.0)) * t["exposure"] / 6.0
@@ -788,12 +840,13 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
                          sleep_w=float(P.get("draft_sleep_w", 0.0)))
     # Our first two picks also read the pool itself (first_pick_bonus): full weight on the first, half on the second.
     policy_w = float(P.get("draft_first_pick_w", 0.0)) * max(0.0, 1.0 - len(us) / 2.0)
+    team = tuple(board.units[k].species for k in us)  # for the first-pick table's pair entries
     scored: list[tuple[_Plan, LegalAction, int, float, dict]] = []
     for action, i in offered_idx:
         if i in us:
             continue
         plan = search.plan(i, us, them, pool, order)
-        bonus, terms = first_pick_bonus(board, i, pool, P) if policy_w else (0.0, {})
+        bonus, terms = first_pick_bonus(board, i, pool, P, we_first=we_first, team=team) if policy_w else (0.0, {})
         plan.value += policy_w * bonus
         scored.append((plan, action, i, policy_w * bonus, terms))
     scored.sort(key=lambda t: (-t[0].value, legal_actions.index(t[1])))
