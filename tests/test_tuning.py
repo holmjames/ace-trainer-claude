@@ -33,7 +33,8 @@ def test_two_agents_keep_separate_params():
     assert tuning.DEFAULTS["fakeout_base"] == 90.0  # defaults untouched
 
 
-def test_params_change_candidate_ranking():
+def test_params_change_candidate_ranking(monkeypatch):
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's KO bonus
     from agent.pokemon import battle
     from tests.test_lineup_battle import _obs, _template, memory
 

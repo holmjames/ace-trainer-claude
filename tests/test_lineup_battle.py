@@ -248,10 +248,11 @@ def test_choice_lock_is_flagged_against_a_remaining_immune_opponent():
     assert "moonblast" not in sheet.choice_locks.get(0, {})
 
 
-def test_lethal_warning_does_not_assume_our_priority_move():
+def test_lethal_warning_does_not_assume_our_priority_move(monkeypatch):
     """Koraidon (205) outspeeds Maushold (179) and KOs it; Maushold's best code move is Follow Me (+2 priority).
     The warning must still appear, and Follow Me is NOT an escape: a priority move only counts when it (or the
     partner) takes the threat out first at least half the time (D1i, Oct 8; the old text claimed a '+2' escape)."""
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's protect_threatened row
     m = MatchMemory()
     m.my_cards["maushold"] = {"species": "Maushold", "item": "Wide Lens", "ability": "Technician", "nature": "Jolly", "evs": {"atk": 252, "spe": 252}, "moves": ["Population Bomb", "Follow Me", "Beat Up", "Protect"]}
     m.my_cards["sneasler"] = {"species": "Sneasler", "item": "Focus Sash", "ability": "Unburden", "nature": "Jolly", "evs": {"atk": 252, "spe": 252}, "moves": ["Close Combat", "Dire Claw", "Fake Out", "Protect"]}

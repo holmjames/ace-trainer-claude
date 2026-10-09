@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.pokemon import battle, data, lineup
+from agent.pokemon import battle, data, lineup, tuning
 from agent.pokemon.draft import profile
 from agent.pokemon.memory import MatchMemory, species_key
 
@@ -284,9 +284,10 @@ def test_no_safe_pivot_check_uses_the_spread_modifier():
     assert switch, sheet.candidates
 
 
-def test_redirect_check_uses_the_field():
+def test_redirect_check_uses_the_field(monkeypatch):
     """Arcanine's Flare Blitz KOs a Rage Powder Amoonguss in the open (198-234 of 220) but not behind our Reflect
     (132-156): the redirect candidate exists only with the screen priced in."""
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's redirect row
     arcanine = {**CATALOG["Arcanine"], "moves": ["Flare Blitz", "Snarl", "Will-O-Wisp", "Protect"]}  # no Extreme Speed: one KO threat to redirect
     # Flutter Mane at 20%: Flare Blitz KOs it; its Icy Wind gives the redirect candidate a payload of its own (not best_attacks').
     kwargs = dict(bench=[], hp={"Flutter Mane": 0.2}, cards={"Arcanine": arcanine})
