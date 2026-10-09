@@ -201,6 +201,66 @@ def test_prankster_tailwind_helps_the_partner_the_same_turn():
     assert prankster >= plain
 
 
+# -- sleep (Oct 8, 51c86e5c: Amoonguss slept four of ours in seven turns) -------------------------------------------
+
+
+def test_sleep_proof_follows_the_mech_lanes_status_rules_on_the_catalog():
+    species = sorted(c["species"] for c in CATALOG.values())
+    spore = u("Amoonguss")
+    assert {s for s in species if s != "Amoonguss" and matchup.sleep_proof(u(s), spore)} == {
+        "Rillaboom", "Whimsicott", "Wo-Chien",  # Grass types ignore powder moves
+        "Arcanine", "Incineroar", "Hatterene",  # Safety Goggles (Hatterene's Magic Bounce too)
+        "Gholdengo"}  # Good as Gold
+    assert not matchup.sleep_proof(u("Salamence"), spore) and not matchup.sleep_proof(u("Milotic"), spore)  # Lum / Chesto: once
+    yawn = u("Torkoal")  # Yawn is no powder: Grass and Goggles do not stop it
+    assert {s for s in species if s != "Torkoal" and matchup.sleep_proof(u(s), yawn)} == {"Gholdengo", "Hatterene"}
+    assert matchup.sleep_proof(u("Garchomp"), spore, "electric") and matchup.sleep_proof(u("Garchomp"), spore, "misty")
+    assert not matchup.sleep_proof(u("Garchomp"), spore) and not matchup.sleep_proof(u("Tornadus"), spore, "misty")  # Flying: not grounded
+    assert (matchup.sleep_threat(spore), matchup.sleep_threat(yawn), matchup.sleep_threat(u("Garchomp"))) == (1.0, 0.5, 0.0)
+    assert not matchup.sleep_proof(u("Rillaboom"), u("Garchomp"))  # no sleep move, nothing to be proof against
+
+
+def test_sleep_pressure_is_spore_against_the_two_slots_it_can_reach():
+    names = ["Amoonguss", "Garchomp", "Kingambit", "Iron Hands", "Gyarados", "Rillaboom", "Incineroar", "Torkoal"]
+    board = matchup.Board([u(s) for s in names])
+    spore, yawn = [0], [7]
+    exposed, one, two = [1, 2, 3, 4], [1, 2, 3, 5], [1, 2, 5, 6]
+    assert board.sleep_pressure(exposed, spore) == pytest.approx(-1.0)  # a Spore user against no sleep-proof card
+    assert board.sleep_pressure(one, spore) == pytest.approx(-0.5)  # Rillaboom keeps one of the two slots awake
+    assert board.sleep_pressure(two, spore) == pytest.approx(0.0)  # Rillaboom + Incineroar keep both
+    assert board.sleep_pressure(two, yawn) == pytest.approx(-0.5)  # Yawn at half; Grass and Goggles do not stop it
+    assert board.sleep_pressure(spore + [1], exposed) == pytest.approx(1.0) == -board.sleep_pressure(exposed, spore + [1])
+    assert board.sleep_pressure([1, 2], [3, 4]) == 0.0  # no sleeper on either side
+    # sleep_reach is one side's sleepers into the other (the draft charges theirs only); the pressure is the difference
+    assert board.sleep_reach(spore, exposed) == pytest.approx(1.0) and board.sleep_reach(exposed, spore) == 0.0
+    assert board.sleep_reach(spore + yawn, one) == pytest.approx(0.5 + 0.5)  # Rillaboom stops the Spore, not the Yawn
+    # It is a measurement: Board.score stays the fitted model (Team Preview and the finished draft add it, weighted).
+    plain = matchup.Board([u(s) for s in names if s not in ("Amoonguss", "Torkoal")])
+    assert board.score([1, 2], [3, 4]) == pytest.approx(plain.score([0, 1], [2, 3]))
+    # An Electric / Misty Terrain from either side keeps grounded cards awake while it is up (half a slot each).
+    pincurchin = matchup.unit({"card_id": "x-pincurchin", "species": "Pincurchin", "item": "Leftovers", "ability": "Electric Surge",
+                               "nature": "Serious", "evs": {}, "moves": ["Spark", "Protect"]})
+    terrain = matchup.Board([u("Amoonguss"), u("Garchomp"), u("Kingambit"), u("Tornadus"), pincurchin])
+    assert terrain.cover([1, 2], 0) == 0.0 and terrain.cover([1, 2, 4], 0) == pytest.approx(0.75)  # three grounded halves, capped at two slots
+    assert terrain.cover([1, 3], 0, field=[0, 4]) == pytest.approx(0.25)  # their terrain: Garchomp half a slot, Tornadus flies
+
+
+def test_the_opening_asks_the_mech_lane_who_can_be_slept():
+    sim = matchup._Opening(lead("Salamence", "Garchomp"), lead("Amoonguss", "Rillaboom"))
+    salamence, garchomp, amoonguss, rillaboom = sim.mons
+    spore = move_of(u("Amoonguss"), "Spore")
+    assert sim.sleepable(garchomp, spore, amoonguss) and not sim.sleepable(rillaboom, spore, amoonguss)  # Grass
+    # A Lum Berry wakes its holder at once, once: Spore still lands (berry=False), the berry is spent, the next one sleeps.
+    assert not sim.sleepable(salamence, spore, amoonguss) and sim.sleepable(salamence, spore, amoonguss, berry=False)
+    assert sim.decide(amoonguss, 2)[2] is garchomp  # a target that falls asleep comes before the berry holder
+    sim.execute(amoonguss, ("sleep", spore, salamence), {})
+    assert salamence.item == "" and not salamence.asleep and salamence.status is None
+    sim.execute(amoonguss, ("sleep", spore, salamence), {})
+    assert salamence.asleep and salamence.status == "slp"
+    garchomp.status = "par"
+    assert not sim.sleepable(garchomp, spore, amoonguss, berry=False)  # already has a status condition
+
+
 # -- the tier list (data/card_tiers.json, scripts/build_tiers.py) --------------------------------------------------
 
 
@@ -258,3 +318,90 @@ def test_openings_and_duels_are_unchanged_for_moves_without_weight_or_weather():
     assert matchup.weight_power(u("Ting-Lu").mon, move_of(tyranitar, "Low Kick"), tyranitar.mon) == data.weight_power("lowkick", "Ting-Lu")
     assert matchup.accuracy({"id": "hurricane", "accuracy": 70}, None) == pytest.approx(0.7)
     assert matchup.accuracy({"id": "hurricane", "accuracy": 70}, "rain") == 1.0
+
+
+# -- scripts/catalog_refresh.py: pool, tier entries and weights for new cards in one step ---------------------------
+
+
+def _load_script(name: str):
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location(name, data.DATA_DIR.parent / "scripts" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _weights(path: Path) -> dict:
+    import ast
+
+    for node in ast.parse(path.read_text()).body:
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == "SPECIES_WEIGHT_KG":
+            return ast.literal_eval(node.value)
+    return {}
+
+
+@pytest.mark.skipif(not TIERS_FILE.exists(), reason="run scripts/build_tiers.py")
+def test_catalog_refresh_redoes_the_chi_yu_and_urshifu_step_on_a_temporary_copy(tmp_path):
+    # Commit 5d30dd0 did by hand what the script does in one step after a live session: the two cards first offered on
+    # the Oct 8 evening into both catalogs, their tier entries (matchup part over the 48-card board, seed 1, no card
+    # part, zero adjustment, every other rating untouched), their species weights, and a word that scripts/scenarios.py
+    # holds a stand-in to move. Undo that step on a copy of the checkout and the script brings the files back.
+    import shutil
+
+    refresh = _load_script("catalog_refresh")
+    repo, new = data.DATA_DIR.parent, {"vgc-chi-yu", "vgc-urshifu-rapid-strike"}
+    for rel in ("data/draft_model.json", "data/pokedex.json", "scripts/scenarios.py", "agent/pokemon/data.py", "docs/card_tiers.md",
+                "data/card_tiers.json"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(repo / rel, tmp_path / rel)
+    for path in repo.glob("tests/fixtures/live/*/draft-*.json"):
+        (tmp_path / path.relative_to(repo)).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, tmp_path / path.relative_to(repo))
+    before = [c for c in json.loads((repo / "data/cards.json").read_text()) if c["card_id"] not in new]
+    (tmp_path / "sim").mkdir()
+    for rel in ("data/cards.json", "sim/cards.json"):
+        (tmp_path / rel).write_text(json.dumps(before, indent=1, ensure_ascii=False) + "\n")
+    tiers = json.loads(TIERS_FILE.read_text())
+    listed = "Toxapex, Farigiraf, Chi-Yu and Urshifu-Rapid-Strike"
+    assert listed in tiers["note"]
+    old = {**tiers, "note": tiers["note"].replace(listed, "Toxapex and Farigiraf"),
+           "cards": {k: v for k, v in tiers["cards"].items() if k not in new}}
+    (tmp_path / "data/card_tiers.json").write_text(json.dumps(old, indent=1, ensure_ascii=False) + "\n")
+    doc = (repo / "docs/card_tiers.md").read_text().splitlines()
+    (tmp_path / "docs/card_tiers.md").write_text("\n".join(line.replace(listed, "Toxapex and Farigiraf") for line in doc
+                                                           if not line.startswith(("| A | Chi-Yu |", "| B | Urshifu-Rapid-Strike |"))) + "\n")
+    weights_line = '    "chiyu": 4.9, "urshifurapidstrike": 105.0,\n'
+    (tmp_path / "agent/pokemon/data.py").write_text((repo / "agent/pokemon/data.py").read_text().replace(weights_line, ""))
+    scenarios = (repo / "scripts/scenarios.py").read_text().replace(
+        "HAND_SETS = {\n", 'HAND_SETS = {\n    "chiyu": card("Chi-Yu", ["Heat Wave", "Snarl"], item="Choice Scarf"),\n', 1)
+    (tmp_path / "scripts/scenarios.py").write_text(scenarios)
+    snapshot = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file() and "fixtures" not in p.parts}
+
+    lines: list[str] = []
+    dry = refresh.refresh(tmp_path, dry_run=True, say=lines.append)
+    assert {p: p.read_bytes() for p in snapshot} == snapshot  # --dry-run writes nothing
+    assert dry["new"] == sorted(new) and dry["stand_ins"] == ["Chi-Yu"] and dry["weights"] == {"chiyu": 4.9, "urshifurapidstrike": 105.0}
+    assert any("move ['Chi-Yu'] from HAND_SETS to LIVE_SPECIES" in line for line in lines), lines
+
+    done = refresh.refresh(tmp_path, say=lines.append)
+    assert done["writes"] == sorted(["data/cards.json", "sim/cards.json", "data/card_tiers.json", "docs/card_tiers.md", "agent/pokemon/data.py"])
+    for rel in ("data/cards.json", "sim/cards.json"):
+        assert (tmp_path / rel).read_text() == (repo / rel).read_text()
+    rebuilt = json.loads((tmp_path / "data/card_tiers.json").read_text())
+    assert rebuilt["note"] == tiers["note"] and list(rebuilt["cards"]) == list(tiers["cards"])
+    for card_id, entry in tiers["cards"].items():
+        if card_id in new:  # the hand-written flag adds what the draft value does not model; the script asks for it
+            assert rebuilt["cards"][card_id]["flag"] == "not in the fitted model (first seen live Oct 8)"
+            entry = {k: v for k, v in entry.items() if k != "flag"}
+            assert {k: v for k, v in rebuilt["cards"][card_id].items() if k != "flag"} == entry
+        else:
+            assert rebuilt["cards"][card_id] == entry
+    assert (rebuilt["cards"]["vgc-chi-yu"]["rating"], rebuilt["cards"]["vgc-urshifu-rapid-strike"]["rating"]) == (15.6, 9.7)
+    rows = (tmp_path / "docs/card_tiers.md").read_text().splitlines()
+    assert len(rows) == len(doc) and all(a == b or a.split(" | ")[:5] == b.split(" | ")[:5] for a, b in zip(rows, doc))
+    assert _weights(tmp_path / "agent/pokemon/data.py") == _weights(repo / "agent/pokemon/data.py") == data.SPECIES_WEIGHT_KG
+    assert (tmp_path / "scripts/scenarios.py").read_text() == scenarios  # the eval lane's file is only read
+    assert refresh.refresh(tmp_path, say=lines.append)["writes"] == []  # nothing left to do

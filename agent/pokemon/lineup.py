@@ -370,11 +370,13 @@ class PreviewModel:
     """Scores four-against-four pairings and lead pairs on one ``matchup.Board`` (our six first, then theirs).
     A lead pair's score is the fitted weight times the margin of its opening (``matchup.opening``: turns 1-2)."""
 
-    def __init__(self, mine: list[dict], theirs: list[dict], *, tier_adjust: float = 1.0, hole_w: float = 0.0) -> None:
+    def __init__(self, mine: list[dict], theirs: list[dict], *, tier_adjust: float = 1.0, hole_w: float = 0.0,
+                 sleep_w: float = 0.0) -> None:
         from . import matchup
 
         self.matchup = matchup
         self.hole_w = float(hole_w)
+        self.sleep_w = float(sleep_w)
         model = matchup.load_model(section="preview", clamp=False)  # as fitted: see matchup.load_model
         self.board = matchup.Board([matchup.unit(c) for c in mine + theirs], model, tier_adjust=tier_adjust)
         self.opening_w = float(model.get("opening_weight", 0.35))
@@ -393,6 +395,28 @@ class PreviewModel:
         if turns is None:
             return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs])
         return self.matchup.opening([units[i] for i in ours], [units[j] for j in theirs], turns=turns)
+
+    def sleep_note(self, four: tuple[int, ...]) -> str | None:
+        """One line on sleep for our ``four``: which of it each of their sleep-move users cannot put to sleep
+        (``matchup.sleep_proof``; with ``lineup_sleep_w`` on, the pairing prices it via ``Board.sleep_pressure``), and
+        which of their six each sleeper of ours cannot. None when neither six holds a sleeper."""
+        board, units = self.board, self.board.units
+
+        def moves(k: int) -> str:
+            return "/".join(m["id"] for m in self.matchup.sleep_moves(units[k]))
+
+        parts = []
+        for j in self.theirs:
+            if board.sleep_r[j]:
+                safe = [units[i].species for i in four if board.proof[j][i]]
+                parts.append(f"their {units[j].species} ({moves(j)}) cannot sleep {', '.join(safe)}" if safe
+                             else f"their {units[j].species} ({moves(j)}) can sleep all of this four")
+        for i in four:
+            if board.sleep_r[i]:
+                safe = [units[j].species for j in self.theirs if board.proof[i][j]]
+                parts.append(f"our {units[i].species} ({moves(i)}) cannot sleep their {', '.join(safe)}" if safe
+                             else f"our {units[i].species} ({moves(i)}) can sleep all of their six")
+        return "sleep: " + "; ".join(parts) if parts else None
 
     def fake_out_exposed(self, ours: tuple[int, int], theirs: tuple[int, int]) -> list[tuple[str, str]]:
         """Our speed-control setters in ``ours`` that a Fake Out user in ``theirs`` flinches (``matchup.fake_out_exposed``)."""
@@ -460,10 +484,12 @@ class PreviewModel:
 
     def pairing(self, four: tuple[int, ...], other: tuple[int, ...]) -> float:
         """Log-odds that ``four`` beats ``other``, with both sides leading as well as they can, less ``hole_w`` per
-        coverage hole (Board.holes) either way."""
+        coverage hole (Board.holes) either way, plus ``sleep_w`` x the sleep pressure (Board.sleep_pressure: each
+        side's Spore against the other side's sleep-proof cards, which the fitted features never see)."""
         _, _, _, _, lead_value = self.lead_game(four, other)
         holes = self.hole_w * (len(self.board.holes(list(four), list(other))) - len(self.board.holes(list(other), list(four)))) if self.hole_w else 0.0
-        return self.board.score(list(four), list(other)) + lead_value - holes
+        sleep = self.sleep_w * self.board.sleep_pressure(list(four), list(other)) if self.sleep_w else 0.0
+        return self.board.score(list(four), list(other)) + lead_value - holes + sleep
 
     def likely_leads(self, four: tuple[int, ...], likely: list[tuple[float, int]], their_fours: list[tuple[int, ...]],
                      template: float) -> dict[tuple, float]:
@@ -556,7 +582,7 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
     secret tie-break seed, draft.tiebreak_seed) decides among fours and lead pairs the model cannot tell apart."""
     P = params or DEFAULTS
     model = PreviewModel([p.card for p in mine], [p.card for p in theirs], tier_adjust=float(P.get("draft_tier_adjust", 1.0)),
-                         hole_w=float(P.get("lineup_hole_w", 0.0)))
+                         hole_w=float(P.get("lineup_hole_w", 0.0)), sleep_w=float(P.get("lineup_sleep_w", 0.0)))
     win = model.matchup.win_probability
     names = {i: p.species for i, p in enumerate(mine)}
     names.update({len(mine) + j: p.species for j, p in enumerate(theirs)})
@@ -601,6 +627,9 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
                          + (f", we lose {first.ko_against}" if first.ko_against else "")
                          + (f", we KO {first.ko_for}" if first.ko_for else ""))
         notes.extend(lead_notes)
+        sleep = model.sleep_note(four)
+        if sleep:
+            notes.append(sleep)
         out.append(Candidate([names[k] for k in four], [names[k] for k in best_pair], round(value, 3), notes))
     if out:
         out[0].notes.append(f"game value {100 * win(game_value):.0f}%")
@@ -677,6 +706,17 @@ def preview_table(my_cards: dict[str, dict], opp_cards: dict[str, dict], candida
     immune = [name(i) for i in bring if "ghost" in units[i].types or units[i].ability in ("innerfocus", "shielddust") or units[i].item == "covertcloak"]
     lines.append(f"Ours: Fake Out-immune leads: {', '.join(immune) if immune else 'none'}"
                  + (f"; speed control: {', '.join(our_setters)}" if our_setters else ""))
+    sleep = []  # who each sleep-move user cannot put to sleep (matchup.sleep_proof), across both sixes
+    for side, sleepers, targets in (("their", others, ours), ("our", ours, others)):
+        for j in sleepers:
+            if board.sleep_r[j]:
+                safe = [name(i) for i in targets if board.proof[j][i]]
+                moves = "/".join(m["id"] for m in matchup.sleep_moves(units[j]))
+                whose = "our" if side == "their" else "their"
+                sleep.append(f"{side} {name(j)} ({moves}) cannot sleep {whose} {', '.join(safe)}" if safe
+                             else f"{side} {name(j)} ({moves}) can sleep all of {whose} six")
+    if sleep:
+        lines.append("Sleep: " + "; ".join(sleep))
     reasons = [n for n in best.notes if n.startswith(("v2:", "their likely leads", "opening vs", "lead veto", "no lead pair", "leads lose nothing", "coverage hole"))]
     lines.append("Predicted: " + " | ".join(reasons)[:600])
     lines.append(f"We bring {', '.join(name(i) for i in bring)}; lead {' + '.join(name(i) for i in leads)}.")

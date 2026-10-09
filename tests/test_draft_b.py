@@ -510,3 +510,53 @@ def test_the_loses_to_note_names_the_biggest_counter_first():
     assert note.startswith("loses to Flutter Mane +1.00"), note  # the one-hit KO they took next, first
     margins = [float(part.rsplit(" ", 1)[1]) for part in note[len("loses to "):].split(" still in the pool")[0].split(", ")]
     assert margins == sorted(margins, reverse=True)
+
+
+# -- Sleep in the finished-draft value (Oct 8 evening, 51c86e5c) ------------------------------------------------------
+
+
+def test_the_finished_draft_value_charges_their_spore_when_the_weight_is_on():
+    # 51c86e5c, our last pick: their six holds Amoonguss (Spore). With draft_sleep_w on, every four-against-four value
+    # is charged their sleepers' reach into our four (Board.sleep_reach), so a sleep-proof Grass type loses half as much
+    # to their Spore as Toxapex does; its notes say why at any weight. The default is 0, the deployed draft, until a
+    # simulator series sets it (unmeasured at 0.4 it changed 21 of 120 live picks, Oct 9 review).
+    folder = next((p for p in LIVE_DIR.iterdir() if p.is_dir() and p.name.startswith("51c86e5c")), None)
+    if folder is None:
+        pytest.skip("live capture 51c86e5c not present")
+    drafts = sorted(folder.glob("draft-*-seat0.json"))
+    first, last = (json.loads(d.read_text())["observation"] for d in (drafts[0], drafts[-1]))
+    pool = sorted({c["species"] for c in first["available_cards"]} | {p["species"] for p in last["picks"]})
+    ours = ["Chi-Yu", "Gyarados", "Archaludon", "Tornadus", "Indeedee-F"]
+    theirs = ["Iron Hands", "Chien-Pao", "Landorus-Therian", "Ursaluna", "Hatterene", "Amoonguss"]
+    assert tuning.DEFAULTS["draft_sleep_w"] == 0.0
+    w = 0.4
+
+    def values(params):
+        memory = memory_for(pool, ours, theirs)
+        return {s.species: s for s in draft.rank_picks_v2(offered(memory), memory, params)}
+    priced, plain = values(tuning.merged({"draft_sleep_w": w})), values(tuning.DEFAULTS)
+    assert {"Rillaboom", "Whimsicott", "Toxapex"} <= set(priced)
+    gain = {s: priced[s].score - plain[s].score for s in ("Rillaboom", "Whimsicott", "Toxapex")}
+    assert gain["Toxapex"] <= -0.9 * w  # their Spore against a four with no sleep-proof card: the full weight
+    assert gain["Rillaboom"] - gain["Toxapex"] >= 0.4 * w and gain["Whimsicott"] - gain["Toxapex"] >= 0.4 * w
+    assert next(iter(priced)) == next(iter(plain)) == "Rillaboom"  # what we took live
+    assert "sleep-proof against their Amoonguss" in plain["Rillaboom"].notes
+    assert not any("sleep-proof" in n for n in plain["Toxapex"].notes)
+
+
+def test_the_draft_sleep_term_is_one_sided():
+    # Only THEIR sleepers count, against our sleep-proof cards; our own Amoonguss / Torkoal earn nothing (the brief's
+    # scope; the Oct 9 review measured that half moving 10 live picks toward them). 46fd3d95's sixes: our Torkoal
+    # (Yawn) against a six with no sleeper, where the two-sided term had swapped our last pick Rillaboom for Cresselia.
+    ours = ["Archaludon", "Torkoal", "Iron Valiant", "Arcanine", "Milotic", "Rillaboom"]
+    theirs = ["Iron Hands", "Landorus-Therian", "Dragonite", "Basculegion", "Ursaluna", "Hatterene"]
+    units = [matchup.unit(CATALOG[s]) for s in ours + theirs + ["Amoonguss"]]
+    board = matchup.Board(units)
+    us, them, spore = list(range(6)), list(range(6, 12)), 12
+    assert board.sleep_reach(us, them) == pytest.approx(0.5 * 0.5)  # our Yawn into their six (Hatterene bounces it)
+    assert board.sleep_reach(them, us) == 0.0
+    on, off = draft.DraftSearch(board, sleep_w=0.4), draft.DraftSearch(board, sleep_w=0.0)
+    assert on.finished(us, them) == off.finished(us, them)  # no credit for our own sleeper
+    assert on.finished(us, them, include=5) == off.finished(us, them, include=5)
+    their_six = [6, 7, 8, 9, 10, spore]  # with their Amoonguss in place of Hatterene, the charge applies
+    assert on.finished(us, their_six)[0] < off.finished(us, their_six)[0]
