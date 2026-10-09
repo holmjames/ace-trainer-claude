@@ -1953,6 +1953,128 @@ MISC_VALUE = {"helpinghand": 20, "partingshot": 25, "encore": 20, "nastyplot": 3
 
 
 ALLY_ONLY = {"helpinghand", "coaching", "followme", "ragepowder", "spotlight", "afteryou", "decorate", "allyswitch"}
+SINGLE_TARGETS = ("normal", "any", "adjacentFoe")  # the move targets redirection can move
+LIKELY_KO = 0.5  # a redirector this likely to be KO'd (accuracy included) is not counted on
+
+
+def redirect_cover(sheet: "TurnSheet", redirector: int, killer_pos: int, hit: dict, theirs: dict[int, "Mon"]) -> dict:
+    """Does Follow Me / Rage Powder from our slot ``redirector`` keep ``hit`` (a threat row of the foe at ``killer_pos``
+    into the partner) off the partner? Redirection lasts only while the redirector stands: a foe that moves before the
+    killer (priority first, then the sheet's speed order, which has Trick Room, Tailwind, Scarf and paralysis in it) and
+    likely KOs the redirector (its best hit into it: KO chance >= 50% with accuracy) ends it, and the killer then hits
+    its original target. Spread moves are never redirected. Returns {"covers": the hit lands on the redirector,
+    "broken_by": the earlier hit that likely KOs it first (from, position, move, range, ko_chance) or None, "why": why
+    it does not hold, "drawn_ko": the drawn hit's own KO chance on the redirector, "holds": it covers AND the
+    redirector likely survives what it draws (one that just goes down instead buys nothing)}. ``redirect_holds`` sums
+    it up for ``status_value``'s cover credit and the ``redirect_to_protect_partner`` row alike (07a3cb1f T2: Follow Me
+    was worth 45 from an Indeedee that Wood Hammer KOs before Archaludon moves; Draco Meteor then KO'd the Basculegion
+    its own Wave Crash recoil had weakened). Attackers that ignore redirection (mech's ``data.redirect_ignored``) are
+    not read yet: tests/test_mech_d.py pins a Rage Powder row against Arcanine, whose Safety Goggles ignore it."""
+    out: dict[str, Any] = {"covers": False, "broken_by": None, "why": "", "drawn_ko": 0.0, "holds": False}
+    if (data.move_info(hit["move"]) or {}).get("target") not in SINGLE_TARGETS:
+        out["why"] = f"{hit['move']} is a spread move, which redirection does not move"
+        return out
+    killer = theirs.get(killer_pos)
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    k_prio = hit.get("priority", 0) or 0
+    for t in sheet.threats:
+        pos = t["position"]
+        if pos == killer_pos:
+            continue
+        for h in t["hits"]:
+            prio = h.get("priority", 0) or 0
+            if h["into_slot"] != redirector or prio < k_prio or (prio == k_prio and rank.get(("theirs", pos), 99) >= rank.get(("theirs", killer_pos), 99)):
+                continue  # not into the redirector, or it lands after the killer's hit
+            p = ko_probability(h, with_accuracy=True)
+            if p >= LIKELY_KO and (out["broken_by"] is None or p > out["broken_by"]["ko_chance"]):
+                out["broken_by"] = {"from": t["species"], "position": pos, "move": h["move"], "ko_chance": round(p, 3),
+                                    "damage_pct_of_current_hp": list(h["damage_pct_of_current_hp"])}
+    if out["broken_by"] is not None:
+        b = out["broken_by"]
+        name = next((m.species for m in (sheet.field.actives if sheet.field is not None else []) if m.side == "mine" and m.position == redirector), "the redirector")
+        out["why"] = (f"{b['from']}'s {b['move']} ({b['damage_pct_of_current_hp'][0]}-{b['damage_pct_of_current_hp'][1]}%, a KO "
+                      f"{int(round(100 * b['ko_chance']))}% of the time) KOs {name} before {killer.species if killer is not None else 'the attacker'} "
+                      "moves, and redirection ends when the redirector faints")
+        return out
+    out["covers"] = True
+    drawn = [h for t in sheet.threats if t["position"] == killer_pos for h in t["hits"] if h["into_slot"] == redirector and h["move"] == hit["move"]]
+    out["drawn_ko"] = round(max((ko_probability(h, with_accuracy=True) for h in drawn), default=0.0), 3)
+    out["holds"] = out["drawn_ko"] < LIKELY_KO
+    if not out["holds"]:
+        out["why"] = f"the redirector would go down to the {hit['move']} it draws ({int(round(100 * out['drawn_ko']))}%)"
+    return out
+
+
+def redirect_holds(sheet: "TurnSheet", redirector: int, theirs: dict[int, "Mon"]) -> tuple[bool, list[tuple[dict, dict]]]:
+    """Is Follow Me / Rage Powder from our slot ``redirector`` real cover for the partner this turn: ``redirect_cover``
+    holds for at least one of the foes' KO hits into the partner, and none of the LIKELY ones (KO chance >= 50% with
+    accuracy) is left uncovered (a spread move, a redirector KO'd first or by what it draws: the partner goes down
+    anyway). Returns (that, [(hit, its verdict), ...]). ``status_value``'s cover credit and the
+    ``redirect_to_protect_partner`` row both call this, so they agree."""
+    verdicts = [(h, redirect_cover(sheet, redirector, t["position"], h, theirs))
+                for t in sheet.threats for h in t["hits"] if h["into_slot"] != redirector and h["ko"] != "no"]
+    held = any(v["holds"] for _, v in verdicts)
+    uncovered = any(not v["holds"] and ko_probability(h, with_accuracy=True) >= LIKELY_KO for h, v in verdicts)
+    return held and not uncovered, verdicts
+
+
+def _boosted_row(row: dict, factor: float) -> dict:
+    """A damage row with every strike multiplied by ``factor`` (Helping Hand's 1.5)."""
+    out = {**row, "damage_pct_of_current_hp": [round(v * factor, 1) for v in row["damage_pct_of_current_hp"]]}
+    for key in ("per_hit", "first_hit"):
+        if row.get(key):
+            out[key] = [v * factor for v in row[key]]
+    out["ko"] = _ko_label(*out["damage_pct_of_current_hp"])
+    return out
+
+
+def helping_hand_value(sheet: "TurnSheet", slot_number: int, theirs: dict[int, "Mon"], P: dict | None = None) -> float | None:
+    """What Helping Hand from ``slot_number`` creates, in damage points: the partner's best attack (``_best_attack`` on
+    its sheet rows) with its damage x1.5 (mech's ``data.helping_hand_boost``; tests/test_mech_d.py holds that against
+    @smogon/calc), valued wherever the boosted hit BECOMES a likely KO (>= 50% with accuracy, above the unboosted
+    odds) as the boosted row's ``_expected`` minus the plain one's: the damage and the KO bonus it adds, plus the threat
+    that foe carries (``threat_weight``) when the partner lands before it moves (priority, then the speed order), and
+    discounted by the partner's own chance to act (``survival_factor``). 0 when the boost creates no likely KO (an intact
+    Focus Sash stops a single boosted hit too). None when there is nothing to boost: the partner has no attack the hand
+    raises (Ruination is a fixed half), or one of its status moves outvalues its best attack (the turn's best_attacks row
+    then pairs the hand with that status move, which it does not boost). 07a3cb1f T2: Wave Crash for 68-81% into
+    Rillaboom becomes a KO before it moves with the hand (@smogon/calc 143-169 HP into 139); the flat 20 could not see it."""
+    P = P or DEFAULTS
+    partner = 1 - slot_number
+    entry = next((e for e in sheet.our_options if e.get("slot") == partner), None)
+    ours = {m.position: m for m in (sheet.field.actives if sheet.field is not None else []) if m.side == "mine"}
+    if not entry or partner not in ours:
+        return None
+    weights = threat_weights(sheet, ours, theirs, P)
+    opt, row, attack = _best_attack(entry, P=P, threats=weights)
+    if not opt or not row or opt.get("move") in data.FIXED_DAMAGE_MOVES or opt.get("move") in FRACTION_MOVES:
+        return None
+    for mv in ours[partner].moves:
+        mid = mv.get("id")
+        if not data.is_damaging(mv) and mid not in PROTECT_LIKE and mid not in ("fakeout", "helpinghand") \
+                and status_value(mid, ours[partner], theirs, sheet, partner)[0] > attack:
+            return None
+    factor = float(data.helping_hand_boost("helpinghand", opt.get("move")))
+    if factor <= 1.0:
+        return None
+    prio = opt.get("priority", 0) or 0
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    by_species = {species_key(m.species): pos for pos, m in theirs.items()}
+    value = 0.0
+    for r in row.get("rows") or [row]:
+        pos = r["target"] if r.get("target", 0) > 0 else by_species.get(species_key(r.get("species")))
+        foe = theirs.get(pos) if r.get("side") == "theirs" else None
+        if foe is None or (data.to_id(foe.item) == "focussash" and foe.hp_fraction >= 0.999 and not r.get("per_hit")):
+            continue
+        up = _boosted_row(r, factor)
+        before, after = ko_probability(r, with_accuracy=True), ko_probability(up, with_accuracy=True)
+        if after < LIKELY_KO or after <= before:
+            continue
+        their_prio = their_priority_into(sheet, pos)
+        first = prio > their_prio or (prio == their_prio and rank.get(("mine", partner), 99) < rank.get(("theirs", pos), 99))
+        threat = weights.get(species_key(foe.species), 0.0) if first else 0.0
+        value += _expected(up, 0, P, threat) - _expected(r, 0, P, threat)
+    return value * survival_factor(partner, sheet, prio, rank, row, P) if value > 0 else 0.0
 
 
 def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "TurnSheet", slot_number: int,
@@ -1981,8 +2103,9 @@ def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "Turn
                 best = (value, pos)
         return best
     if move_id in REDIRECT_MOVES:
-        partner_hits = [h for t in sheet.threats for h in t["hits"] if h["into_slot"] != slot_number]
-        return ((45 if any(h["ko"] != "no" for h in partner_hits) else 15), 0)
+        # The cover credit (45) only when the redirection holds for the partner (``redirect_holds``); otherwise it just
+        # draws hits, like Follow Me with no KO to stop (15).
+        return ((45 if redirect_holds(sheet, slot_number, theirs)[0] else 15), 0)
     if move_id in SETUP_MOVES:
         up = {"tailwind": any("Our Tailwind" in n for n in sheet.notes), "trickroom": sheet.trick_room}.get(move_id, False)
         return ((0 if up else SETUP_MOVES[move_id]), 0)
@@ -1998,6 +2121,11 @@ def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "Turn
             if STATUS_MOVES[move_id] > best[0]:
                 best = (float(STATUS_MOVES[move_id]), pos)
         return best
+    if move_id == "helpinghand":
+        # by the KO it creates (helping_hand_value); the flat value stays the floor (the extra half of a hit), and
+        # nothing when the partner has no hit for it to boost
+        made = helping_hand_value(sheet, slot_number, theirs)
+        return ((0.0 if made is None else max(float(MISC_VALUE[move_id]), round(made, 1))), 0)
     if move_id in MISC_VALUE:
         value = MISC_VALUE[move_id]
         if move_id in ("nastyplot", "swordsdance", "dragondance", "calmmind", "bulkup") and me.hp_fraction < 0.6:
@@ -2867,6 +2995,18 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
     # may pick a different move, and a warning that silently assumed Fake Out or Follow Me has cost games. A priority
     # move is an escape only when it (or the partner, faster) takes the threat out first at least half the time: Helping
     # Hand and Follow Me never are, and a +2 Extreme Speed for 39-46% is not either (D1i, the Oct 8 practice game).
+    def redirect_gap(number: int, killer_pos: int, hit: dict) -> tuple[dict, str] | None:
+        """When the partner offers Follow Me / Rage Powder but it would NOT keep ``hit`` off slot ``number``
+        (``redirect_cover``: a spread move, or a redirector a faster foe likely KOs first): (the verdict, "slot N's
+        <move> does not cover it: <why>"). None when it would, or there is no redirect to offer."""
+        mate = 1 - number
+        move_id = next((data.to_id(o.get("move_id")) for o in (slot_template(mate) or {}).get("options") or []
+                        if o.get("type") == "move" and data.to_id(o.get("move_id")) in REDIRECT_MOVES), None)
+        if move_id is None or mate not in ours:
+            return None
+        verdict = redirect_cover(sheet, mate, killer_pos, hit, theirs)
+        return None if verdict["covers"] else (verdict, f"slot {mate}'s {move_id} does not cover it: {verdict['why']}")
+
     endangered: set[int] = set()
     for threat in sheet.threats:
         for hit in threat["hits"]:
@@ -2883,11 +3023,13 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 # Slower than us: it only lands if we leave the slot in and fail to remove it. Say so (not a warning).
                 if hit["ko"] == "guaranteed" or ko_probability(hit) >= 0.5:
                     endangered.add(number)
+                    gap = redirect_gap(number, threat["position"], hit)  # 07a3cb1f T2: never an escape the redirector cannot give
                     sheet.notes.append(
                         f"EXPOSED: slot {number} ({me.species if me else '?'}) moves before {threat['species']}"
                         + (f" if it acts ({state}: {int(round(100 * wake))}%)" if wake < 1 else "") + f", but {threat['species']}'s "
                         f"{hit['move']} KOs it ({hit['damage_pct_of_current_hp'][0]}-{hit['damage_pct_of_current_hp'][1]}%) afterwards unless "
-                        f"{threat['species']} is removed, flinched, redirected or this slot Protects/switches.")
+                        + (f"{threat['species']} is removed, flinched or this slot Protects/switches ({gap[1]})." if gap else
+                           f"{threat['species']} is removed, flinched, redirected or this slot Protects/switches."))
                 continue
             escape = ""
             best_escape = (0.0, "")
@@ -2945,10 +3087,18 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             for h in turned[:2]:
                 cause = ("Glaive Rush doubles the damage it takes" if move_id == GLAIVE_RUSH else
                          ", ".join(f"{d:+d} {s.upper()}" for s, d in POST_MOVE_STAGES.get(move_id, {}).items()) or "its recoil")
-                sheet.notes.append(
-                    f"EXPOSED AFTER {move_id}: slot {number} ({me.species}) would take {h['from']}'s {h['move']} for "
-                    f"{h['damage_pct_of_current_hp'][0]}-{h['damage_pct_of_current_hp'][1]}% afterwards ({cause}): a KO "
-                    f"{int(round(100 * h['ko_chance']))}% of the time that the plain rows do not show.")
+                text = (f"EXPOSED AFTER {move_id}: slot {number} ({me.species}) would take {h['from']}'s {h['move']} for "
+                        f"{h['damage_pct_of_current_hp'][0]}-{h['damage_pct_of_current_hp'][1]}% afterwards ({cause}): a KO "
+                        f"{int(round(100 * h['ko_chance']))}% of the time that the plain rows do not show.")
+                # The partner's redirect does not save it when a faster foe likely KOs the redirector first: a WARNING, not
+                # a note (07a3cb1f T2: Wood Hammer KO'd Indeedee, then Draco Meteor KO'd the recoil-weakened Basculegion).
+                row = next((x for t in sheet.threats if t["position"] == h["position"] for x in t["hits"]
+                            if x["move"] == h["move"] and x["into_slot"] == number), {"move": h["move"]})
+                gap = redirect_gap(number, h["position"], row)
+                if gap and gap[0]["broken_by"] is not None:
+                    sheet.warnings.append(f"{text} {gap[1][0].upper()}{gap[1][1:]}.")
+                else:
+                    sheet.notes.append(text)
 
     def joint_value(picks: list[tuple[int, dict | None, dict | None, float]], *, protect_aware: bool = False,
                     partner: str | None = None) -> float:
@@ -3324,13 +3474,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                              and data.to_id(o.get("move_id")) in ("followme", "ragepowder")), None)
             if redirect is None:
                 continue
+            real, verdicts = redirect_holds(sheet, redirector, theirs)
+            if not real or not next((v["holds"] for h, v in verdicts if h is hit), False):
+                continue  # status_value's check: the partner is not safe behind it, or this hit is not kept off it
             move_info = data.move_info(hit["move"]) or {}
-            if move_info.get("target") not in ("normal", "any", "adjacentFoe"):
-                continue  # spread moves can't be redirected
             me_r = ours.get(redirector)
             if me_r is None:
                 continue
-            # does the redirector survive that hit?
+            # does the redirector survive that hit? (this row's own stricter bar: no KO roll at all)
             attacker = theirs.get(threat["position"])
             est = damage_percent(attacker, {**move_info, "id": hit["move"]}, me_r, field=sheet.field) if attacker else None  # with the field: screens, weather, Ruin (D1k)
             if est is None or est[1] >= 100:

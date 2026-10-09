@@ -52,6 +52,7 @@ Lessons from overrides that lost (Oct 8):
 - Do not switch a Pokémon into a slot the sheet marks "KO'd on entry"; Protect or attack instead.
 - Choice Scarf/Band/Specs lock the user into its first move until it switches. Before picking a move for a Choice holder, check what that lock does next turn against everything they have left (a locked Electric move vs a remaining Ground type is a wasted Pokémon).
 - Redirection (Follow Me, Rage Powder) pulls single-target attacks onto the redirector; it does nothing against spread moves. Spread moves hit both opponents at reduced power. Do not use a move the target is immune to, do not switch both slots into the same Pokémon, and do not use an ally-targeting move (Helping Hand) with no ally on the field.
+- Redirection ends when the redirector faints: if a faster foe KOs it, the slower foes hit their original targets.
 - Speed control is tempo. Their Tailwind/Trick Room has a turn count in the notes: with one or two turns left, Protecting or switching through it can beat trading under it. Ours is worth using while it lasts.
 
 Answer only in the required JSON."""
