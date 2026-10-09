@@ -531,7 +531,7 @@ class DraftSearch:
         self.their_fours = max(1, int(their_fours))  # ... against this many of their likeliest fours
         self.robust = max(0.0, min(1.0, float(robust)))  # weight on the worst of those fours (lineup_v2_robust)
         self.hole_w = float(hole_w)  # log-odds per coverage hole (Board.holes): their card none of our four can hit for 40%
-        self.sleep_w = float(sleep_w)  # x Board.sleep_pressure in the four-against-four value, as Team Preview's pairing adds it
+        self.sleep_w = float(sleep_w)  # x Board.sleep_reach of their four into ours, charged in the four-against-four value
         self.items = board.items
         self._counter_base: list[float] | None = None  # per card: role points + raw strength (counterpick.counter_value)
         self._beats: dict[tuple[int, int], float | None] = {}
@@ -604,9 +604,11 @@ class DraftSearch:
         six); the 6-against-6 team score when ``four_eval`` is off. With ``include`` (the pick being valued) only
         fours holding that card count, so a pick the finished six would bench is worth the best four it still fits
         in, never the six built around it. (Their fitted per-card terms stay in here: taking them out, as Team
-        Preview does for their bring, moved the bcbaabe2 pick-3 state off Archaludon.) Each four-against-four value
-        carries ``sleep_w`` x Board.sleep_pressure (their Spore against our sleep-proof cards and ours against
-        theirs), as Team Preview's pairing does, and their likeliest fours are picked with it."""
+        Preview does for their bring, moved the bcbaabe2 pick-3 state off Archaludon.) With ``sleep_w`` each
+        four-against-four value is charged their sleepers' reach into our four (Board.sleep_reach: their Spore against
+        our sleep-proof cards) and their likeliest fours are picked with their reach into our six. One-sided: our own
+        sleepers earn nothing (the brief's scope; the Oct 9 review measured that half moving 10 live picks toward our
+        own Amoonguss / Torkoal)."""
         key = (tuple(sorted(us)), tuple(sorted(them)), include)
         cached = self._finished.get(key)
         if cached is not None:
@@ -615,15 +617,15 @@ class DraftSearch:
             result = (self.board.score(us, them), tuple(us))
         else:
             score4, holes, hole_w = self.board.score4, self.board.holes, self.hole_w
-            sleep_w, sleep = self.sleep_w if self.board.sleepers else 0.0, self.board.sleep_pressure
-            theirs = sorted(combinations(them, 4), key=lambda g: -(score4(list(g), us) + sleep_w * sleep(list(g), us)))[: self.their_fours]
+            sleep_w, reach = self.sleep_w if self.board.sleepers else 0.0, self.board.sleep_reach
+            theirs = sorted(combinations(them, 4), key=lambda g: -(score4(list(g), us) + sleep_w * reach(list(g), us)))[: self.their_fours]
             theirs = [list(g) for g in theirs]
             best: tuple[float, tuple[int, ...]] | None = None
             for four in combinations(us, 4):
                 if include is not None and include not in four:
                     continue
                 f = list(four)
-                values = [score4(f, g) + sleep_w * sleep(f, g) - hole_w * (len(holes(f, g)) - len(holes(g, f))) for g in theirs]
+                values = [score4(f, g) - sleep_w * reach(g, f) - hole_w * (len(holes(f, g)) - len(holes(g, f))) for g in theirs]
                 value = (1 - self.robust) * sum(values) / len(values) + self.robust * min(values)
                 if best is None or value > best[0]:
                     best = (value, four)
@@ -766,7 +768,7 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
         answered = [board.units[j].species for j in them if board.base[i][j] >= 0.2]
         if answered:
             notes.append(f"beats {answered[:3]}")
-        # Sleep (Board.sleep_pressure, draft_sleep_w): their sleep-move users this card cannot be slept by, and ours.
+        # Sleep (Board.sleep_reach; draft_sleep_w): their sleep-move users this card cannot be slept by, and ours.
         proof_vs = [board.units[j].species for j in them if board.sleep_r[j] and board.proof[j][i]]
         if proof_vs:
             notes.append(f"sleep-proof against their {', '.join(proof_vs)}")

@@ -231,6 +231,9 @@ def test_sleep_pressure_is_spore_against_the_two_slots_it_can_reach():
     assert board.sleep_pressure(two, yawn) == pytest.approx(-0.5)  # Yawn at half; Grass and Goggles do not stop it
     assert board.sleep_pressure(spore + [1], exposed) == pytest.approx(1.0) == -board.sleep_pressure(exposed, spore + [1])
     assert board.sleep_pressure([1, 2], [3, 4]) == 0.0  # no sleeper on either side
+    # sleep_reach is one side's sleepers into the other (the draft charges theirs only); the pressure is the difference
+    assert board.sleep_reach(spore, exposed) == pytest.approx(1.0) and board.sleep_reach(exposed, spore) == 0.0
+    assert board.sleep_reach(spore + yawn, one) == pytest.approx(0.5 + 0.5)  # Rillaboom stops the Spore, not the Yawn
     # It is a measurement: Board.score stays the fitted model (Team Preview and the finished draft add it, weighted).
     plain = matchup.Board([u(s) for s in names if s not in ("Amoonguss", "Torkoal")])
     assert board.score([1, 2], [3, 4]) == pytest.approx(plain.score([0, 1], [2, 3]))
@@ -245,12 +248,17 @@ def test_sleep_pressure_is_spore_against_the_two_slots_it_can_reach():
 def test_the_opening_asks_the_mech_lane_who_can_be_slept():
     sim = matchup._Opening(lead("Salamence", "Garchomp"), lead("Amoonguss", "Rillaboom"))
     salamence, garchomp, amoonguss, rillaboom = sim.mons
-    assert not sim.sleepable(salamence, "spore", amoonguss)  # Lum Berry wakes it at once ...
-    salamence.item = ""
-    assert sim.sleepable(salamence, "spore", amoonguss)  # ... once
-    assert sim.sleepable(garchomp, "spore", amoonguss) and not sim.sleepable(rillaboom, "spore", amoonguss)
+    spore = move_of(u("Amoonguss"), "Spore")
+    assert sim.sleepable(garchomp, spore, amoonguss) and not sim.sleepable(rillaboom, spore, amoonguss)  # Grass
+    # A Lum Berry wakes its holder at once, once: Spore still lands (berry=False), the berry is spent, the next one sleeps.
+    assert not sim.sleepable(salamence, spore, amoonguss) and sim.sleepable(salamence, spore, amoonguss, berry=False)
+    assert sim.decide(amoonguss, 2)[2] is garchomp  # a target that falls asleep comes before the berry holder
+    sim.execute(amoonguss, ("sleep", spore, salamence), {})
+    assert salamence.item == "" and not salamence.asleep and salamence.status is None
+    sim.execute(amoonguss, ("sleep", spore, salamence), {})
+    assert salamence.asleep and salamence.status == "slp"
     garchomp.status = "par"
-    assert not sim.sleepable(garchomp, "spore", amoonguss)  # already has a status condition
+    assert not sim.sleepable(garchomp, spore, amoonguss, berry=False)  # already has a status condition
 
 
 # -- the tier list (data/card_tiers.json, scripts/build_tiers.py) --------------------------------------------------

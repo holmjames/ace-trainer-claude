@@ -760,9 +760,10 @@ class _Opening:
             return ("redirect", redirect, None)
         sleep = next((ids[k] for k in ("spore", "sleeppowder") if k in ids), None)
         if sleep is not None:
-            options = [f for f in foes if not f.asleep and f.status is None and self.sleepable(f, sleep, m)]
+            # A Lum / Chesto Berry holder is a target too (the sleep spends its berry), but one that falls asleep comes first.
+            options = [f for f in foes if not f.asleep and f.status is None and self.sleepable(f, sleep, m, berry=False)]
             if options:
-                return ("sleep", sleep, max(options, key=lambda f: (self.threat(f, m.side), -self.mons.index(f))))
+                return ("sleep", sleep, max(options, key=lambda f: (self.sleepable(f, sleep, m), self.threat(f, m.side), -self.mons.index(f))))
         if "willowisp" in ids and turn == 1:
             options = [f for f in foes if f.status is None and "fire" not in f.unit.types and not f.asleep
                        and sum(1 for mv in f.unit.attacks if mv.get("category") == "Physical") * 2 > len(f.unit.attacks)]
@@ -783,11 +784,16 @@ class _Opening:
             return ("idle", None, None)
         return ("attack", best[1], best[2])
 
-    def sleepable(self, f: _Active, move: dict | str = "spore", user: _Active | None = None) -> bool:
+    def sleepable(self, f: _Active, move: dict | str = "spore", user: _Active | None = None, *, berry: bool = True) -> bool:
         """Can ``move`` put ``f`` to sleep now: the mech lane's ``data.status_move_blocked`` on its current item and
         status under the field's terrain (Grass / Overcoat / Safety Goggles against powders, Insomnia, Good as Gold,
-        Magic Bounce, Electric / Misty Terrain when grounded; a Lum / Chesto Berry still held wakes it at once)."""
-        view = replace(f.unit.mon, item=f.item or None, status=f.status)
+        Magic Bounce, Electric / Misty Terrain when grounded; a Lum / Chesto Berry still held wakes it at once).
+        ``berry=False`` asks whether the move lands at all, leaving such a berry out: it wakes its holder once, and
+        ``execute`` eats it then."""
+        item = f.item or None
+        if not berry and item in CURE_BERRIES:
+            item = None
+        view = replace(f.unit.mon, item=item, status=f.status)
         return data.status_move_blocked(move, view, user=user.unit.mon if user else None, terrain=self.terrain) is None
 
     def priority(self, m: _Active, action: tuple) -> int:
@@ -848,9 +854,13 @@ class _Opening:
                 return
             if m.unit.ability == "prankster" and "dark" in target.unit.types:
                 return
-            if kind == "sleep" and self.sleepable(target, move, m):
-                target.asleep, target.status = True, "slp"
-                self.events.append(f"{m.unit.species} puts {target.unit.species} to sleep")
+            if kind == "sleep" and self.sleepable(target, move, m, berry=False):
+                if target.item in CURE_BERRIES:  # it falls asleep and its berry wakes it at once: spent, awake
+                    self.events.append(f"{target.unit.species}'s {target.item} wakes it from {m.unit.species}'s {move['id']}")
+                    target.item = ""
+                else:
+                    target.asleep, target.status = True, "slp"
+                    self.events.append(f"{m.unit.species} puts {target.unit.species} to sleep")
             elif kind == "burn" and "fire" not in target.unit.types and target.unit.ability not in ("thermalexchange", "waterveil"):
                 target.status = "brn"
             return
@@ -1123,7 +1133,9 @@ def unseen_strength(cards: dict) -> float:
 # as Gold, Magic Bounce, Electric / Misty Terrain) keep acting. The 1-on-1 races never see sleep and the fitted role
 # weight for holding a sleeper comes from games an engine played that misuses Spore (Amoonguss's tier flag), so on
 # Oct 8 Team Preview gave every Amoonguss four of theirs 0% and Amoonguss slept four of ours in seven turns. Who is
-# sleep-proof comes from the mech lane's ``data.status_move_blocked``; ``Board.sleep_pressure`` turns it into a score.
+# sleep-proof comes from the mech lane's ``data.status_move_blocked``; ``Board.sleep_reach`` / ``sleep_pressure`` turn it
+# into a score, which Team Preview (``lineup_sleep_w``) and the finished-draft value (``draft_sleep_w``) add at a weight
+# that is 0 until a simulator series measures it (Oct 9 review: unmeasured at 0.4, it moved live picks and previews).
 
 SLEEP_MOVES = frozenset(m for m, cond in data.STATUS_CONDITION_MOVES.items() if cond == "slp")
 YAWN_SHARE = 0.5  # Yawn puts the target to sleep only at the end of the next turn, and a switch escapes it
@@ -1146,7 +1158,7 @@ def sleep_threat(u: Unit) -> float:
 
 def sleep_proof(target: Unit, sleeper: Unit, terrain: str | None = None) -> bool:
     """``target`` cannot be put to sleep by any of ``sleeper``'s sleep moves (``data.status_move_blocked``, with
-    ``terrain`` in play). A Lum / Chesto Berry wakes its holder only once, so it does not count."""
+    ``terrain`` in play). A Lum / Chesto Berry wakes its holder only once and is then eaten, so it never counts."""
     moves = sleep_moves(sleeper)
     if not moves:
         return False
@@ -1210,9 +1222,9 @@ class Board:
         self.alpha_tw = float(self.model.get("alpha_tw", 0.5))
         self.alpha_tr = float(self.model.get("alpha_tr", 0.5))
         self.cap = float(self.model.get("answer_cap", 0.5))
-        # Sleep (``sleep_pressure``, outside the fitted features; Team Preview and the finished-draft value add it at
-        # their own weight, like ``holes``): per sleep-move user on the board, which cards it cannot put to sleep,
-        # alone and under an Electric / Misty Terrain.
+        # Sleep (``sleep_reach`` / ``sleep_pressure``, outside the fitted features; Team Preview and the finished-draft
+        # value add it at their own weight, like ``holes``): per sleep-move user on the board, which cards it cannot put
+        # to sleep, alone and under an Electric / Misty Terrain.
         self.sleep_r = [sleep_threat(u) for u in self.units]
         self.sleepers = [j for j in range(n) if self.sleep_r[j] > 0]
         self.sleep_setter = [u.terrain if u.terrain in SLEEP_TERRAINS else None for u in self.units]
@@ -1326,23 +1338,20 @@ class Board:
                 slots += TERRAIN_SHARE
         return min(slots, SLEEP_SLOTS) / SLEEP_SLOTS
 
-    def sleep_pressure(self, us: list[int], them: list[int]) -> float:
-        """Sleep, ours minus theirs (log-odds once weighted: ``lineup_sleep_w`` in Team Preview's pairing,
-        ``draft_sleep_w`` in the finished-draft value): each sleep-move user's reliability (``sleep_r``) times the share
-        of the other side's two active slots it can put to sleep (1 - ``cover``). A Spore user against a side with no
-        sleep-proof card scores 1, against one 0.5, against two 0, so a sleep-proof card is worth up to half a Spore to
-        the side that holds it. Antisymmetric; 0 when neither side holds a sleeper. The fitted features never see
-        sleep (the races have no status moves; the role weight for holding a sleeper is flat)."""
+    def sleep_reach(self, sleepers: list[int], targets: list[int]) -> float:
+        """How much of ``targets``' two active slots the sleep-move users among ``sleepers`` can put to sleep: each
+        one's reliability (``sleep_r``) x (1 - ``cover``), summed. A Spore user against no sleep-proof card is 1,
+        against one 0.5, against two 0, so a sleep-proof card is worth up to half a Spore to the side holding it. The
+        fitted features never see sleep (the races have no status moves; the role weight for a sleeper is flat). The
+        finished-draft value charges their reach into our four (one-sided, ``draft_sleep_w``)."""
         if not self.sleepers:
             return 0.0
-        value = 0.0
-        for i in us:
-            if self.sleep_r[i]:
-                value += self.sleep_r[i] * (1.0 - self.cover(them, i, us))
-        for j in them:
-            if self.sleep_r[j]:
-                value -= self.sleep_r[j] * (1.0 - self.cover(us, j, them))
-        return value
+        return sum(self.sleep_r[i] * (1.0 - self.cover(targets, i, sleepers)) for i in sleepers if self.sleep_r[i])
+
+    def sleep_pressure(self, us: list[int], them: list[int]) -> float:
+        """Sleep, ours minus theirs: ``sleep_reach(us, them) - sleep_reach(them, us)``. Antisymmetric, as Team
+        Preview's zero-sum pairing needs (``lineup_sleep_w``); 0 when neither side holds a sleeper."""
+        return self.sleep_reach(us, them) - self.sleep_reach(them, us)
 
     def score(self, us: list[int], them: list[int]) -> float:
         """Log-odds that ``us`` beats ``them`` (antisymmetric: score(a, b) == -score(b, a))."""

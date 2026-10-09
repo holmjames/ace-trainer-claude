@@ -398,8 +398,8 @@ class PreviewModel:
 
     def sleep_note(self, four: tuple[int, ...]) -> str | None:
         """One line on sleep for our ``four``: which of it each of their sleep-move users cannot put to sleep
-        (``matchup.sleep_proof``; the four-vs-four score prices it through ``Board.sleep_pressure``), and which of their
-        six each sleeper of ours cannot. None when neither six holds a sleeper."""
+        (``matchup.sleep_proof``; with ``lineup_sleep_w`` on, the pairing prices it via ``Board.sleep_pressure``), and
+        which of their six each sleeper of ours cannot. None when neither six holds a sleeper."""
         board, units = self.board, self.board.units
 
         def moves(k: int) -> str:
@@ -712,8 +712,9 @@ def preview_table(my_cards: dict[str, dict], opp_cards: dict[str, dict], candida
             if board.sleep_r[j]:
                 safe = [name(i) for i in targets if board.proof[j][i]]
                 moves = "/".join(m["id"] for m in matchup.sleep_moves(units[j]))
-                sleep.append(f"{side} {name(j)} ({moves}) cannot sleep {'our' if side == 'their' else 'their'} "
-                             f"{', '.join(safe) if safe else 'none'}")
+                whose = "our" if side == "their" else "their"
+                sleep.append(f"{side} {name(j)} ({moves}) cannot sleep {whose} {', '.join(safe)}" if safe
+                             else f"{side} {name(j)} ({moves}) can sleep all of {whose} six")
     if sleep:
         lines.append("Sleep: " + "; ".join(sleep))
     reasons = [n for n in best.notes if n.startswith(("v2:", "their likely leads", "opening vs", "lead veto", "no lead pair", "leads lose nothing", "coverage hole"))]

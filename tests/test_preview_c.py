@@ -361,12 +361,14 @@ THEIRS_E3 = ["Iron Hands", "Chien-Pao", "Landorus-Therian", "Ursaluna", "Hattere
 def test_spore_is_priced_four_against_four_and_their_spore_four_gets_weight():
     # The deployed Team Preview scored four against four with nothing for Spore (only the two-turn opening looked at
     # it) and gave every four of theirs holding Amoonguss 0%: their actual four (Chien-Pao, Amoonguss, Iron Hands,
-    # Hatterene) included. The pairing now carries lineup_sleep_w x Board.sleep_pressure: their Spore against a four
-    # of ours with no sleep-proof card costs the full weight, against one (Rillaboom, Grass) half of it.
+    # Hatterene) included. With lineup_sleep_w on, the pairing carries it x Board.sleep_pressure: their Spore against a
+    # four of ours with no sleep-proof card costs the full weight, against one (Rillaboom, Grass) half of it. The
+    # default is 0 (the deployed preview) until a simulator series sets it: unmeasured at 0.4 it no longer brought a
+    # Rillaboom four here under the live seeded tie-break (Oct 9 review), so the weight is set explicitly below.
     from itertools import combinations
 
-    w = V2["lineup_sleep_w"]
-    assert w > 0
+    assert tuning.DEFAULTS["lineup_sleep_w"] == 0.0
+    w = 0.4
     def model(sleep_w):
         return lineup.PreviewModel([CATALOG[s] for s in OURS_E3], [CATALOG[s] for s in THEIRS_E3], tier_adjust=V2["draft_tier_adjust"],
                                    hole_w=V2["lineup_hole_w"], sleep_w=sleep_w)
@@ -387,16 +389,22 @@ def test_spore_is_priced_four_against_four_and_their_spore_four_gets_weight():
         return sum(q[j] for j, g in enumerate(their_fours) if idx["Amoonguss"] in g), q[their_fours.index(actual)]
     before, actual_before = spore_weight(plain)
     after, actual_after = spore_weight(priced)
-    assert before < 0.01 and actual_before < 0.01  # what the deployed build predicted
-    assert after >= 0.3, after  # a four holding their Spore user is now a real part of the prediction
+    assert before < 0.01 and actual_before < 0.01  # what the deployed build predicts (and the default still does)
+    assert after >= 0.3, after  # a four holding their Spore user is a real part of the prediction once it is priced
     # (Their exact four stays near 0: the fitted preview weights also charge their Hatterene's Trick Room, and Landorus-T's
     # spread outscores Chien-Pao; that is outside sleep and not changed here.)
     assert actual_after < 0.05
-    # The notes and the payload table say who Spore cannot touch, for the model to read.
+    # The notes and the payload table say who Spore cannot touch, for the model to read, whatever the weight.
     mine, theirs, roster = rosters(OURS_E3, THEIRS_E3)
-    cands = lineup.shortlist(mine, theirs, roster, params=V2)
-    assert any(n.startswith("v2:") and "Amoonguss" in n for n in cands[0].notes), cands[0].notes[0]
-    sleep_notes = [next(n for n in c.notes if n.startswith("sleep: ")) for c in cands]
-    assert all(("cannot sleep Rillaboom" in n) == ("rillaboom" in c.bring) for n, c in zip(sleep_notes, cands)), sleep_notes
-    table = lineup.preview_table(mine, theirs, cands, V2)
-    assert "Sleep: their Amoonguss (spore) cannot sleep our Rillaboom" in table and len(table) <= 2500
+    for params in (V2, tuning.merged({"lineup_v2": 1, "lineup_sleep_w": w})):
+        cands = lineup.shortlist(mine, theirs, roster, params=params)
+        sleep_notes = [next(n for n in c.notes if n.startswith("sleep: ")) for c in cands]
+        assert all(("cannot sleep Rillaboom" in n) == ("rillaboom" in c.bring) for n, c in zip(sleep_notes, cands)), sleep_notes
+        assert all(n.endswith("can sleep all of this four") for n, c in zip(sleep_notes, cands) if "rillaboom" not in c.bring)
+        table = lineup.preview_table(mine, theirs, cands, params)
+        assert "Sleep: their Amoonguss (spore) cannot sleep our Rillaboom" in table and len(table) <= 2500
+    assert any(n.startswith("v2:") and "Amoonguss" in n for n in cands[0].notes), cands[0].notes[0]  # priced: in the prediction
+    # 93a98b6f: nothing in our six is sleep-proof, and the table says so plainly (not 'cannot sleep our none').
+    mine, theirs, roster = rosters(OURS_W2, THEIRS_W2)
+    table = lineup.preview_table(mine, theirs, lineup.shortlist(mine, theirs, roster, params=V2), V2)
+    assert "Sleep: their Amoonguss (spore) can sleep all of our six" in table and "none" not in table.split("Sleep: ")[1].splitlines()[0]
