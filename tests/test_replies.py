@@ -366,15 +366,16 @@ def test_glaive_rush_used_last_turn_doubles_the_faster_threats():
 
 
 def test_tie_guard_avoids_a_recoil_self_ko_with_our_last_pokemon():
-    """Arcanine, our last Pokémon at 8% HP, can finish their last Pokémon with Flare Blitz, but the recoil (a third of
-    the damage dealt) would knock Arcanine out too: a tie scores nothing, so Extreme Speed (no recoil) is the row."""
+    """Arcanine, our last Pokémon at 8% HP and faster than their last Pokémon (a 40% Amoonguss), can finish it with
+    Flare Blitz, but the recoil (a third of the damage dealt, plus the Rocky Helmet) would knock Arcanine out too: a
+    tie scores nothing, so Extreme Speed (no recoil) is the row."""
     cards = _catalog()
     m = MatchMemory()
     m.my_cards["arcanine"] = cards["Arcanine"]
-    m.opp_cards["rillaboom"] = cards["Rillaboom"]
-    template, obs = _doubles(m, ["Arcanine"], ["Rillaboom"], {"Arcanine": 0.08, "Rillaboom": 0.3})
+    m.opp_cards["amoonguss"] = cards["Amoonguss"]
+    template, obs = _doubles(m, ["Arcanine"], ["Amoonguss"], {"Arcanine": 0.08, "Amoonguss": 0.4})
     for key in list(obs["opponent_team"]):
-        obs["opponent_team"][key]["current_hp_fraction"] = 0.3
+        obs["opponent_team"][key]["current_hp_fraction"] = 0.4
     obs["opponent_team"].update({f"p2: gone{i}": {"species": s, "active": False, "fainted": True, "current_hp_fraction": 0.0}
                                  for i, s in enumerate(["Incineroar", "Flutter Mane", "Grimmsnarl"])})
     sheet = battle.build_sheet(template, obs, m)
