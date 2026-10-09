@@ -44,6 +44,7 @@ DEFAULTS: dict[str, float] = {
     "draft_first_scarcity_w": 0.5,   # B1: x role scarcity (1 / holders in the pool, summed over Fake Out, Intimidate, speed control, redirection, Ghost); 0.5 lifts Incineroar to 5th / 4th at pick 1 on L2 / L3 (0.3: 5th / 7th)
     "draft_first_exposure_w": 0.2,   # B1: x (pool cards that beat the candidate by >= 0.2) / 6: the counters the opponent can still take
     "draft_first_guard_w": 0.1,      # B1: x the hand guard list for the live catalog (+1 / -1 / 0)
+    "draft_first_adjust_w": 1.0,     # B1: x the per-card first-pick table (draft.first_pick_adjust: data/first_pick_adjust.json, all 0 = no change; DRAFT_FIRST_PICK_ADJUST=<path> swaps the table for a simulator A/B arm)
     "draft_hole_w": 0.5,           # B4: log-odds per coverage hole in the finished-draft value (their card none of our four hits for 40% of its HP with its best real attack; immunities and Air Balloon count); 0 = off
     "draft_sleep_w": 0.0,          # their sleepers against our sleep-proof cards in the finished-draft value (one-sided: x matchup.Board.sleep_reach of their four into ours; a Spore user against a four with no sleep-proof card is 1, one 0.5, two 0). 0 = off, the deployed draft: unmeasured at 0.4 it changed 21 of 120 live picks (Oct 9 review); set it from a simulator series
     "draft_tiebreak_eps": 0.01,    # picks whose finished-draft win chance is within this of the best are a tie, broken by the match's secret seed (0 = always the best)

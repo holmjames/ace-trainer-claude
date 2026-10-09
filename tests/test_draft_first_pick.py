@@ -1,0 +1,132 @@
+"""B1, the first-pick policy, made calibratable (Oct 9): each of its terms has its own tuning weight, and a per-card
+table (data/first_pick_adjust.json, shipped all zeros, weighted by draft_first_adjust_w) can shift single cards at our
+first two picks. With the zero table the draft is stage2's exactly: the 120 captured live draft decisions replayed
+through rank_picks_v2 give identical rankings, full-precision scores and notes before and after this change."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from altruagent.models import LegalAction
+
+from agent.pokemon import data, draft, tuning
+from agent.pokemon.memory import MatchMemory, species_key
+
+CATALOG = {c["species"]: c for c in json.loads((data.DATA_DIR / "cards.json").read_text())} if (data.DATA_DIR / "cards.json").exists() else {}
+pytestmark = pytest.mark.skipif(not CATALOG or not (data.DATA_DIR / "pokedex.json").exists(), reason="needs data/ tables")
+
+# Oct 7 L3 (we drafted first; sim/draft_eval.py LIVE_POOLS 7ce71025): the pool the scarcity term was tuned on.
+L3 = ["Amoonguss", "Archaludon", "Dondozo", "Garchomp", "Great Tusk", "Grimmsnarl", "Hatterene", "Incineroar", "Indeedee-F",
+      "Iron Hands", "Rillaboom", "Sableye", "Sylveon", "Ting-Lu", "Tornadus", "Ursaluna", "Whimsicott", "Wo-Chien"]
+
+
+@pytest.fixture(autouse=True)
+def _shipped_table(monkeypatch):
+    """Every test starts from the shipped table and an empty cache (the table is read once per process)."""
+    monkeypatch.delenv(draft.FIRST_PICK_ADJUST_ENV, raising=False)
+    monkeypatch.setattr(draft, "_ADJUST_TABLES", {})
+
+
+def memory_for(pool: list[str], mine: list[str] = (), theirs: list[str] = ()) -> MatchMemory:
+    memory = MatchMemory()
+    memory.my_seat_key = "me"
+    for species in pool:
+        memory.pool_cards[CATALOG[species]["card_id"]] = CATALOG[species]
+    for species in mine:
+        memory.my_cards[species_key(species)] = CATALOG[species]
+    for species in theirs:
+        memory.opp_cards[species_key(species)] = CATALOG[species]
+    return memory
+
+
+def offered(memory: MatchMemory) -> list[LegalAction]:
+    drafted = {c["card_id"] for c in (*memory.my_cards.values(), *memory.opp_cards.values())}
+    held = {data.to_id(c["item"]) for c in memory.my_cards.values()}
+    return [LegalAction(f"draft_pick:{c['card_id']}", f"Draft {c['species']}", {}) for c in memory.pool_cards.values()
+            if c["card_id"] not in drafted and data.to_id(c["item"]) not in held]
+
+
+def ranked(mine: list[str] = (), theirs: list[str] = (), params: dict | None = None) -> dict[str, draft.ScoredCard]:
+    memory = memory_for(L3, mine, theirs)
+    return {s.species: s for s in draft.rank_picks_v2(offered(memory), memory, params or tuning.DEFAULTS)}
+
+
+def l3_board():
+    P = tuning.DEFAULTS
+    board = draft._board_for([CATALOG[s] for s in L3], float(P["draft_card_w"]), float(P["draft_tier_adjust"]))
+    index = {u.species: i for i, u in enumerate(board.units)}
+    return board, list(range(len(board.units))), index
+
+
+def write_table(tmp_path, entries: dict) -> str:
+    path = tmp_path / "first_pick_adjust.json"
+    path.write_text(json.dumps({"adjust": entries}))
+    return str(path)
+
+
+def test_the_shipped_table_is_all_zeros_and_names_only_catalog_cards():
+    raw = json.loads(draft.FIRST_PICK_ADJUST_FILE.read_text())
+    assert raw["adjust"] and set(raw["adjust"]) <= set(CATALOG)  # a misspelt card would silently adjust nothing
+    assert all(v == 0.0 for v in raw["adjust"].values())
+    assert set(draft.first_pick_adjust().values()) == {0.0}
+    assert tuning.DEFAULTS["draft_first_adjust_w"] == 1.0  # a filled-in table counts as written
+
+
+def test_with_the_zero_table_the_bonus_is_the_four_term_sum_bit_for_bit():
+    board, pool, index = l3_board()
+    P = tuning.DEFAULTS
+    for species in ("Incineroar", "Archaludon", "Iron Hands", "Tornadus"):
+        bonus, t = draft.first_pick_bonus(board, index[species], pool, P)
+        assert t["adjust"] == 0.0
+        assert bonus == (P["draft_first_strength_w"] * t["strength"] + P["draft_first_scarcity_w"] * t["scarcity"]
+                         - P["draft_first_exposure_w"] * t["exposure"] / 6.0 + P["draft_first_guard_w"] * t["guard"])
+    assert not any("table" in n for s in ranked().values() for n in s.notes)  # the policy note reads as before
+
+
+@pytest.mark.parametrize("key, term, scale", [("draft_first_strength_w", "strength", 1.0), ("draft_first_scarcity_w", "scarcity", 1.0),
+                                              ("draft_first_exposure_w", "exposure", -1 / 6), ("draft_first_guard_w", "guard", 1.0)])
+def test_each_policy_term_has_its_own_weight(key, term, scale):
+    board, pool, index = l3_board()
+    inc = index["Incineroar"]
+    base, t = draft.first_pick_bonus(board, inc, pool, tuning.DEFAULTS)
+    bumped, _ = draft.first_pick_bonus(board, inc, pool, tuning.merged({key: tuning.DEFAULTS[key] + 1.0}))
+    assert bumped - base == pytest.approx(scale * t[term])
+    off, _ = draft.first_pick_bonus(board, inc, pool, tuning.merged({key: 0.0}))
+    assert base - off == pytest.approx(tuning.DEFAULTS[key] * scale * t[term])
+
+
+def test_role_scarcity_zero_takes_its_share_off_incineroar_at_pick_one():
+    # Arm (a) of the first-pick A/B: Incineroar is L3's only Intimidate and one of four Fake Out users (scarcity 1.25).
+    plain, none = ranked(), ranked(params=tuning.merged({"draft_first_scarcity_w": 0.0}))
+    assert plain["Incineroar"].score - none["Incineroar"].score == pytest.approx(0.5 * 1.25, abs=2e-3)
+
+
+def test_a_table_entry_moves_only_its_card_and_fades_like_the_policy(tmp_path, monkeypatch):
+    before = [ranked(), ranked(["Archaludon"], ["Iron Hands", "Sylveon"]), ranked(["Archaludon", "Rillaboom"], ["Iron Hands", "Sylveon"])]
+    monkeypatch.setenv(draft.FIRST_PICK_ADJUST_ENV, write_table(tmp_path, {"incineroar": -0.4}))  # keys are matched as species ids
+    after = [ranked(), ranked(["Archaludon"], ["Iron Hands", "Sylveon"]), ranked(["Archaludon", "Rillaboom"], ["Iron Hands", "Sylveon"])]
+    for weight, b, a in zip((1.0, 0.5, 0.0), before, after):  # full at our first pick, half at our second, none after
+        assert a["Incineroar"].score - b["Incineroar"].score == pytest.approx(-0.4 * weight, abs=2e-3)
+        assert all(a[s].score == b[s].score for s in b if s != "Incineroar")
+    assert any(n.startswith("first-pick policy") and n.endswith("table -0.40)") for n in after[0]["Incineroar"].notes)
+    monkeypatch.setattr(draft, "_ADJUST_TABLES", {})
+    half = ranked(params=tuning.merged({"draft_first_adjust_w": 0.5}))
+    assert half["Incineroar"].score - before[0]["Incineroar"].score == pytest.approx(-0.2, abs=2e-3)
+
+
+def test_a_mistyped_table_path_fails_loudly_and_a_missing_shipped_table_is_zeros(tmp_path, monkeypatch):
+    # A simulator A/B arm names its table through the environment: a typo must not quietly turn it into the control.
+    monkeypatch.setenv(draft.FIRST_PICK_ADJUST_ENV, str(tmp_path / "no-such-table.json"))
+    with pytest.raises(ValueError, match="unusable"):
+        draft.first_pick_adjust()
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"adjust": {"Incineroar": "minus a bit"}}))
+    with pytest.raises(ValueError):
+        draft.first_pick_adjust(str(bad))
+    # The live agent never sets the variable: a shipped table that is gone or broken is the zero table, never a crash.
+    monkeypatch.delenv(draft.FIRST_PICK_ADJUST_ENV)
+    monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", tmp_path / "missing.json")
+    assert draft.first_pick_adjust() == {}
+    assert ranked()["Incineroar"].score == pytest.approx(ranked(params=tuning.merged({"draft_first_adjust_w": 0.0}))["Incineroar"].score)

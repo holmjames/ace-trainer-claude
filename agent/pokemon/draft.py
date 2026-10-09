@@ -31,10 +31,14 @@ a counter-picking opponent (the Oct 7 opponent), which the score above never ask
 
 from __future__ import annotations
 
+import json
+import math
+import os
 import random
 import secrets
 from dataclasses import dataclass, field
 from itertools import combinations
+from pathlib import Path
 
 from altruagent import LegalAction
 
@@ -478,9 +482,43 @@ FIRST_PICK_GUARD: dict[str, int] = {"Gholdengo": 1, "Incineroar": 1, "Archaludon
 SPEED_CONTROL_ROLES = frozenset({"tailwind", "trickroom", "speed_drop"})
 BEATS_MARGIN = 0.2
 
+# A per-card first-pick table (log-odds, the search value's unit), for calibrating the policy from simulator series
+# without touching the search: data/first_pick_adjust.json ships all zeros, which is the policy exactly as before.
+# DRAFT_FIRST_PICK_ADJUST=<path to a file of the same shape> swaps in another table for one process (a simulator A/B
+# arm); that file must read cleanly or the pick raises (so a mistyped path cannot quietly turn an arm into the
+# control). A missing or unreadable shipped table counts as all zeros. Weighted by draft_first_adjust_w.
+FIRST_PICK_ADJUST_FILE = data.DATA_DIR / "first_pick_adjust.json"
+FIRST_PICK_ADJUST_ENV = "DRAFT_FIRST_PICK_ADJUST"
+_ADJUST_TABLES: dict[str, dict[str, float]] = {}
+
+
+def first_pick_adjust(path: str | None = None) -> dict[str, float]:
+    """The first-pick table in use: species id (data.to_id) -> log-odds. ``path`` (else $DRAFT_FIRST_PICK_ADJUST, else
+    the shipped file) is read once per process."""
+    chosen = path or os.environ.get(FIRST_PICK_ADJUST_ENV) or ""
+    source = chosen or str(FIRST_PICK_ADJUST_FILE)
+    table = _ADJUST_TABLES.get(source)
+    if table is None:
+        try:
+            raw = json.loads(Path(source).read_text(encoding="utf-8"))
+            entries = raw.get("adjust", raw) if isinstance(raw, dict) else None
+            if not isinstance(entries, dict):
+                raise ValueError("expected {\"adjust\": {species: log-odds}}")
+            table = {data.to_id(k): float(v) for k, v in entries.items() if not str(k).startswith("_")}
+            bad = [k for k, v in table.items() if not math.isfinite(v)]
+            if bad:
+                raise ValueError(f"non-finite values for {bad}")
+        except (OSError, ValueError, TypeError) as exc:
+            if chosen:
+                raise ValueError(f"first-pick table {source!r} ({FIRST_PICK_ADJUST_ENV} or path) unusable: {exc}") from exc
+            table = {}
+        _ADJUST_TABLES[source] = table
+    return table
+
 
 def first_pick_terms(board, c: int, pool: list[int]) -> dict[str, float]:
-    """The policy's four readings of candidate ``c`` against the remaining ``pool`` (which still holds ``c``)."""
+    """The policy's readings of candidate ``c`` against the remaining ``pool`` (which still holds ``c``): four from the
+    pool and the guard list, plus the card's entry in the first-pick table (``first_pick_adjust``)."""
     units = board.units
     rest = [j for j in pool if j != c]
     me = units[c]
@@ -502,6 +540,7 @@ def first_pick_terms(board, c: int, pool: list[int]) -> dict[str, float]:
         "scarcity": scarcity,
         "exposure": sum(1 for j in rest if board.base[j][c] >= BEATS_MARGIN),  # pool cards that beat it, theirs to take
         "guard": float(FIRST_PICK_GUARD.get(me.species, 0)),
+        "adjust": first_pick_adjust().get(data.to_id(me.species), 0.0),
     }
 
 
@@ -512,6 +551,8 @@ def first_pick_bonus(board, c: int, pool: list[int], params: dict) -> tuple[floa
              + float(params.get("draft_first_scarcity_w", 0.0)) * t["scarcity"]
              - float(params.get("draft_first_exposure_w", 0.0)) * t["exposure"] / 6.0
              + float(params.get("draft_first_guard_w", 0.0)) * t["guard"])
+    if t["adjust"]:  # the shipped table is all zeros: the sum above is then the bonus, bit for bit
+        bonus += float(params.get("draft_first_adjust_w", 0.0)) * t["adjust"]
     return bonus, t
 
 
@@ -762,7 +803,8 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
         notes = [f"v2: finished-draft win chance {100 * matchup.win_probability(plan.value):.0f}%"]
         if terms:
             notes.append(f"first-pick policy {bonus:+.2f} (duel margin over the pool {terms['strength']:+.2f}, role scarcity "
-                         f"{terms['scarcity']:.2f}, beaten by {int(terms['exposure'])} pool cards, guard {terms['guard']:+.0f})")
+                         f"{terms['scarcity']:.2f}, beaten by {int(terms['exposure'])} pool cards, guard {terms['guard']:+.0f}"
+                         + (f", table {terms['adjust']:+.2f}" if terms.get("adjust") else "") + ")")
         if plan.responses:
             notes.append("their likely replies: " + ", ".join(f"{s} ({100 * matchup.win_probability(v):.0f}%)" for s, v in plan.responses))
         answered = [board.units[j].species for j in them if board.base[i][j] >= 0.2]
