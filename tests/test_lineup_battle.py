@@ -250,7 +250,8 @@ def test_choice_lock_is_flagged_against_a_remaining_immune_opponent():
 
 def test_lethal_warning_does_not_assume_our_priority_move():
     """Koraidon (205) outspeeds Maushold (179) and KOs it; Maushold's best code move is Follow Me (+2 priority).
-    The warning must still appear, with the priority escape noted, because the model may pick Population Bomb."""
+    The warning must still appear, and Follow Me is NOT an escape: a priority move only counts when it (or the
+    partner) takes the threat out first at least half the time (D1i, Oct 8; the old text claimed a '+2' escape)."""
     m = MatchMemory()
     m.my_cards["maushold"] = {"species": "Maushold", "item": "Wide Lens", "ability": "Technician", "nature": "Jolly", "evs": {"atk": 252, "spe": 252}, "moves": ["Population Bomb", "Follow Me", "Beat Up", "Protect"]}
     m.my_cards["sneasler"] = {"species": "Sneasler", "item": "Focus Sash", "ability": "Unburden", "nature": "Jolly", "evs": {"atk": 252, "spe": 252}, "moves": ["Close Combat", "Dire Claw", "Fake Out", "Protect"]}
@@ -273,5 +274,5 @@ def test_lethal_warning_does_not_assume_our_priority_move():
     sheet = battle.build_sheet({"type": "doubles_turn", "slots": slots}, obs, m)
     lethal = [w for w in sheet.warnings if w.startswith("LETHAL") and "slot 0 (Maushold)" in w and "flareblitz" in w]
     assert lethal, sheet.warnings
-    assert "priority move from this slot, +2" in lethal[0]
+    assert "goes first" not in lethal[0] and "+2" not in lethal[0], lethal[0]  # Follow Me cannot KO Koraidon: no escape
     assert any(c["name"] == "protect_threatened" for c in sheet.candidates)
