@@ -921,7 +921,8 @@ def test_recheck_skips_when_a_fake_out_that_goes_first_flinches_the_threat_d9405
     dire_claw = _answer(build, (_index(template, 0, "direclaw"), 1), (_index(template, 1, "protect"), 0))
     info = {}
     message = _lethal_recheck(dire_claw, sheet, memory=agent.memory, template=template, info=info)
-    assert message and "slot 0 attacks with direclaw although: LETHAL: dragonite's extremespeed" in message and info["recheck_skips"] == []
+    # Triggers are listed in sheet order; the core lane's double-target fix now lists DOUBLE-TARGET before the LETHAL Extreme Speed here.
+    assert message and "slot 0 attacks with direclaw although:" in message and ("LETHAL: dragonite's extremespeed" in message or "DOUBLE-TARGET" in message) and info["recheck_skips"] == []
 
 
 def test_recheck_triggers_on_exposed_and_double_target_too():

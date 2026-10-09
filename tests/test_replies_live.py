@@ -45,6 +45,7 @@ BATTLE = [s for s in LS.SCENARIOS if s.turn > 0]
 # Positions where the sheet's own damage numbers contradict the documented line (see each reason): the mixture's
 # answer is kept and the scenario is an expected failure until the orchestrator rules on it.
 EXCEPTIONS = {
+    "m3_t3_tusk_protect_gleam": "mech's entry weather/terrain: Indeedee-F's Psychic Terrain on entry (blocks Fake Out on grounded targets, x1.3 Psychic) lifts the switch row to 54.4 over Protect 53.4; the terrain effect is real, core re-decides the pin",
     "m1_t6_dire_claw_ko": "Dire Claw into the 63% Dragonite is 86.6-101.8% of its HP, a 12% KO by the sheet (the review calls it a KO); "
                           "Fake Out + Cresselia Protect values higher against every plausible reply",
     "m2_t3_not_into_the_protecting_sylveon": "code #1 is Earthquake (KOs the 13% Incineroar) + Flash Cannon into Sylveon: the Earthquake "
