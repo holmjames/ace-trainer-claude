@@ -1032,10 +1032,12 @@ def _memory_hazards(memory: "MatchMemory | None", side: str) -> object:
     if not callable(fn):
         return None
     try:
-        return fn(side)
+        record = fn(side)
     except Exception:  # a memory from another version: fall back to the side conditions
         return None
-
+    if isinstance(record, dict) and not any(record.values()):
+        return None  # an all-zero record means the memory knows of nothing: the field's own side conditions decide
+    return record
 
 def _glaive_rush_carry(sheet: "TurnSheet", ours: dict[int, "Mon"], memory: "MatchMemory") -> None:
     """Glaive Rush: its user takes double damage until it next moves. A slot that used it LAST turn is still doubled
