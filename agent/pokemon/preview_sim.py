@@ -965,8 +965,10 @@ class Search:
 
     def __init__(self, units: list[matchup.Unit], plans: list[tuple[tuple[int, ...], tuple[int, int]]],
                  their: list[tuple[float, tuple[int, ...], list[tuple[tuple[int, int], float]]]], *, seed: int,
-                 turns: int = 4, expected_w: float = 0.7, prior: dict | None = None, calc: Calc | None = None) -> None:
+                 turns: int = 4, expected_w: float = 0.7, prior: dict | None = None, calc: Calc | None = None,
+                 finalists: int = 3, four_value: dict[tuple, float] | None = None) -> None:
         self.units = units
+        self.four_value = dict(four_value or {})  # a constant added to every plan of a four (the bench's long-run worth)
         total = sum(w for w, _, _ in their) or 1.0
         self.their = [(w / total, four, sorted(pairs, key=lambda t: (-t[1], t[0]))) for w, four, pairs in their]
         self.plans = [PlanStats(tuple(f), tuple(l), [0.0] * len(self.their), [0] * len(self.their)) for f, l in plans]
@@ -976,6 +978,8 @@ class Search:
         self.prior = prior
         self.calc = calc or _CALC
         self.offsets = [(g * 0.7548776662466927) % 1.0 for g in range(len(self.their))]
+        # the final round plays the best plan of each of this many different fours, on equal rollouts (the shortlist)
+        self.finalists = max(1, min(int(finalists), len({p.four for p in self.plans}) or 1))
 
     def their_leads(self, g: int, k: int) -> tuple[int, int]:
         """Their lead pair for rollout ``k`` against four ``g``: a low-discrepancy draw from its lead distribution, so
@@ -1003,14 +1007,16 @@ class Search:
         return sim.margin()
 
     def value(self, plan: PlanStats) -> tuple[float, float, float, int] | None:
-        """(score, expected, worst, worst four) from the rollouts so far; None until every four has one."""
+        """(score, expected, worst, worst four) from the rollouts so far; None until every four has one. The score is
+        ``expected_w`` x expected + the rest x worst, plus the four's constant (``four_value``)."""
         means = plan.means()
         if any(m is None for m in means):
             return None
         expected = sum(w * m for (w, _, _), m in zip(self.their, means))
         worst_g = min(range(len(means)), key=lambda g: (means[g], g))
         worst = means[worst_g]
-        return self.expected_w * expected + (1 - self.expected_w) * worst, expected, worst, worst_g
+        score = self.expected_w * expected + (1 - self.expected_w) * worst + self.four_value.get(plan.four, 0.0)
+        return score, expected, worst, worst_g
 
     def schedule(self, budget_s: float) -> tuple[int, float]:
         """(rollouts per (plan, four) in the first round, share of plans kept each round): the costliest schedule
@@ -1029,23 +1035,51 @@ class Search:
         return best[1], best[2]
 
     def cost(self, c0: int, keep: float) -> int:
-        """Rollouts in a full successive-halving run: ``c0`` per (plan, four) first, the best ``keep`` share of the
-        plans kept after each round, the survivors' count per four doubled."""
+        """Rollouts in a full run (``run``): ``c0`` per (plan, four) first, then the better ``keep`` share of the plans
+        (never fewer than the finalists) with their count per four doubled, until only the finalists are left and
+        have played their round."""
         n, done, total, per = len(self.plans), 0, 0, c0
         while n >= 1:
             total += n * len(self.their) * per
             done += per
-            if n == 1:
+            if n <= self.finalists:
                 break
-            n, per = max(1, min(n - 1, int(n * keep + 0.5))), done
+            n, per = self.kept(n, keep), done
         return total
+
+    def kept(self, n: int, keep: float) -> int:
+        return max(self.finalists, min(n - 1, int(n * keep + 0.5)))
+
+    def halve(self, alive: list[int], keep: float) -> list[int]:
+        """The better ``keep`` share of ``alive`` by value, always with the best plan of each of the best
+        ``finalists`` fours (so the shortlist's three different fours reach the last round)."""
+        ranked = sorted(alive, key=lambda i: (-self.value(self.plans[i])[0], i))
+        protected: list[int] = []
+        seen: set[tuple] = set()
+        for i in ranked:
+            four = self.plans[i].four
+            if four not in seen:
+                seen.add(four)
+                protected.append(i)
+                if len(protected) == self.finalists:
+                    break
+        if len(alive) <= self.finalists:
+            return ranked
+        n = self.kept(len(alive), keep)
+        chosen = set(protected)
+        for i in ranked:
+            if len(chosen) >= n:
+                break
+            chosen.add(i)
+        return [i for i in ranked if i in chosen]
 
     def run(self, budget_s: float, *, now: Callable[[], float] = time.monotonic, max_rollouts: int | None = None,
             first: int | None = None) -> SearchResult:
-        """Successive halving until one plan is left, ``budget_s`` seconds have passed or ``max_rollouts`` rollouts
-        are done. The first round gives every plan ``first`` rollouts against each four of theirs (else ``schedule``
-        sizes the run to the budget); each later round keeps the better share of the plans and gives them as many
-        new rollouts as all earlier rounds together, so the count per survivor doubles."""
+        """Successive halving until only the finalists are left (the best plan of each of the best ``finalists``
+        fours, played on equal rollouts), ``budget_s`` seconds have passed or ``max_rollouts`` rollouts are done. The
+        first round gives every plan ``first`` rollouts against each four of theirs (else ``schedule`` sizes the run
+        to the budget); each later round keeps the better share of the plans and gives them as many new rollouts as
+        all earlier rounds together, so the count per survivor doubles."""
         started = now()
         deadline = started + max(0.0, budget_s)
         alive = list(range(len(self.plans)))
@@ -1074,10 +1108,9 @@ class Search:
             complete = True
             for i in alive:
                 self.plans[i].rounds = rounds
-            if len(alive) <= 1:
+            if len(alive) <= self.finalists:
                 break
-            alive.sort(key=lambda i: (-self.value(self.plans[i])[0], i))
-            alive = alive[:max(1, min(len(alive) - 1, int(len(alive) * keep + 0.5)))]
+            alive = self.halve(alive, keep)
             per = done
         self.calc.trim()
         ranked = []
