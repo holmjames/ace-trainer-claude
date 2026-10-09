@@ -1962,7 +1962,8 @@ def redirect_cover(sheet: "TurnSheet", redirector: int, killer_pos: int, hit: di
     into the partner) off the partner? Redirection lasts only while the redirector stands: a foe that moves before the
     killer (priority first, then the sheet's speed order, which has Trick Room, Tailwind, Scarf and paralysis in it) and
     likely KOs the redirector (its best hit into it: KO chance >= 50% with accuracy) ends it, and the killer then hits
-    its original target. Spread moves are never redirected. Returns {"covers": the hit lands on the redirector,
+    its original target. Spread moves are never redirected, nor a hit that lands before the +2 redirection is up (+3,
+    or +2 from a faster foe). Returns {"covers": the hit lands on the redirector,
     "broken_by": the earlier hit that likely KOs it first (from, position, move, range, ko_chance) or None, "why": why
     it does not hold, "drawn_ko": the drawn hit's own KO chance on the redirector, "holds": it covers AND the
     redirector likely survives what it draws (one that just goes down instead buys nothing)}. ``redirect_holds`` sums
@@ -1977,6 +1978,9 @@ def redirect_cover(sheet: "TurnSheet", redirector: int, killer_pos: int, hit: di
     killer = theirs.get(killer_pos)
     rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
     k_prio = hit.get("priority", 0) or 0
+    if k_prio > 2 or (k_prio == 2 and rank.get(("theirs", killer_pos), 99) < rank.get(("mine", redirector), 99)):
+        out["why"] = f"{hit['move']} (+{k_prio}) lands before the redirection (+2) is up"
+        return out
     for t in sheet.threats:
         pos = t["position"]
         if pos == killer_pos:

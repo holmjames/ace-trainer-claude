@@ -38,24 +38,28 @@ def hit(sheet: battle.TurnSheet, species: str, move: str, into_slot: int) -> tup
     return threat["position"], next(h for h in threat["hits"] if h["move"] == move and h["into_slot"] == into_slot)
 
 
-@pytest.fixture(scope="module")
-def t2(tmp_path_factory) -> battle.TurnSheet:
-    """The sheet of 07a3cb1f turn 2 (Basculegion 158/196 + Indeedee-F 78/177 vs Rillaboom + Archaludon, Psychic
-    Terrain), built by a code-only agent that played the captures before it."""
+def sheet_at(name: str, log_dir) -> battle.TurnSheet:
+    """The sheet a code-only agent builds at 07a3cb1f's capture ``name``, after playing the captures before it."""
     folder = _folder(M9)
-    agent = PokemonAgent(None, version="core6", log_dir=tmp_path_factory.mktemp("m9"), capture_dir="", log=lambda *_: None)
+    agent = PokemonAgent(None, version="core6", log_dir=log_dir, capture_dir="", log=lambda *_: None)
     for path in _sequence(folder, 1):
         raw = json.loads(path.read_text())
         state = GameState.from_mcp_state(raw)
         if not state.legal_actions:
             continue
-        if path.name == "moving-00002-seat1.json":
+        if path.name == name:
             obs = observation_dict(state)
             agent.memory.observe_battle(obs)
             return battle.build_sheet(state.legal_actions[0].input.get("action") or {}, obs, agent.memory, agent.params)
         agent.choose_action(state, DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
                                                    agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=1))
-    raise AssertionError("turn 2 not captured")
+    raise AssertionError(f"{name} not captured")
+
+
+@pytest.fixture(scope="module")
+def t2(tmp_path_factory) -> battle.TurnSheet:
+    """Turn 2: Basculegion 158/196 + Indeedee-F 78/177 vs Rillaboom + Archaludon, Psychic Terrain."""
+    return sheet_at("moving-00002-seat1.json", tmp_path_factory.mktemp("m9t2"))
 
 
 # -- the live position ------------------------------------------------------------------------------------------------
@@ -146,6 +150,17 @@ def test_spread_moves_are_never_covered_and_a_faster_spread_hit_can_break_the_co
     pos, wood_hammer = hit(sheet, "rillaboom", "woodhammer", 1)
     assert wood_hammer["ko"] != "no"
     assert battle.redirect_cover(sheet, 0, pos, wood_hammer, theirs)["broken_by"]["move"] == "heatwave"
+
+
+def test_a_faster_plus_two_hit_lands_before_the_redirection_is_up():
+    # Extreme Speed and Follow Me are both +2: the faster Arcanine's lands first, unless Trick Room turns the order
+    for room, covered in ((None, False), ({"fields": ["Trick Room"]}, True)):
+        sheet, _ = build(["Chi-Yu", "Indeedee-F"], ["Arcanine", "Amoonguss"], hp={"Chi-Yu": 0.3}, obs_extra=room)
+        pos, extreme_speed = hit(sheet, "arcanine", "extremespeed", 0)
+        rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+        assert extreme_speed["ko"] != "no" and extreme_speed["priority"] == 2
+        assert (rank[("theirs", pos)] > rank[("mine", 1)]) is covered
+        assert battle.redirect_cover(sheet, 1, pos, extreme_speed, sides(sheet)[1])["covers"] is covered
 
 
 def test_status_value_and_the_redirect_row_read_the_same_check():
