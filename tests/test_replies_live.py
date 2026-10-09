@@ -42,28 +42,16 @@ def _scenarios():
 LS = _scenarios()
 BATTLE = [s for s in LS.SCENARIOS if s.turn > 0]
 
-# Positions where the sheet's own damage numbers contradict the documented line (see each reason): the mixture's
-# answer is kept and the scenario is an expected failure until the orchestrator rules on it.
+# Positions the mixture still gets wrong. Since the Oct 8 verification (ace-trainer-data/verify-core-positions-2026-10-08.md;
+# the accept rules in scripts/live_scenarios.py are its verified answers) these are known gaps of the reply model, each
+# with its cause, not documented disagreements: remove an entry once the mixture plays the verified line.
 EXCEPTIONS = {
-    "m3_t3_tusk_protect_gleam": "mech's entry weather/terrain: Indeedee-F's Psychic Terrain on entry (blocks Fake Out on grounded targets, x1.3 Psychic) lifts the switch row to 54.4 over Protect 53.4; the terrain effect is real, core re-decides the pin",
-    "m1_t6_dire_claw_ko": "Dire Claw into the 63% Dragonite is 86.6-101.8% of its HP, a 12% KO by the sheet (the review calls it a KO); "
-                          "Fake Out + Cresselia Protect values higher against every plausible reply",
-    "m2_t3_not_into_the_protecting_sylveon": "code #1 is Earthquake (KOs the 13% Incineroar) + Flash Cannon into Sylveon: the Earthquake "
-                                             "line the lesson asks for, with the free Flash Cannon on the slot that may Protect (worst case 40.9 vs 51.7)",
-    "m2_t4_protect_the_doubled_archaludon": "both our attacks KO the 75% Sylveon before it moves (125-151% combined; it is slower than both "
-                                            "under our Tailwind), so the Moonblast + Hyper Voice double cannot happen: focus Sylveon (124.9) beats Protect",
-    "m4_t2_no_telegraphed_ko": "the Landorus pivot values -54 against the plausible replies (the double into Landorus, 80% KO) vs -32 for "
-                               "Baxcalibur Protect + Bleakwind; it wins only under the reply the bot made (switch to Incineroar, prior 0.03)",
-    "m4_t4_out_of_the_double": "Lucario is KO'd on entry by Archaludon's Body Press (183-216%): the documented 'resists both Dragon hits' "
-                               "switch is the worst row by the sheet's own numbers",
-    "m4_t7_lucario_protects": "Close Combat KOs the 58% Incineroar before it moves (Lucario outspeeds it), removing the Flare Blitz that KOs "
-                              "Tornadus; the -2 Def Scale Shot is priced (post-move rows) and the trade still values above Lucario Protect",
-    "m1_t3_pressure_gholdengo": "a coin flip by the sheet: Sneasler's switch to Landorus is the row either way, and Cresselia's Moonblast into "
-                                "Dragonite (46.5-56.1%) and Icy Wind (41.7-51.3% into Dragonite at 95% accuracy, 3.7-4.9% into Gholdengo) sit ten "
-                                "points apart with Dragonite's fresh-Protect prior at 0.32; the accept rejects any single-target hit into Dragonite",
-    "o8_t14_no_fake_priority_escape": "in a code-only replay Arcanine (39%) Protected on T13, so its T14 Protect works 1 in 3; Extreme Speed + Body "
-                                      "Press put Dragonite at 4-19% before Arcanine is lost and Archaludon finishes next turn either way (the "
-                                      "live turn's second Protect happened to work); the sheet no longer calls the Extreme Speed an escape",
+    "m1_t6_dire_claw_ko": "verified for Dire Claw + Cresselia Protect (-39.0 vs -55.0 against the bot's own replies); with the search "
+                          "read the mixture expects Dragonite to Protect (0.73) and plays the double Protect, a row the verification "
+                          "did not price; the KO odds stay linear in the roll (Dire Claw 0.21 vs 0.25: mech's ko_probability)",
+    "m2_t4_protect_the_doubled_archaludon": "verified for Archaludon Protect + Earthquake / Waterfall into Flutter Mane (win 0.87-0.97 vs "
+                                            "0.54-0.66 doubling Sylveon): the double leaves Archaludon at 70-91 HP to a faster Flutter Mane "
+                                            "that doubles it again on T5-T6, which the one-ply next-turn term underprices",
 }
 
 

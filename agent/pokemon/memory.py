@@ -367,6 +367,7 @@ class MatchMemory:
     fallen_by_side: dict[str, int] = field(default_factory=dict)  # "mine"/"theirs" -> faints so far (Supreme Overlord, Last Respects)
     overlord_fallen: dict[str, int] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> fallenN Supreme Overlord announced on entry
     hazards_by_side: dict[str, dict[str, Any]] = field(default_factory=dict)  # "mine"/"theirs" -> entry hazards on that side
+    taunted: dict[str, int] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> turn its Taunt started (until -end, switch-out, faint)
     log_turn: int = 0  # the last |turn| marker seen in the protocol log (0: no log)
     _catalog_checked: set[str] = field(default_factory=set)  # species already looked up in the catalog this match
     opp_items_lost: list[str] = field(default_factory=list)  # species_keys of opponents whose item is gone (protocol log -enditem)
@@ -658,6 +659,8 @@ class MatchMemory:
         hp_by_turn: dict[int, dict[str, float]] = {}
         targets: dict[str, dict[int, list[tuple[str, str]]]] = {"mine": {}, "theirs": {}}
         faints: dict[int, list[str]] = {}
+        taunted: dict[str, int] = {}  # "mine:<species>"/"theirs:<species>" under Taunt now
+        occupant: dict[str, str] = {}  # board position ("p2a") -> the tag standing there
         fainted_this_turn: dict[str, bool] = {"mine": False, "theirs": False}
         voluntary: list[int] = []
         protect_attempts = repeat_protects = 0
@@ -711,6 +714,10 @@ class MatchMemory:
             if kind in ("switch", "drag", "replace") and len(parts) > 3:
                 species = species_key(parts[3].split(",")[0])
                 nick_to_species[nick] = species
+                where = actor.split(":")[0].strip()
+                if kind != "replace":
+                    taunted.pop(occupant.get(where, ""), None)  # Taunt ends when its holder leaves the field
+                occupant[where] = tag_side + ":" + species
                 if kind != "replace":  # Illusion breaking is not an entry: the Pokémon has been acting all along
                     unburden.discard(tag_side + ":" + species)  # a new stint: Unburden only counts items lost on the field
                     entered.setdefault(turn, []).append((tag_side, species))
@@ -738,6 +745,11 @@ class MatchMemory:
                 protect_attempts += 1
                 if moves_by_turn["theirs"].get(species, {}).get(turn - 1) in self.PROTECT_LIKE:
                     repeat_protects += 1
+            if kind in ("-start", "-end") and len(parts) > 3 and species_key(parts[3]) in ("movetaunt", "taunt"):
+                if kind == "-start":
+                    taunted[tag] = turn  # "|-start|p2b: Amoonguss|move: Taunt": no status moves for three turns
+                else:
+                    taunted.pop(tag, None)
             if kind == "-start" and len(parts) > 3:
                 effect = species_key(parts[3])
                 for ability in ("protosynthesis", "quarkdrive"):
@@ -751,6 +763,7 @@ class MatchMemory:
                 overlord.pop(tag, None)
             elif kind == "faint":
                 paradox.pop(tag, None)
+                taunted.pop(tag, None)
                 unburden.discard(tag)
                 overlord.pop(tag, None)
                 fallen[tag_side] += 1
@@ -798,6 +811,7 @@ class MatchMemory:
         self.their_protect_attempts = protect_attempts
         self.their_repeat_protects = repeat_protects
         self.log_turn = turn
+        self.taunted = taunted
         # Consecutive Protects by each opponent, ending with the turn that just finished (read from the log, not inferred).
         streaks: dict[str, int] = {}
         for species in moves_by_turn["theirs"]:

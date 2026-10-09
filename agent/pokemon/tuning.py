@@ -87,6 +87,8 @@ DEFAULTS: dict[str, float] = {
     "focus_risk": 0.35,            # chance the opponent double-targets a slot that both of its actives can KO together (Oct 7 losses)
     "hp_units": 1.0,               # value damage in % of the target's MAX HP (capped at what it has left), not % of current HP (+3.7 pts, 2,000 games, Oct 8)
     "opp_protect_risk": 0.3,       # chance an opposing Pokémon in KO range Protects (if it can and didn't last turn): discounts focus fire
+    "protect_prior_rows": 0.0,     # 1 = every row's damage into a foe with a fresh Protect is discounted by the search tally's Protect rate for its threat (battle.rank_candidates.protect_risk), not only focus fire's KOs by the flat opp_protect_risk. Oct 8 live set: m2_t3 and m1_t3 pass, no position lost; off until a series (test_tuning.py:44's +100 KO-bonus check fails with it on)
+    "protect_aimed_risk": 0.62,    # with protect_prior_rows: the Protect rate of a foe facing our KO that one of our single-target moves aimed at last turn (4/6 pooled)
     "ko_threat_w": 0.5,            # KO bonus scales by the threat removed (its best action into us, in damage points) x this (Oct 8)
     "exposure_w": 1.0,             # charge for the EXTRA KO risk a move creates for its user (stat drops, recoil, Glaive Rush) x its value
     "reply_mixture": 0.0,          # 1 = rank candidates by the reply mixture (agent/pokemon/replies.py); 0 = the scorer above (until the gate passes)
@@ -97,6 +99,11 @@ DEFAULTS: dict[str, float] = {
     "reply_chip_w": 0.35,
     "reply_next_w": 0.4,           # the mixture's one-ply next-turn term: next turn's KOs each side can take, discounted by this
     "reply_protect_tempo": 8.0,    # the mixture's charge per Protect of ours: the turn it gives away
+    "reply_search_qr": 1.0,        # weight of the search class's own read of the turn (replies._search_reply: a quantal response to our likely rows) in its prior; 0 = the tally prior alone
+    "reply_qr_beta": 0.06,         # that read's sharpness over our rows (twice this over its replies), in damage points
+    "reply_qr_rounds": 4.0,        # rounds of that read, from the class prior
+    "sleep_future_w": 0.5,         # Part 3: weight of a later turn's action against this turn's (the turns a sleep move takes, a Taunt blocks)
+    "sleep_use_prior": 0.6,        # Part 3: chance a sleep user with a target uses its sleep move this turn (aimed 0.8 at the slot that loses most)
     # model layer (ops lane)
     "override_margin": 0.15,       # E2: a free-form override whose value trails the best row by more than this share of the top value is rejected, unless the model's opponent prediction matches the code's top column
 }
