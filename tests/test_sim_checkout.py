@@ -87,6 +87,12 @@ def external_checkout() -> Path | None:
     given = os.environ.get("EXTERNAL_CHECKOUT")
     if given:
         return Path(given).expanduser()
+    pins = EXTERNAL_ROOT / "PINS.txt"  # the pinned clone first (the yardstick), else the newest dated clone
+    if pins.exists():
+        for line in pins.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and (EXTERNAL_ROOT / parts[2] / "agent" / "agent.py").exists():
+                return EXTERNAL_ROOT / parts[2]
     found = sorted(p.parent.parent for p in EXTERNAL_ROOT.glob("*/agent/agent.py")) if EXTERNAL_ROOT.is_dir() else []
     return found[-1] if found else None
 
@@ -250,8 +256,9 @@ def test_external_checkout_answers_all_three_phases_through_the_shim(logs_in_tmp
     state, ctx = live_states["draft"]
     pick = player.choose_action(state, ctx)
     assert isinstance(pick, WithReasoning) and pick.reasoning_summary, "its draft reasons must reach public_reason"
-    assert pick.action["type"] == "draft_pick"
-    assert f"draft_pick:{pick.action['card_id']}" in {a.action_id for a in state.legal_actions}
+    # An external starter fork may answer with a LegalAction (newer versions do) or with a payload dict.
+    action_id = getattr(pick.action, "action_id", None) or f"draft_pick:{pick.action['card_id']}"
+    assert action_id.startswith("draft_pick:") and action_id in {a.action_id for a in state.legal_actions}
     state, ctx = live_states["team_preview"]
     lineup = unwrap(player.choose_action(state, ctx))
     roster = state.legal_actions[0].input["action"]["roster"]

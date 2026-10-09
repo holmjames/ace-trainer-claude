@@ -48,7 +48,9 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path.home() / "projects" / "ace-trainer-data" / "buildout"
 OPPONENTS = Path.home() / "projects" / "opponents"
-SECRET_PATTERNS = ("eak_live_", "sk-ant-")
+# Real key shapes only (regexes): an Anthropic key is sk-ant-<kind><2 digits>-<long tail>; a platform key is eak_live_<long
+# tail>. Test placeholders ("sk-ant-test-…", "sk-ant-not-a-key") and the redaction regex itself do not match.
+SECRET_PATTERNS = (r"sk-ant-[a-z]+\d{2}-[A-Za-z0-9_\-]{20,}", r"eak_live_[A-Za-z0-9_\-]{16,}")
 SIM_PATTERN = "sim/harness|draft_eval"
 LIVE_POSITION_TESTS = "tests/test_replies_live.py"
 QUICK_PREVIEW_BUDGET = 2.0
