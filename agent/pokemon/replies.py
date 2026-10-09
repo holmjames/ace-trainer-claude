@@ -1124,8 +1124,10 @@ class _Context:
             if a.kind == "status":
                 if a.move in ("helpinghand", "coaching") and a.side == "mine":
                     boosted[("mine", 1 - a.slot)] = p_act  # the partner's attack this turn is x1.5
-                else:
-                    tempo += battle.status_value(a.move, self.ours[a.slot], self.theirs, self.sheet, a.slot, has_ally=len(self.ours) > 1)[0] * p_act * 0.5
+                elif a.side == "mine":
+                    blocked = protected.get(("theirs", a.target), 0.0) if isinstance(a.target, int) and a.target in self.theirs else 0.0
+                    tempo += battle.status_value(a.move, self.ours[a.slot], self.theirs, self.sheet, a.slot, has_ally=len(self.ours) > 1)[0] \
+                        * p_act * 0.5 * (1.0 - blocked)  # a Taunt or a Spore into a working Protect does nothing
                 continue
             # attacks and Fake Outs: each row lands on its target unless it Protected (and the Protect worked) or left
             for tgt_slot, hit in a.rows.items():

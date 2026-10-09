@@ -689,6 +689,7 @@ class TurnSheet:
             "candidate_turns": self.candidates,
             "notes": self.notes,
             **({"switch_ins": {k: {kk: vv for kk, vv in v.items() if kk != "score"} for k, v in self.switch_ins.items()}} if self.switch_ins else {}),
+            **({"asleep_acts_pct": {str(n): int(round(100 * w)) for n, w in sorted(self.wake.items())}} if self.wake else {}),
             **({"reply_table": self.reply} if self.reply else {}),
         }
 
@@ -1808,11 +1809,11 @@ def _endgame(sheet: "TurnSheet", slots: list[dict], ours: dict[int, "Mon"], thei
 # -- candidates --------------------------------------------------------------------------------------
 
 
-def _expected(row: dict, priority: int, P: dict | None = None, threat: float = 0.0) -> float:
+def _expected(row: dict, priority: int, P: dict | None = None, threat: float = 0.0, protect: float = 0.0) -> float:
     """Expected value of a hit in 'damage points': the average roll, CAPPED at the target's remaining HP (a 999% hit
     takes one Pokémon, exactly like a 101% one — uncapped, both slots piled into a 9% Whimsicott on Oct 7), plus a KO
     bonus and a little for priority. ``threat`` is what the target would do to us (``threat_weight``): it scales the
-    KO bonus once the KO-credit item lands."""
+    KO bonus once the KO-credit item lands. ``protect`` is the chance the target Protects (the hit then does nothing)."""
     P = P or DEFAULTS
     lo, hi = row["damage_pct_of_current_hp"]
     if hi <= 0:
@@ -1825,20 +1826,21 @@ def _expected(row: dict, priority: int, P: dict | None = None, threat: float = 0
     if hi >= 100:
         # The KO bonus by the odds (rolls, hit count, accuracy: a 1% chance is not a 95% one) and by the threat removed.
         bonus = ko_probability(row, with_accuracy=True) * (P["ko_bonus_guaranteed"] + P.get("ko_threat_w", 0.0) * threat)
-    return damage + bonus + P["priority_w"] * priority
+    return (damage + bonus) * (1.0 - protect) + P["priority_w"] * priority
 
 
 def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None = None,
-                 threats: dict[str, float] | None = None) -> tuple[dict | None, dict | None, float]:
+                 threats: dict[str, float] | None = None, protect: dict[str, float] | None = None) -> tuple[dict | None, dict | None, float]:
     """Highest expected damage (option, target_row, expected%) among a slot's move options. A spread move (rows with
     target 0) counts the damage to every opposing Pokémon it hits (its summary row carries the per-target ``rows``, so
     a KO is read per foe, never from the summed range) and is charged for damage to our own ally. With
     ``avoid_target`` only single-target rows into the other foes count: spread rows carry target 0 and slipped
     through the filter, so focus_fire / finish_the_other vanished whenever a slot held Rock Slide / Dazzling Gleam /
     Bleakwind Storm (Oct 7 match 3 turn 3; Oct 8 practice turn 6). ``threats`` (species_key -> weight) scales each
-    KO bonus by the threat removed."""
+    KO bonus by the threat removed; ``protect`` (species_key -> chance it Protects) discounts the hits into it."""
     P = P or DEFAULTS
     threats = threats or {}
+    protect = protect or {}
     best: tuple[dict | None, dict | None, float] = (None, None, -1.0)
     for option in entry.get("options") or []:
         if option.get("fails"):
@@ -1849,7 +1851,8 @@ def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None
         spread_rows = [r for r in foe_rows if r["target"] == 0]
         if spread_rows and avoid_target is None:
             ally_hit = sum(_expected(r, 0, P) for r in rows if r["side"] == "mine")
-            expected = sum(_expected(r, priority, P, threats.get(species_key(r["species"]), 0.0)) for r in spread_rows) - P["ally_damage_w"] * ally_hit
+            expected = sum(_expected(r, priority, P, threats.get(species_key(r["species"]), 0.0), protect.get(species_key(r["species"]), 0.0))
+                           for r in spread_rows) - P["ally_damage_w"] * ally_hit
             if expected > best[2]:
                 summary = {"target": 0, "species": " + ".join(r["species"] for r in spread_rows), "side": "theirs",
                            "damage_pct_of_current_hp": [round(sum(r["damage_pct_of_current_hp"][0] for r in spread_rows), 1),
@@ -1859,7 +1862,7 @@ def _best_attack(entry: dict, *, avoid_target: int | None = None, P: dict | None
         for row in foe_rows:
             if row["target"] == 0 or row["target"] == avoid_target:
                 continue
-            expected = _expected(row, priority, P, threats.get(species_key(row["species"]), 0.0))
+            expected = _expected(row, priority, P, threats.get(species_key(row["species"]), 0.0), protect.get(species_key(row["species"]), 0.0))
             if expected > best[2]:
                 best = (option, row, expected)
     return best
@@ -2491,6 +2494,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
     speed_rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
     candidates: list[dict] = []
     weights = threat_weights(sheet, ours, theirs, P)
+    protect_p: dict[str, float] = {}  # species_key -> chance it Protects (protect_prior_rows; filled below)
 
     def slot_answer(option_index: int | None, target: int | None) -> dict | None:
         if option_index is None:
@@ -2574,6 +2578,61 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             return 0.0
         return removal_chance(other, opp_pos, their_priority)
 
+    def can_protect(foe: "Mon") -> bool:
+        return any(m["id"] in PROTECT_LIKE for m in foe.moves) and not (memory is not None and memory.opp_protect_streak.get(species_key(foe.species)))
+
+    def aimed_last_turn(foe: "Mon") -> bool:
+        """Did one of our single-target moves name this foe last turn (the protocol log's move targets)?"""
+        if memory is None or not isinstance(sheet.turn, int):
+            return False
+        key = species_key(foe.species)
+        last = (getattr(memory, "targets_by_turn", None) or {}).get("mine", {}).get(sheet.turn - 1, [])
+        moves = (getattr(memory, "moves_by_turn", None) or {}).get("mine", {})
+        for who, target in last:
+            move = (moves.get(who) or {}).get(sheet.turn - 1)
+            if species_key(target) == key and (data.move_info(move) or {}).get("target") not in SPREAD_TARGETS:
+                return True
+        return False
+
+    protect_cache: dict[int, float] = {}
+
+    def protect_risk(pos: int) -> float:
+        """Chance the foe at ``pos`` Protects this turn: ``opp_protect_risk`` flat (the old focus-fire discount), or with
+        ``protect_prior_rows`` the reply model's search-class prior for the threat it faces (``replies._p_protect``: a
+        single-move KO 0.47, our two hits together 0.40, >= 30% with no KO 0.32, a lead on turn 1 0.57, from the Oct 7-8
+        pooled tally), raised to ``protect_aimed_risk`` (0.62) when it faces a KO and one of our single-target moves aimed at it
+        last turn (Protect 4 of 6 then, 2 of 7 otherwise)."""
+        if not P.get("protect_prior_rows", 0):
+            return P.get("opp_protect_risk", 0.3)
+        if pos in protect_cache:
+            return protect_cache[pos]
+        from . import replies  # local import: replies imports this module
+
+        foe = theirs[pos]
+        best: dict[int, tuple[float, dict]] = {}
+        facing = 0.0
+        for n in ours:
+            for opt in by_slot.get(n, {}).get("options") or []:
+                if opt.get("fails"):
+                    continue
+                for r in rows_into(opt, pos):
+                    p = ko_probability(r, with_accuracy=True)
+                    facing = max(facing, _avg(r["damage_pct_of_current_hp"]))
+                    key = min(_avg(r["damage_pct_of_current_hp"]), 100.0) + 100 * p
+                    if n not in best or key > best[n][0]:
+                        best[n] = (key, r)
+        ko_one = max((ko_probability(r, with_accuracy=True) for _, r in best.values()), default=0.0)
+        ko_two = _outcome([(float(r.get("hit_chance", 1.0)), r) for _, r in best.values()], foe)[1] if len(best) == 2 else 0.0
+        # the search class's rates, whatever the class detector says: the default scorer stays a function of the battle
+        # state (a restarted agent sees the same sheet), and it is the class that punishes a missed Protect read
+        fresh_in = species_key(foe.species) in set(getattr(memory, "opp_fresh_active", None) or [])
+        risk = replies._p_protect("search", streak=0, ko_one=ko_one, ko_two=ko_two if ko_one < 0.5 else 0.0, facing=facing,
+                                  fresh_in=fresh_in, turn=sheet.turn)
+        if max(ko_one, ko_two) >= 0.5 and aimed_last_turn(foe):
+            risk = max(risk, float(P.get("protect_aimed_risk", 0.62)))
+        protect_cache[pos] = risk
+        return risk
+
     def best_action(number: int, *, allow_ally_only: bool = True) -> tuple[dict | None, dict | None, float]:
         """Best attack or status move, as (option, row, value): the ATTACK is the option that keeps the most value once
         its chance to act is counted (the strongest raw move, discounted afterwards, picked a Kowtow Cleave worth 78 x 0
@@ -2581,7 +2640,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         ``allow_ally_only`` off leaves out Helping Hand / Coaching / Follow Me: next to a partner that Protects or
         switches they do nothing (Oct 7 match 1 turn 5: Protect + Helping Hand was code #1)."""
         entry = by_slot.get(number, {})
-        raw = _best_attack(entry, P=P, threats=weights)
+        raw = _best_attack(entry, P=P, threats=weights, protect=protect_p)
         choice: tuple[dict | None, dict | None, float] = (None, None, -1.0)
         if raw[0]:
             best_disc = (raw[0], raw[1], raw[2] * survival_factor(number, sheet, raw[0].get("priority", 0) or 0, speed_rank, raw[1], P))
@@ -2589,7 +2648,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if opt.get("fails") or not opt.get("targets"):
                     continue
                 prio = opt.get("priority", 0) or 0
-                one = _best_attack({"options": [opt]}, P=P, threats=weights)
+                one = _best_attack({"options": [opt]}, P=P, threats=weights, protect=protect_p)
                 if not one[0]:
                     continue
                 value = one[2] * survival_factor(number, sheet, prio, speed_rank, one[1], P)
@@ -2626,13 +2685,16 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                                        "damage_pct_of_current_hp": [0, 0], "status_value": round(sv, 1)}, sv)
         return choice
 
+    if P.get("protect_prior_rows", 0):
+        # every row prices the foe's Protect (the search-class tally's rate for the threat it faces), not only focus fire
+        protect_p.update({species_key(foe.species): protect_risk(pos) for pos, foe in theirs.items() if can_protect(foe)})
     best = {n: best_action(n) for n in (0, 1)}
     solo = {n: best_action(n, allow_ally_only=False) for n in (0, 1)}  # what a slot does while its partner Protects / switches
     for n in (0, 1):
         opt = best[n][0]
         if opt and P.get("choice_lock_rerank", 1) and sheet.choice_locks.get(n, {}).get(opt.get("move")):
             # A Choice-locked move with a dead target left: prefer the best option that stays useful, if it is close.
-            usable = _best_attack({"options": [o for o in by_slot.get(n, {}).get("options") or [] if o.get("move") not in sheet.choice_locks[n]]}, P=P, threats=weights)
+            usable = _best_attack({"options": [o for o in by_slot.get(n, {}).get("options") or [] if o.get("move") not in sheet.choice_locks[n]]}, P=P, threats=weights, protect=protect_p)
             if usable[0] and usable[2] >= 0.6 * max(best[n][2], 1e-6):
                 best[n] = (usable[0], usable[1], usable[2] * survival_factor(n, sheet, usable[0].get("priority", 0), speed_rank, usable[1], P))
 
@@ -2658,7 +2720,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             for other in by_slot.get(n, {}).get("options") or []:
                 if other.get("fails") or other is opt:
                     continue
-                one = _best_attack({"options": [other]}, P=P, threats=weights)
+                one = _best_attack({"options": [other]}, P=P, threats=weights, protect=protect_p)
                 if not one[0]:
                     continue
                 c2 = self_cost_pct(me, other.get("move") or "", tuple(one[1].get("damage_pct_of_current_hp") or (0, 0)), theirs.get(one[1].get("target", 0)))
@@ -2769,7 +2831,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             move_id = opt.get("move") or ""
             if opt.get("fails") or not (move_id in POST_MOVE_STAGES or move_id == GLAIVE_RUSH or move_id in RECOIL_MOVES or data.to_id(me.item) == "lifeorb"):
                 continue
-            one = _best_attack({"options": [opt]}, P=P, threats=weights)
+            one = _best_attack({"options": [opt]}, P=P, threats=weights, protect=protect_p)
             if not one[0]:
                 continue
             _, turned = extra_exposure(sheet, number, me, opt, one[1], theirs, sheet.field, speed_rank)
@@ -2780,9 +2842,6 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     f"EXPOSED AFTER {move_id}: slot {number} ({me.species}) would take {h['from']}'s {h['move']} for "
                     f"{h['damage_pct_of_current_hp'][0]}-{h['damage_pct_of_current_hp'][1]}% afterwards ({cause}): a KO "
                     f"{int(round(100 * h['ko_chance']))}% of the time that the plain rows do not show.")
-
-    def can_protect(foe: "Mon") -> bool:
-        return any(m["id"] in PROTECT_LIKE for m in foe.moves) and not (memory is not None and memory.opp_protect_streak.get(species_key(foe.species)))
 
     def joint_value(picks: list[tuple[int, dict | None, dict | None, float]], *, protect_aware: bool = False,
                     partner: str | None = None) -> float:
@@ -2828,8 +2887,10 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if P.get("hp_units", 0):
                 damage *= foe.hp_fraction
             v = damage + p_ko * (P["ko_bonus_guaranteed"] + P.get("ko_threat_w", 0.0) * weights.get(species_key(foe.species), 0.0))
-            if protect_aware and p_ko > 0 and can_protect(foe):
-                v *= 1.0 - P.get("opp_protect_risk", 0.3)
+            if P.get("protect_prior_rows", 0):
+                v *= 1.0 - protect_p.get(species_key(foe.species), 0.0)  # its Protect blocks the damage too, not only the KO
+            elif protect_aware and p_ko > 0 and can_protect(foe):
+                v *= 1.0 - protect_risk(pos)
             total += v
         for n, opt, row in attacks:
             prio = opt.get("priority", 0) or 0
@@ -2884,7 +2945,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         rows = []
         for number in (0, 1):
             other_target = next((t for t in theirs if t != target), None)
-            opt, row, exp = _best_attack(by_slot.get(number, {}), avoid_target=other_target, P=P, threats=weights)
+            opt, row, exp = _best_attack(by_slot.get(number, {}), avoid_target=other_target, P=P, threats=weights, protect=protect_p)
             if opt and row and row["target"] == target:
                 exp *= survival_factor(number, sheet, opt.get("priority", 0), speed_rank, row, P)
                 rows.append((number, opt, row, exp))
@@ -2901,7 +2962,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 add("focus_fire", slot_answer(rows[0][1]["option"], target), slot_answer(rows[1][1]["option"], target),
                     f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO" + (" (it can Protect)" if guard else ""),
                     joint_value([(n, o, r, e) for n, o, r, e in rows], protect_aware=True)
-                    + P["focus_fire_bonus"] * (1.0 - single) * ((1.0 - P.get("opp_protect_risk", 0.3)) if guard else 1.0))
+                    + P["focus_fire_bonus"] * (1.0 - single) * ((1.0 - protect_risk(target)) if guard else 1.0))
 
     # 2a. Priority focus: both slots' priority moves into a foe that KOs one of them before it moves, when together they
     #     take it out first (the Oct 8 loss, turn 6: Extreme Speed + Sucker Punch KO'd Lucario before its Close Combat;
@@ -2961,7 +3022,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if not remaining or not slot_template(other) or not ours.get(other):
             continue
         victim, survivor = kos[0], remaining[0]
-        alt_opt, alt_row, alt_val = _best_attack(by_slot.get(other, {}), avoid_target=victim, P=P, threats=weights)
+        alt_opt, alt_row, alt_val = _best_attack(by_slot.get(other, {}), avoid_target=victim, P=P, threats=weights, protect=protect_p)
         if not alt_opt or not alt_row or alt_row.get("target") != survivor:
             continue
         why_extra = ""
@@ -3150,7 +3211,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if idx is not None:
                     partner_action = ({"option": idx, "target": 0}, f"sets {setup}")
                     break
-            raw_partner = _best_attack(by_slot.get(endangered_slot, {}), P=P, threats=weights)
+            raw_partner = _best_attack(by_slot.get(endangered_slot, {}), P=P, threats=weights, protect=protect_p)
             if partner_action is None and raw_partner[0]:
                 partner_action = (slot_answer(raw_partner[0]["option"], raw_partner[1]["target"]), "attacks freely")
             if partner_action is None:
