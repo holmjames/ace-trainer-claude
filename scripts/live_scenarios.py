@@ -10,9 +10,10 @@ only — from the model chain in .env, or from the computed fallback with --code
     python scripts/live_scenarios.py --code-only --tune '{"reply_mixture": 1, "reply_seed": 7}'   # the reply mixture
 
 The positions come from the four Oct 7 losses (L1-L4 below = sessions d9405f02, 1aef9227, 7ce71025, 0a2b7c2a), the
-Oct 8 Testing win bcbaabe2, the Oct 8 loss as player 2 da9c168e and the Oct 8 evening loss 51c86e5c (see
-scripts/postmortem.py for the transcripts; the last two have specs in ace-trainer-data/scenarios/, and 51c86e5c's numbers
-are that spec's @smogon/calc calls); a draft pick or the Team Preview can be a target too (``phase``);
+Oct 8 Testing win bcbaabe2, the Oct 8 loss as player 2 da9c168e, the Oct 8 evening loss 51c86e5c and the Oct 9 Testing
+loss as player 2 07a3cb1f (see scripts/postmortem.py for the transcripts; da9c168e and 51c86e5c have specs in
+ace-trainer-data/scenarios/, 07a3cb1f a verified post-mortem in ace-trainer-data/, and the numbers of the last two are
+their @smogon/calc calls); a draft pick or the Team Preview can be a target too (``phase``);
 a session is replayed from whichever seat we
 sat in (player-2 matches are captured as ``*-seat1.json``); the damage numbers in the lessons are the
 sheet's own (agent/pokemon/battle.py:damage_percent) at that position, except the seven disputed positions settled by
@@ -330,6 +331,13 @@ SCENARIOS = [
                  "on next this four trails the live bring by 0.001. Provisional until the four-vs-four value credits Spore immunity.",
                  lambda p, t: {"chiyu", "rillaboom"} <= set(p.get("bring") or []),
                  "the bring includes both Chi-Yu and Rillaboom", provisional=True, phase="team_preview"),
+    # ---- the Oct 9 Testing loss as player 2 (07a3cb1f; post-mortem: ace-trainer-data/postmortem-2026-10-09-07a3cb1f.md, verified)
+    LiveScenario("m9_t2_no_cover_from_a_dying_redirector", "07a3cb1f", 2,
+                 "Basculegion (158/196) + Indeedee-F (78/177) vs Rillaboom (68%, 124 Spe) + Archaludon (77%, +1 Def, 105 Spe), Psychic Terrain. "
+                 "Wood Hammer KOs Indeedee (93-111 HP) before Archaludon moves, which ends Follow Me; Wave Crash recoil + Life Orb take "
+                 "Basculegion 158 -> 105, inside Draco Meteor's 112-133. Live: Wave Crash + Follow Me, lost both for Rillaboom.",
+                 lambda p, t: move_of(p, 1) != "followme" or move_of(p, 0) == "protect",
+                 "no Follow Me from the doomed Indeedee while Basculegion attacks (Protect + pivot, or Helping Hand Wave Crash KOs Rillaboom first)"),
 ]
 
 
