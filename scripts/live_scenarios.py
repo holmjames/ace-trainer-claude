@@ -13,8 +13,11 @@ Oct 8 Testing win bcbaabe2 and the Oct 8 loss as player 2 da9c168e (see scripts/
 latter's spec in ace-trainer-data/scenarios/); a draft pick or the Team Preview can be a target too (``phase``);
 a session is replayed from whichever seat we
 sat in (player-2 matches are captured as ``*-seat1.json``); the damage numbers in the lessons are the
-sheet's own (agent/pokemon/battle.py:damage_percent) at that position. A ``provisional`` scenario's best play was derived
-from the transcript and the calc rather than documented in the review: it is run and shown but not counted.
+sheet's own (agent/pokemon/battle.py:damage_percent) at that position, except the seven disputed positions settled by
+the Oct 8 verification (one adversarial verifier per position, @smogon/calc 0.12 + damage_percent;
+ace-trainer-data/verify-core-positions-2026-10-08.md), whose lessons and accept rules are that verification's. A
+``provisional`` scenario's best play was derived from the transcript and the calc rather than documented in the review:
+it is run and shown but not counted.
 Results append to logs/live_scenarios.jsonl.
 """
 
@@ -82,6 +85,11 @@ def aims_at(payload: dict, slot: int, template: dict, species: str) -> bool:
     return target_species(payload, slot, template) == species
 
 
+def uses(payload: dict, slot: int, template: dict, move: str, species: str | None = None) -> bool:
+    """``slot`` uses ``move``, aimed at ``species`` when one is given (a single-target attack into that foe)."""
+    return move_of(payload, slot) == move and (species is None or aims_at(payload, slot, template, species))
+
+
 def covers(payload: dict, slot: int) -> bool:
     """The slot Protects or switches out."""
     s = payload.get(f"slot_{slot}") or {}
@@ -142,9 +150,14 @@ SCENARIOS = [
                  lambda p, t: not ({move_of(p, 0), move_of(p, 1)} == {"protect", "helpinghand"}),
                  "not Protect on one slot with Helping Hand on the other"),
     LiveScenario("m1_t6_dire_claw_ko", "d9405f02", 6,
-                 "L1 T6: fresh Sneasler 35% + Cresselia vs Dragonite 63% at -1 Def. Dire Claw KOs it (87-102%); Fake Out only delays. "
-                 "Extreme Speed (96-113%, 76% KO) may land first; the model overrode the code's Fake Out here and was right.",
-                 lambda p, t: move_of(p, 0) == "direclaw" and aims_at(p, 0, t, "dragonite"), "slot 0 Dire Claw into Dragonite"),
+                 "L1 T6 (verified): fresh Sneasler 35% + Cresselia 68% vs Dragonite 63% (-1 Def) and +1 Gholdengo. Dire Claw into "
+                 "Dragonite is 87.9-104.0%, a 25% KO (28.1% with crits; the live KO was a high roll), and once it lands Dragonite is "
+                 "gone by the turn's end 40.1% of the time (status included). Cresselia must Protect, and Fake Out cannot touch the "
+                 "Ghost Gholdengo, whose +1 Shadow Ball (126-148 HP) KOs the 54-HP Sneasler anyway: only Sneasler's move differs, "
+                 "Dire Claw + Protect -39.0 vs Fake Out + Protect -55.0 (Fake Out wins only if Extreme Speed into Sneasler, a 75% "
+                 "KO, is 45-75% likely or more).",
+                 lambda p, t: uses(p, 0, t, "direclaw", "dragonite") and move_of(p, 1) == "protect",
+                 "slot 0 Dire Claw into Dragonite, slot 1 Protect"),
     LiveScenario("m2_t1_tailwind_first", "1aef9227", 1,
                  "L2 T1: Iron Hands + Whimsicott (both -1) vs Incineroar + Sylveon. Incineroar's Fake Out beats Iron Hands' (it is "
                  "faster; 50% flinch) and Hyper Voice hits both (the sheet said 48-57% into Iron Hands; the live hit took 83%). The lead "
@@ -152,17 +165,23 @@ SCENARIOS = [
                  "confirmation.",
                  lambda p, t: move_of(p, 1) == "tailwind", "slot 1 Tailwind", provisional=True),
     LiveScenario("m2_t3_not_into_the_protecting_sylveon", "1aef9227", 3,
-                 "L2 T3: Archaludon + Gyarados (our Tailwind) vs Incineroar 13% and Sylveon 75%, both -1. Sylveon, just hit, Protects "
-                 "(it did): Flash Cannon (59-70%) and Waterfall (69-82%) into it are wasted. Earthquake KOs the 13% Incineroar "
-                 "(381-448%) and hits Sylveon too; pressure the other slot.",
-                 lambda p, t: not aims_at(p, 0, t, "sylveon") and (move_of(p, 1) == "earthquake" or aims_at(p, 1, t, "incineroar")
-                                                                   or aims_at(p, 0, t, "incineroar")),
-                 "no Flash Cannon into Sylveon; an attack reaches Incineroar (Earthquake or a single hit)"),
+                 "L2 T3 (verified): Archaludon + Gyarados (our Tailwind) vs Incineroar 13% and Sylveon 75%, both -1. Every version "
+                 "of the bot Protects Sylveon here (it did) and leaves Incineroar in to die, so one hit into Incineroar does the "
+                 "work and the other attack is free: the live Waterfall into Incineroar (Flash Cannon into the Protect) was "
+                 "optimal, and Body Press into it is as good. Never Earthquake: it hits our own Archaludon for 56-66 HP "
+                 "(28.4-33.5%), and Earthquake + Flash Cannon wins only if Sylveon Protects less than 51-88% of the time; never "
+                 "Protect.",
+                 lambda p, t: (uses(p, 1, t, "waterfall", "incineroar") or uses(p, 0, t, "bodypress", "incineroar"))
+                 and not {move_of(p, 0), move_of(p, 1)} & {"earthquake", "protect"},
+                 "slot 1 Waterfall or slot 0 Body Press into Incineroar; no Earthquake, no Protect"),
     LiveScenario("m2_t4_protect_the_doubled_archaludon", "1aef9227", 4,
-                 "L2 T4: Archaludon + Gyarados vs a fresh Flutter Mane and Sylveon 75%. Moonblast (60-71%) + Hyper Voice (49-57%) = "
-                 "109-128% into Archaludon: it is the double's target (it was, and died). It Protects; Waterfall alone KOs Flutter "
-                 "Mane (91-107%).",
-                 lambda p, t: move_of(p, 0) == "protect", "slot 0 Protect"),
+                 "L2 T4 (verified): Archaludon + Gyarados vs a fresh Flutter Mane (Speed 307) and Sylveon 75%. Moonblast + Hyper "
+                 "Voice (109-128%) into Archaludon is the bot's pick (it was, and Archaludon died); doubling Sylveon leaves "
+                 "Archaludon at 70-91 HP facing the faster Flutter Mane, which doubles it again on T5 and T6. Archaludon Protects "
+                 "for the Kingambit endgame: win 0.89-0.97 with Earthquake, 0.87-0.95 with Waterfall into Flutter Mane, 0.54-0.66 "
+                 "doubling Sylveon, ~0.03 live. Waterfall alone KOs Flutter Mane on only 7/16 rolls (46.1% with crits).",
+                 lambda p, t: move_of(p, 0) == "protect" and (move_of(p, 1) == "earthquake" or uses(p, 1, t, "waterfall", "fluttermane")),
+                 "slot 0 Protect; slot 1 Earthquake or Waterfall into Flutter Mane"),
     LiveScenario("m3_t1_cover_a_lethal_hit", "7ce71025", 1,
                  "L3 T1: Great Tusk + Tornadus vs Iron Hands + Sylveon. Wild Charge KOs Tornadus (129-152%) and Hyper Voice KOs Tusk "
                  "(100-118%, 99%); Headlong Rush KOs Iron Hands first only 45% of the time (live it left it at 2%). One of ours "
@@ -180,16 +199,24 @@ SCENARIOS = [
                  "Indeedee (209-246%).",
                  lambda p, t: move_of(p, 0) == "helpinghand" and move_of(p, 1) == "dazzlinggleam", "slot 0 Helping Hand, slot 1 Dazzling Gleam"),
     LiveScenario("m4_t2_no_telegraphed_ko", "0a2b7c2a", 2,
-                 "L4 T2: Baxcalibur 58% + Tornadus vs Dragonite 94% and Air Balloon Gholdengo. The 'guaranteed' Icicle Spear into "
-                 "Dragonite (247-290%) is telegraphed: it switched to Incineroar and Make It Rain KO'd Baxcalibur (163-192%). "
-                 "Baxcalibur goes out to Landorus; Bleakwind Storm hits both and pops the Balloon.",
-                 lambda p, t: (p.get("slot_0") or {}).get("type") == "switch" and move_of(p, 1) == "bleakwindstorm",
-                 "slot 0 switches out (Landorus), slot 1 Bleakwind Storm"),
+                 "L4 T2 (verified): Baxcalibur 58% + Tornadus vs Dragonite 94% and Air Balloon Gholdengo, whose Make It Rain KOs "
+                 "Baxcalibur after it moves. Dragonite leaves a one-move KO about 1 time in 16, and the Landorus pivot pays 57-68% "
+                 "on entry (Scale Shot adds 36.6-54.9%) for an Earthquake follow-up at -1 that does 98-116 HP into 130-135 (no KO): "
+                 "last or tied-last in every setting. Baxcalibur Protects beside Bleakwind Storm or a second Protect; the live "
+                 "Icicle Spear into Dragonite + Bleakwind came out on top at pooled priors and is accepted too (whether that KO is "
+                 "telegraphed needs its own check).",
+                 lambda p, t: (move_of(p, 0) == "protect" and move_of(p, 1) in ("bleakwindstorm", "protect"))
+                 or (uses(p, 0, t, "iciclespear", "dragonite") and move_of(p, 1) == "bleakwindstorm"),
+                 "slot 0 Protect + slot 1 Bleakwind Storm or Protect, or slot 0 Icicle Spear into Dragonite + slot 1 Bleakwind Storm"),
     LiveScenario("m4_t4_out_of_the_double", "0a2b7c2a", 4,
-                 "L4 T4: Scarf Landorus (locked into Earthquake) + Tornadus 48% vs Archaludon 35% (+2 Def) and Dragonite 94%. Draco "
-                 "Meteor (66-78%) + Scale Shot (77-91%) = 143-168% into Landorus (it died to exactly that) and Draco Meteor KOs "
-                 "Tornadus (119-140%): Landorus switches to Lucario, which resists both Dragon hits, and Tornadus Protects.",
-                 lambda p, t: switches_to(p, 0, "lucario") and move_of(p, 1) == "protect", "slot 0 switch to Lucario, slot 1 Protect"),
+                 "L4 T4 (verified): Scarf Landorus (locked into Earthquake) + Tornadus 48% vs Archaludon 35% (+2 Def) and Dragonite "
+                 "94%. Draco Meteor + Scale Shot (65.9-100.6% alone) is 131.7-178.0% into Landorus (it died to exactly that), and "
+                 "Earthquake + Bleakwind Storm does 78-93 HP to Archaludon's 68 before it moves whenever Bleakwind hits (80%: the "
+                 "live line lost to the miss). Against an Archaludon Protect, Lucario in + Bleakwind is better; resisting both "
+                 "Dragon hits does not make Lucario safe (Draco + Scale Shot 84-113%, a 37% KO), and Tornadus Protect is "
+                 "dominated. Slot 1 Bleakwind Storm either way.",
+                 lambda p, t: move_of(p, 1) == "bleakwindstorm" and (move_of(p, 0) == "earthquake" or switches_to(p, 0, "lucario")),
+                 "slot 1 Bleakwind Storm; slot 0 Earthquake or a switch to Lucario"),
     LiveScenario("m4_t5_not_into_the_17pct_protect", "0a2b7c2a", 5,
                  "L4 T5: Lucario + Tornadus 48% vs Archaludon 17% (+3 Def) and Dragonite 65%. The 17% Archaludon is the obvious target "
                  "and Protected (so did Dragonite): Close Combat belongs on Dragonite (73-86%) and Bleakwind Storm pressures both. "
@@ -197,10 +224,13 @@ SCENARIOS = [
                  lambda p, t: not aims_at(p, 0, t, "archaludon") and move_of(p, 1) == "bleakwindstorm",
                  "slot 0 not into Archaludon; slot 1 Bleakwind Storm", provisional=True),
     LiveScenario("m4_t7_lucario_protects", "0a2b7c2a", 7,
-                 "L4 T7: Lucario 90% at -1 Def/-1 SpD + Tornadus vs Incineroar 58% and Dragonite 65%. Close Combat KOs Incineroar "
-                 "(222-261%) but drops Lucario to -2, and Scale Shot is already 85-100% at -1: it KO'd Lucario. With no bench, "
-                 "Lucario Protects (Tornadus too: a 90% Fake Out flinch).",
-                 lambda p, t: move_of(p, 0) == "protect", "slot 0 Protect"),
+                 "L4 T7 (verified): Lucario 90% at -1 Def/-1 SpD + Tornadus vs Incineroar 58% and Dragonite 65%, no bench. Close "
+                 "Combat KOs Incineroar but drops Lucario to -2 Def: Scale Shot into it (72.7-109.8% at -1) KOs 26% of the time at "
+                 "-1 and 90% after the drop (it did), and Tornadus alone then wins 0.000 against the +2 Speed Dragonite. Both "
+                 "Protect: 0.401 against the bot's Fake Out into Tornadus + Scale Shot into Lucario (Lucario Protect + Bleakwind "
+                 "0.348, the live line 0.091), both their attacks are wasted, and next turn Bleakwind + Poison Jab (135-161 HP "
+                 "into 128) KOs Dragonite whenever Bleakwind hits.",
+                 lambda p, t: move_of(p, 0) == "protect" and move_of(p, 1) == "protect", "both slots Protect"),
     # ---- the Oct 8 Testing win vs the search bot (bcbaabe2): the turns its post-mortem flagged
     LiveScenario("o8_t5_no_protect_for_a_fake_double", "bcbaabe2", 5,
                  "Archaludon + Wo-Chien 62% vs Dragonite and Ting-Lu 63%. The sheet added Scale Shot (53-62%) + Ruination into a "
@@ -218,9 +248,13 @@ SCENARIOS = [
                  "did) while Body Press KOs Rillaboom (113-133%).",
                  lambda p, t: covers(p, 1), "slot 1 Protects or switches"),
     LiveScenario("o8_t14_no_fake_priority_escape", "bcbaabe2", 14,
-                 "A turn later, Arcanine 39% vs the lone Dragonite: Scale Shot 119-140% again and Extreme Speed is still no escape; "
-                 "Protect (or Wo-Chien) while Body Press works on Dragonite (43-51%).",
-                 lambda p, t: covers(p, 1), "slot 1 Protects or switches"),
+                 "O8 T14 (verified): a turn later, Arcanine 39% vs the lone Dragonite 92%, which Protects here for certain (it did). "
+                 "Every line wins, so tempo decides: Scale Shot into Arcanine is 98.7-155.8%, and Extreme Speed + Body Press leave "
+                 "Dragonite at 2.0-16.2%. Body Press into Dragonite beside Arcanine's Protect (1 in 3 after T13's), Wo-Chien, or "
+                 "Extreme Speed into Dragonite (the live play): Extreme Speed keeps Arcanine's Protect fresh, is the only line that "
+                 "can end it on T14, and if Dragonite Scale Shots instead, Extreme Speed + Body Press KO it 93.2-95.3% of the time.",
+                 lambda p, t: uses(p, 0, t, "bodypress", "dragonite") and (covers(p, 1) or uses(p, 1, t, "extremespeed", "dragonite")),
+                 "slot 0 Body Press into Dragonite; slot 1 Protect, a switch, or Extreme Speed into Dragonite"),
     # ---- the Oct 8 loss to the search bot as player 2 (da9c168e; spec: ace-trainer-data/scenarios/da9c168e.md, verified)
     LiveScenario("m3d_t3_protect_exposed_thundurus", "da9c168e", 3,
                  "Thundurus (57/154, slot 0) + Kingambit (-3 Atk) vs a FRESH-Fake-Out Incineroar (92%) + Gyarados (100%). "

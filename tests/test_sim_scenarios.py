@@ -77,6 +77,98 @@ def test_every_live_position_names_a_captured_decision():
         assert callable(sc.accept) and sc.accept_text and sc.what
 
 
+def _template(prefix: str, turn: int, index: int = 0) -> dict:
+    """The captured doubles-turn template of a battle decision (``index`` counts decisions with legal actions, as
+    live_scenarios.run does)."""
+    folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(prefix))
+    found = []
+    for path in live_scenarios._sequence(folder, live_scenarios.seat_of(folder)):
+        raw = json.loads(path.read_text())
+        actions = (raw.get("legal_actions") or {}).get("actions") or []
+        if path.name.startswith("moving-") and raw["observation"].get("turn") == turn and actions:
+            found.append(actions[0]["input"]["action"])
+    return found[index]
+
+
+def _mv(move: str, target: int = 0) -> dict:
+    return {"type": "move", "move_id": move, "target": target}
+
+
+def _sw(species: str) -> dict:
+    return {"type": "switch", "species": species}
+
+
+# The Oct 8 verification of the seven disputed positions (ace-trainer-data/verify-core-positions-2026-10-08.md): each
+# accept rule passes the lines it rules right (the live play where it says that was optimal) and fails the ones it rules
+# out (the old documented line, the dominated lines, the scorers' picks it rejects). Targets: 1/2 = their slots a/b.
+VERIFIED = {
+    "m1_t6_dire_claw_ko": [  # 1 Dragonite, 2 Gholdengo
+        ((_mv("direclaw", 1), _mv("protect")), True),  # the live play
+        ((_mv("fakeout", 1), _mv("protect")), False),
+        ((_mv("direclaw", 1), _mv("icywind")), False),
+        ((_mv("direclaw", 2), _mv("protect")), False),
+    ],
+    "m2_t3_not_into_the_protecting_sylveon": [  # 1 Incineroar, 2 Sylveon
+        ((_mv("flashcannon", 2), _mv("waterfall", 1)), True),  # the live play, optimal
+        ((_mv("bodypress", 1), _mv("waterfall", 2)), True),
+        ((_mv("bodypress", 1), _mv("waterfall", 1)), True),
+        ((_mv("flashcannon", 2), _mv("earthquake")), False),  # Earthquake hits our own Archaludon
+        ((_mv("bodypress", 1), _mv("earthquake")), False),
+        ((_mv("protect"), _mv("waterfall", 1)), False),
+        ((_mv("flashcannon", 2), _mv("waterfall", 2)), False),  # both into the Protect
+        ((_mv("flashcannon", 1), _mv("waterfall", 2)), False),
+    ],
+    "m2_t4_protect_the_doubled_archaludon": [  # 1 Flutter Mane, 2 Sylveon
+        ((_mv("protect"), _mv("earthquake")), True),
+        ((_mv("protect"), _mv("waterfall", 1)), True),
+        ((_mv("protect"), _mv("waterfall", 2)), False),
+        ((_mv("flashcannon", 1), _mv("waterfall", 1)), False),  # the live play
+        ((_mv("flashcannon", 2), _mv("waterfall", 2)), False),  # doubling Sylveon
+    ],
+    "m4_t2_no_telegraphed_ko": [  # 1 Dragonite, 2 Gholdengo
+        ((_mv("protect"), _mv("bleakwindstorm")), True),
+        ((_mv("protect"), _mv("protect")), True),
+        ((_mv("iciclespear", 1), _mv("bleakwindstorm")), True),  # the live play
+        ((_sw("landorustherian"), _mv("bleakwindstorm")), False),  # the old documented pivot
+        ((_sw("lucario"), _mv("bleakwindstorm")), False),
+        ((_mv("iciclespear", 1), _mv("protect")), False),
+        ((_mv("iciclespear", 2), _mv("bleakwindstorm")), False),
+        ((_mv("protect"), _mv("tailwind")), False),
+    ],
+    "m4_t4_out_of_the_double": [  # slot 0 is Scarf-locked: Earthquake or Lucario
+        ((_mv("earthquake"), _mv("bleakwindstorm")), True),  # the live play
+        ((_sw("lucario"), _mv("bleakwindstorm")), True),
+        ((_sw("lucario"), _mv("protect")), False),  # the old documented line
+        ((_mv("earthquake"), _mv("protect")), False),
+    ],
+    "m4_t7_lucario_protects": [  # 1 Incineroar, 2 Dragonite
+        ((_mv("protect"), _mv("protect")), True),
+        ((_mv("closecombat", 1), _mv("protect")), False),  # the live play
+        ((_mv("closecombat", 1), _mv("bleakwindstorm")), False),
+        ((_mv("protect"), _mv("bleakwindstorm")), False),
+    ],
+    "o8_t14_no_fake_priority_escape": [  # 1 Dragonite (alone)
+        ((_mv("bodypress", 1), _mv("extremespeed", 1)), True),  # the live play
+        ((_mv("bodypress", 1), _mv("protect")), True),
+        ((_mv("bodypress", 1), _sw("wochien")), True),
+        ((_mv("bodypress", 1), _mv("flareblitz", 1)), False),
+        ((_mv("flashcannon", 1), _mv("protect")), False),
+        ((_mv("protect"), _mv("protect")), False),
+    ],
+}
+
+
+def test_the_verified_positions_accept_what_the_verification_rules():
+    by_name = {sc.name: sc for sc in live_scenarios.SCENARIOS}
+    for name, lines in VERIFIED.items():
+        sc = by_name[name]
+        assert not sc.provisional, name
+        template = _template(sc.session, sc.turn, sc.index)
+        for (s0, s1), want in lines:
+            payload = {"type": "doubles_turn", "slot_0": s0, "slot_1": s1}
+            assert bool(sc.accept(payload, template)) == want, (name, s0, s1, sc.accept_text)
+
+
 def test_the_seat_we_sat_in_comes_from_the_observation():
     by_prefix = {p.name[:8]: p for p in LIVE.iterdir() if p.is_dir()}
     assert live_scenarios.seat_of(by_prefix["bcbaabe2"]) == 0  # player 1
