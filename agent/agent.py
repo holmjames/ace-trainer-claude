@@ -54,7 +54,7 @@ from agent.pokemon import lineup as lineup_rules
 from agent.pokemon.log import DecisionLog, git_commit
 from agent.pokemon import opponent as opponent_model
 from agent.pokemon.memory import MatchMemory, observation_dict, species_key
-from agent.pokemon.prompts import KNOWN_SETS_PREAMBLE, LINEUP_INSTRUCTIONS, SYSTEM_PROMPT
+from agent.pokemon.prompts import KNOWN_SETS_PREAMBLE, LINEUP_INSTRUCTIONS, system_prompt
 from agent.pokemon.tuning import DEFAULTS
 
 VERSION = os.environ.get("AGENT_VERSION") or "m3"
@@ -151,6 +151,7 @@ _PROTECT_MOVES = {"protect", "detect", "wideguard", "quickguard", "spikyshield",
 _PIERCES_PROTECT = {"feint", "hyperspacefury", "hyperspacehole", "phantomforce", "shadowforce"}
 _FLINCH_PROOF_ABILITIES = {"innerfocus", "shielddust"}
 RECHECK_KO_PROBABILITY = 0.5  # a hit that lands first "removes" a threat when it KOs at least this often
+ROW_MARGIN_SHARE = 0.15  # answer_rules_v2: a lower row's margin is max(row_margin_points, this x |row 0's value|) (model audit R1)
 
 
 def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dict | None = None, info: dict | None = None) -> str | None:
@@ -648,10 +649,11 @@ class PokemonAgent:
                       "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])}
         evidence = self.memory.opponent_evidence()
         klass = evidence["class"]
+        rows_only = self._rows_only()
         payload = {
             "decision": "doubles_turn",
             **choice.prompt,
-            "answer_format": (
+            "answer_format": _ANSWER_FORMAT_ROWS_ONLY if rows_only else (
                 "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. To propose a joint "
                 "action that is not a row, set override.use=true and give both slots as {option: <index from that slot's "
                 "options>, target: <integer>}; the code scores it against the rows before it may play. If the chosen option's "
@@ -667,7 +669,7 @@ class PokemonAgent:
             "tendencies": self.memory.opp_tendencies(),
             "observation": _compact(_battle_view(obs, roster, self.memory), _BATTLE_KEYS),
         }
-        _trim_turn_payload(payload)
+        _trim_turn_payload(payload, rows_only=rows_only)
         remaining = expected_remaining_turns(roster["ours"].get("remaining"), roster["theirs"].get("remaining"))
         recheck_info: dict[str, Any] = {}
         value, answer, info = self._ask(choice, payload, kind="turn",
@@ -685,11 +687,69 @@ class PokemonAgent:
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 
+    def _rows_only(self) -> bool:
+        """answer_rules_v2 on the reply mixture (model audit R1): the model chooses among the mixture's priced rows.
+        Off (the default), and on the scorer path at any setting, the E2 rules below apply unchanged."""
+        return float(self.params.get("answer_rules_v2", 0.0) or 0.0) > 0 and float(self.params.get("reply_mixture", 0.0) or 0.0) > 0
+
+    def _resolve_rows_only(self, answer: dict, sheet: Any, base: Choice, meta: dict) -> Any:
+        """Model audit R1, under answer_rules_v2 with the mixture. A proposed joint action is not played while rows exist:
+        it is logged (``meta["override_ignored"]``) and the chosen row plays (on the candidate's 77 live departures,
+        off-menu plays lost to its row 1 out of sample, -375, while listed lower rows were even). A lower row stands
+        when its value is within max(row_margin_points, 15% of |row 0's value|) of row 0's, else row 0 plays: the old
+        margin, 15% of max(row 0, 1), is 0.15 points on the mixture's scale whenever row 0 is 1 or less (57 of 121
+        live positions). No read bypass: the mixture already prices the replies a read names. With no rows at all, a
+        proposed joint action plays once it validates."""
+        rows = list(sheet.candidates)
+        row = answer.get("row")
+        row_ok = isinstance(row, int) and not isinstance(row, bool) and 0 <= row < len(rows)
+        override = answer.get("override") if isinstance(answer.get("override"), dict) else {}
+        meta.clear()
+        if not rows:
+            if override.get("use"):
+                proposed = base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})  # InvalidChoice if illegal
+                meta["resolution"] = "override accepted (no rows)"
+                return proposed
+            raise InvalidChoice("this position has no rows: propose a joint action with override.use=true")
+        if row_ok:
+            meta.update({"row": row, "row_name": rows[row].get("name"), "row_score": rows[row].get("score")})
+        meta["resolution"] = "row"
+        if override.get("use"):
+            ignored = {"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1"),
+                       "same_as_row": next((i for i, r in enumerate(rows) if r.get("slot_0") == override.get("slot_0")
+                                            and r.get("slot_1") == override.get("slot_1")), None)}
+            try:
+                base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})
+                ignored["legal"] = True
+            except InvalidChoice:
+                ignored["legal"] = False
+            meta["override_ignored"] = ignored
+            meta["resolution"] = f"override ignored (this build plays only listed rows); row {row} plays"
+            self._say(f"[agent] {meta['resolution']}")
+        if not row_ok:
+            raise InvalidChoice(f"row must be a candidate_turns row number 0..{len(rows) - 1}, got {row!r} (this build plays only "
+                                "listed rows: leave override.use=false)")
+        if row > 0:
+            best = float(rows[0].get("score") or 0.0)
+            value = float(rows[row].get("score") or 0.0)
+            margin = max(float(self.params.get("row_margin_points", 50.0)), ROW_MARGIN_SHARE * abs(best))
+            meta.update({"row_value": value, "best_row_score": best, "margin": round(margin, 1)})
+            if value < best - margin:
+                earlier = meta["resolution"] + "; " if meta.get("resolution") not in (None, "row") else ""
+                meta["resolution"] = earlier + f"row {row} rejected: {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}; row 0 plays"
+                meta["row_played"] = 0
+                self._say(f"[agent] {meta['resolution']}")
+                return base.build({"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]})
+        return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
+
     def _resolve_turn_answer(self, answer: dict, sheet: Any, base: Choice, prediction: dict, meta: dict) -> Any:
         """The constrained answer (E2). A row plays as the sheet listed it. An override is validated like any payload,
         scored with the same scorer as the rows (``override_value``), and rejected when its value trails the best
         row by more than ``override_margin`` of the top value, unless the model's opponent prediction matches the
-        code's top column: then the read is the reason and it stands. A rejected override plays the chosen row."""
+        code's top column: then the read is the reason and it stands. A rejected override plays the chosen row.
+        With answer_rules_v2 on the mixture, ``_resolve_rows_only`` decides instead."""
+        if self._rows_only():
+            return self._resolve_rows_only(answer, sheet, base, meta)
         rows = list(sheet.candidates)
         row = answer.get("row")
         row_ok = isinstance(row, int) and not isinstance(row, bool) and 0 <= row < len(rows)
@@ -799,7 +859,7 @@ class PokemonAgent:
                       "consecutive failures (code plays #1); retrying on the next decision")
             return choice.fallback(), None, info
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_prompt(self.params)}]  # SYSTEM_PROMPT at the defaults, byte for byte
         if system_extra:
             messages.append({"role": "system", "content": system_extra})  # the match's known sets: cached across turns
         messages.append({"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)})
@@ -1177,14 +1237,23 @@ def _protects_alone(payload: Any, sheet: Any) -> bool:
 
 
 MAX_ROWS_SHOWN = 8  # top rows only: the model chooses among the best; the rest is noise and tokens
+# answer_rules_v2 on the mixture (model audit R1): the answer format matches the rule in force, rows only.
+_ANSWER_FORMAT_ROWS_ONLY = (
+    "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. Leave override.use=false: "
+    "this build plays only listed rows, and a proposed joint action is logged for review while your row plays. Only when "
+    "candidate_turns is empty, set override.use=true and give both slots as {option: <index from that slot's options>, "
+    "target: <integer>}: if the chosen option's targets list is non-empty, target must be one of those integers; otherwise "
+    "send target 0."
+)
 _TEAM_ENTRY_KEYS = ("species", "current_hp", "max_hp", "current_hp_fraction", "status", "ability", "item", "boosts", "fainted", "active",
                     "revealed_moves", "moves", "is_terastallized")
 
 
-def _trim_turn_payload(payload: dict) -> None:
+def _trim_turn_payload(payload: dict, *, rows_only: bool = False) -> None:
     """Take out what the model sees elsewhere: each active Pokémon's full summary appears in the server's slots, in
     active_pokemon and in team (keep it once, in team), typing and base stats live in the known_sets block, and only
-    the top rows are shown. Measured on the Oct 8 positions: ~23k chars -> ~13k."""
+    the top rows are shown. Measured on the Oct 8 positions: ~23k chars -> ~13k. ``rows_only`` (answer_rules_v2 on the
+    mixture): the instructions say an override is for a position without rows."""
     for slot in payload.get("slots") or []:
         active = slot.get("active")
         if isinstance(active, dict):
@@ -1192,7 +1261,9 @@ def _trim_turn_payload(payload: dict) -> None:
     # The adapter's own instructions describe the old slot_0/slot_1 answer and repeat the server's how-to-submit text:
     # the answer format is answer_format and the system prompt now.
     if "instructions" in payload:
-        payload["instructions"] = "See answer_format: answer with a row, an opponent_prediction and a win_condition (override only with a reason)."
+        payload["instructions"] = ("See answer_format: answer with a row, an opponent_prediction and a win_condition (override only "
+                                   "when there are no rows)." if rows_only else
+                                   "See answer_format: answer with a row, an opponent_prediction and a win_condition (override only with a reason).")
     sheet = payload.get("turn_sheet") or {}
     rows = sheet.get("candidate_turns")
     if isinstance(rows, list) and len(rows) > MAX_ROWS_SHOWN:

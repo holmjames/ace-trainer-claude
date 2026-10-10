@@ -7,6 +7,8 @@ the user message: the roster, the turn sheet with its numbered rows, the code's 
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 SYSTEM_PROMPT = """You are playing a Pokémon VGC doubles battle (4v4, level 50, no Terastallization) for a tournament agent.
 
 Each request is one decision. Everything in the request comes from the game server and from a code helper that already did the bookkeeping; both are authoritative. Choose only from the options given. Never invent moves, species, or targets.
@@ -56,6 +58,50 @@ Lessons from overrides that lost (Oct 8):
 - Speed control is tempo. Their Tailwind/Trick Room has a turn count in the notes: with one or two turns left, Protecting or switching through it can beat trading under it. Ours is worth using while it lasts.
 
 Answer only in the required JSON."""
+
+# -- the model-path variants (lane M1) ----------------------------------------------------------------------------------
+# Each is off by default, and system_prompt() of the defaults is SYSTEM_PROMPT byte for byte. The text depends only on
+# the agent's params, so it is identical on every call of a match (the API caches it).
+
+_ROW_BULLETS = (
+    "- row: the number of the candidate_turns row you choose. Pick a row unless you have a concrete reason the sheet does not show.\n"
+    "- override: use=true only to propose a joint action that is not a row (both slots: option index and target, exactly like the "
+    "rows). The code scores it with the same scorer as the rows and REJECTS it when its value trails the best row by more than the "
+    "override margin, unless your opponent_prediction matches the code's own top prediction; then your read of the opponent is the "
+    "reason and it stands. A rejected override plays your row instead.\n"
+)
+# answer_rules_v2 on the reply mixture (model audit R1): the model chooses rows only; the bullets say the rule in force.
+_ROW_BULLETS_ROWS_ONLY = (
+    "- row: the number of the candidate_turns row you choose. Row 0 is the code's best turn against their likely replies; each row "
+    "shows its value (score), its worst case and the reply that hurts it most. Choose another row when you can name what row 0 gets "
+    "wrong. A row whose value trails row 0 by more than {margin} points plays row 0 instead.\n"
+    "- override: leave use=false. This build plays only listed rows; a proposed joint action is logged for review and your row "
+    "plays. Only when candidate_turns is empty, propose a joint action with use=true.\n"
+)
+
+
+def _on(params: Mapping[str, Any] | None, key: str) -> bool:
+    try:
+        return float((params or {}).get(key, 0.0) or 0.0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _swap(text: str, old: str, new: str) -> str:
+    if text.count(old) != 1:
+        raise ValueError(f"system prompt anchor not found exactly once: {old[:60]!r}")
+    return text.replace(old, new)
+
+
+def system_prompt(params: Mapping[str, Any] | None = None) -> str:
+    """The battle system prompt for these tuning params. ``answer_rules_v2`` with ``reply_mixture``: the row and override
+    bullets of model audit R1 (rows only; the lower-row margin is ``row_margin_points``)."""
+    text = SYSTEM_PROMPT
+    if _on(params, "answer_rules_v2") and _on(params, "reply_mixture"):
+        margin = float((params or {}).get("row_margin_points", 50.0))
+        text = _swap(text, _ROW_BULLETS, _ROW_BULLETS_ROWS_ONLY.format(margin=f"{margin:g}"))
+    return text
+
 
 KNOWN_SETS_PREAMBLE = "known_sets for this match (identical every turn; the opponent's unrevealed moves and items are real):\n"
 
