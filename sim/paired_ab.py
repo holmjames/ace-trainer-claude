@@ -11,8 +11,9 @@ read-out, as do files that share no game or disagree on a paired game's first dr
 
 Prints, on the paired games: each arm's wins, the discordant pairs, McNemar z = (arm-only - control-only) / sqrt(discordant)
 (a row-order read-out's z whenever both files hold the same games in the same order) and the exact two-sided sign test;
-the same by draft order; and how many paired games drafted differently. A win is our seat winning; an unfinished game
-(turn cap) counts as not won.
+the same by draft order; and how many paired games drafted differently (our picks; our four and leads where our picks
+match, which is the whole of an A/A check on our side). A win is our seat winning; an unfinished game (turn cap) counts
+as not won.
 
 ``--not-held SPECIES`` adds a they-first table's primary endpoint, fixed by the CONTROL's draft before any result is read:
 the they-first games in which the opponent did not open with SPECIES and the control's first two picks (overall picks 2
@@ -67,7 +68,8 @@ def load(path: str) -> dict[tuple, dict]:
             theirs = [p["species"] for p in picks if p["side"] != us]
             games[key] = {"won": row["winner"] == us, "unfinished": row["winner"] is None, "we_first": row["first"] == us,
                           "ours": [p["species"] for p in picks if p["side"] == us], "their_first": theirs[0] if theirs else None,
-                          "draft": [(p["side"], p["species"]) for p in picks], "spec": row["specs"][us],
+                          "draft": [(p["side"], p["species"]) for p in picks], "four": (row.get("teams") or {}).get(us, []),
+                          "spec": row["specs"][us],
                           "opponent": next(spec for side, spec in row["specs"].items() if side != us)}
     if twice:
         raise SystemExit(f"{path}: {len(twice)} games appear twice (same battle seed and seat), e.g. {twice[:3]}: "
@@ -156,12 +158,14 @@ def main(argv: list[str] | None = None) -> int:
         subset = [k for k in keys if control[k]["we_first"] == we_first]
         if subset:
             print(f"  {label}: {describe(paired(subset, control, arm))}")
-    differ = sum(1 for k in keys if control[k]["ours"] != arm[k]["ours"])
+    same_ours = [k for k in keys if control[k]["ours"] == arm[k]["ours"]]
     first_two = sum(1 for k in keys if control[k]["ours"][:2] != arm[k]["ours"][:2])
+    four = sum(1 for k in same_ours if control[k]["four"] != arm[k]["four"])
     same = [k for k in keys if control[k]["draft"] == arm[k]["draft"]]
     agree = sum(1 for k in same if control[k]["won"] == arm[k]["won"])
-    print(f"our picks differ in {differ} of {len(keys)} paired games (the first two in {first_two}); identical drafts (all "
-          f"twelve picks): {len(same)}, same result in {agree}")
+    print(f"our picks differ in {len(keys) - len(same_ours)} of {len(keys)} paired games (the first two in {first_two}); where "
+          f"they are the same, our four and leads differ in {four}; identical drafts (all twelve picks): {len(same)}, "
+          f"same result in {agree}")
     if species:
         primary, opened, took = not_held(keys, control, species)
         they_first = len(primary) + len(opened) + len(took)

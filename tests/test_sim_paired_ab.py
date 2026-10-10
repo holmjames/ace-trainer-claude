@@ -22,7 +22,8 @@ MINE = ("Iron Hands", "Gholdengo", "Rillaboom", "Sylveon", "Kingambit", "Amoongu
 THEIRS = ("Incineroar", "Gyarados", "Porygon2", "Dragonite", "Tornadus", "Whimsicott")
 
 
-def row(seed: int, us: str, won: bool | None, *, we_first: bool = True, ours=MINE, theirs=THEIRS, spec: str = OURS) -> dict:
+def row(seed: int, us: str, won: bool | None, *, we_first: bool = True, ours=MINE, theirs=THEIRS, spec: str = OURS,
+        four=None) -> dict:
     them = "p2" if us == "p1" else "p1"
     first = us if we_first else them
     mine, other = iter(ours), iter(theirs)
@@ -31,7 +32,8 @@ def row(seed: int, us: str, won: bool | None, *, we_first: bool = True, ours=MIN
         side = first if i in FIRST_SLOTS else (them if first == us else us)
         picks.append({"side": side, "species": next(mine) if side == us else next(other), "public_reason": ""})
     winner = None if won is None else (us if won else them)
-    return {"seed": seed, "specs": {us: spec, them: BOT}, "first": first, "winner": winner, "turns": 5, "picks": picks}
+    return {"seed": seed, "specs": {us: spec, them: BOT}, "first": first, "winner": winner, "turns": 5, "picks": picks,
+            "teams": {us: list(four or ours[:4]), them: list(theirs[:4])}}
 
 
 def write(path, rows: list[dict]) -> str:
@@ -74,6 +76,18 @@ def test_an_error_in_one_arm_leaves_one_game_unpaired_instead_of_shifting_the_re
     assert "games paired by (battle seed, our seat): 7; only in control: 1; only in arm: 0" in out
     assert "WARNING: games in one file only" in out and "[(2, 'p2')]" in out
     assert "discordant arm-only 0, control-only 0; McNemar z = +0.00" in out
+    assert "our picks differ in 0 of 7 paired games (the first two in 0); where they are the same, our four and leads differ in 0" in out
+
+
+def test_an_aa_check_counts_our_four_and_leads_where_our_picks_match(tmp_path, capsys):
+    # The search bot's Team Preview is wall-clock bound, so an A/A check compares our side only: picks, then four and leads.
+    control = [row(1, "p1", True), row(1, "p2", True), row(2, "p1", True)]
+    arm = [row(1, "p1", True), row(1, "p2", False, four=("Gholdengo", "Iron Hands", "Sylveon", "Rillaboom")),
+           row(2, "p1", True, ours=("Iron Hands", "Gholdengo", "Kingambit", "Sylveon", "Rillaboom", "Amoonguss"))]
+    assert paired_ab.main([write(tmp_path / "a1.jsonl", control), write(tmp_path / "a2.jsonl", arm)]) == 0
+    out = capsys.readouterr().out
+    assert "our picks differ in 1 of 3 paired games (the first two in 0); where they are the same, our four and leads differ in 1" in out
+    assert "identical drafts (all twelve picks): 2, same result in 1" in out
 
 
 def test_complete_files_in_the_same_order_give_the_row_order_numbers(tmp_path, capsys):
