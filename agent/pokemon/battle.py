@@ -3784,26 +3784,37 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if est is None or est[1] >= 100:
                 continue  # it would just die instead
             partner_slot = slot_template(endangered_slot)
-            partner_action = None
-            spared = 1.0  # the partner's setup still meets a fresh Fake Out: the +2 redirect cannot draw a +3 Fake Out
+            partner_action = None  # (answer, move, priority, target)
+            setup_name = None
             for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
                 idx = _option_index(partner_slot, "move", move_id=setup) if partner_slot and not (
                     setup_spent(sheet, setup, memory) or setup_backfires(sheet, setup, memory)) else None
                 if idx is not None:
                     # every setup is below +3 (Prankster's +1 included): Tailwind 0, Trick Room -7, Icy Wind, Electroweb 0
-                    spared = fake_out_spares(sheet, endangered_slot, (data.move_info(setup) or {}).get("priority", 0) or 0)
-                    partner_action = ({"option": idx, "target": 0}, f"sets {setup}" + _flinch_clause(spared))
+                    partner_action = ({"option": idx, "target": 0}, setup, (data.move_info(setup) or {}).get("priority", 0) or 0, 0)
+                    setup_name = setup
                     break
             raw_partner = _best_attack(by_slot.get(endangered_slot, {}), P=P, threats=weights, protect=protect_p)
             if partner_action is None and raw_partner[0]:
-                partner_action = (slot_answer(raw_partner[0]["option"], raw_partner[1]["target"]), "attacks freely")
+                partner_action = (slot_answer(raw_partner[0]["option"], raw_partner[1]["target"]), raw_partner[0].get("move"),
+                                  raw_partner[0].get("priority", 0) or 0, raw_partner[1].get("target", 0))
             if partner_action is None:
                 continue
+            # The cover needs the redirect up: Follow Me / Rage Powder (+2) move after a fresh Fake Out (+3), which can
+            # flinch the redirector (Note C), and the partner's turn is the redirect's to give. One Fake Out flinches the
+            # redirector or the partner, not both (fake_out_cases): the partner's setup counts when neither is flinched.
+            redirect_move = data.to_id(slot_r["options"][redirect].get("move_id"))
+            cases = fake_out_cases(sheet, {redirector: {"priority": (data.move_info(redirect_move) or {}).get("priority", 2), "move": redirect_move, "target": 0},
+                                           endangered_slot: {"priority": partner_action[2], "move": partner_action[1], "target": partner_action[3]}})
+            covered = sum(p for p, hit_ in cases if redirector not in hit_)
+            together = sum(p for p, hit_ in cases if redirector not in hit_ and endangered_slot not in hit_)
+            spared = sum(p for p, hit_ in cases if endangered_slot not in hit_)
+            cover = (P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25
             answers = {redirector: {"option": redirect, "target": 0}, endangered_slot: partner_action[0]}
             add("redirect_to_protect_partner", answers[0], answers[1],
-                f"{threat['species']}'s {hit['move']} would KO slot {endangered_slot}; slot {redirector} redirects it ({est[0]}-{est[1]}% to itself) while slot {endangered_slot} {partner_action[1]}",
-                ((P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25 + (50 * spared if "sets" in partner_action[1] else raw_partner[2] * 0.8))
-                * sheet.acts(redirector),
+                f"{threat['species']}'s {hit['move']} would KO slot {endangered_slot}; slot {redirector} redirects it ({est[0]}-{est[1]}% to itself)"
+                + _flinch_clause(covered) + f" while slot {endangered_slot} " + (f"sets {setup_name}" + _flinch_clause(spared) if setup_name else "attacks freely"),
+                (cover * covered + (50 * together if setup_name else raw_partner[2] * 0.8 * covered)) * sheet.acts(redirector),
                 covers=endangered_slot)
 
     # 4. Fake Out on a Pokémon's first turn out: flinch the biggest threat while the partner sets up or attacks.

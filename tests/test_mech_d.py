@@ -828,8 +828,8 @@ def test_a_fresh_fake_out_flinches_our_plus_one_and_plus_two_moves_too():
     """F8 (fix2 review): a fresh Fake Out (+3) stops a Prankster Tailwind or Taunt (+1) and the redirect row's partner
     setup as surely as a +0 move. Indeedee-F (grounded: Psychic Terrain shields it) + Tornadus (Flying: 90% to be Faked
     Out) vs a fresh Incineroar; the control is the same position with a Covert Cloak on Tornadus (no flinch, no other
-    change). The redirect row keeps 10% of its +50 setup credit (20% with no terrain, where the aim is 0.8 / 0.2), the best
-    attacks row 10% of Tailwind's 55 and the Taunt row 10% of what the Taunt blocks (taunt_value)."""
+    change). The redirect row keeps 10% of its +50 setup credit, the best attacks row 10% of Tailwind's 55 and the Taunt
+    row 10% of what the Taunt blocks (taunt_value)."""
     terrain = {"fields": {"PSYCHIC_TERRAIN": 3}, "turn": 1}
     cloak = {"Tornadus": {**CATALOG["Tornadus"], "item": "Covert Cloak"}}
 
@@ -839,12 +839,11 @@ def test_a_fresh_fake_out_flinches_our_plus_one_and_plus_two_moves_too():
         assert 1 not in free.flinch_risk, free.flinch_risk
         return sheet, {c["name"]: c for c in sheet.candidates}, {c["name"]: c for c in free.candidates}
 
-    for opp, extra, risk in ((["Incineroar", "Baxcalibur"], terrain, 0.9), (["Incineroar", "Rillaboom"], terrain, 0.9),
-                             (["Incineroar", "Baxcalibur"], {"turn": 1}, 0.8)):
+    for opp, extra, risk in ((["Incineroar", "Baxcalibur"], terrain, 0.9), (["Incineroar", "Rillaboom"], terrain, 0.9)):
         sheet, got, free = rows(opp, extra, hp={"Tornadus": 0.3})  # Knock Off KOs the 30% Tornadus; Follow Me draws it
-        assert sheet.flinch_risk[1] == risk, sheet.flinch_risk
+        assert sheet.flinch_risk == {1: risk}, sheet.flinch_risk
         row, ctrl = got["redirect_to_protect_partner"], free["redirect_to_protect_partner"]
-        assert f"sets tailwind ({int(100 * risk)}% that their Fake Out flinches it first)" in row["why"], row["why"]
+        assert f"to itself) while slot 1 sets tailwind ({int(100 * risk)}% that their Fake Out flinches it first)" in row["why"], row["why"]
         assert "sets tailwind" in ctrl["why"] and "flinches" not in ctrl["why"], ctrl["why"]
         assert row["score"] == pytest.approx(ctrl["score"] - 50 * risk, abs=0.11), (opp, row["score"], ctrl["score"])
     for opp in (["Incineroar", "Kingambit"], ["Incineroar", "Pelipper"]):
@@ -858,6 +857,21 @@ def test_a_fresh_fake_out_flinches_our_plus_one_and_plus_two_moves_too():
     blocked = battle.taunt_value(tornadus, 1, pelipper.position, pelipper, sheet)
     assert blocked > 0 and "Taunts Pelipper" in got["taunt_status"]["why"]
     assert got["taunt_status"]["score"] == pytest.approx(free["taunt_status"]["score"] - blocked * 0.9, abs=0.11)
+
+
+def test_the_redirectors_own_flinch_discounts_the_cover():
+    """Note C (fix3 review): Follow Me / Rage Powder are +2, so a fresh Fake Out (+3) flinches the redirector too, and a
+    flinched redirector covers nothing. With no terrain Indeedee-F carries 0.2 of Incineroar's Fake Out and the 30%
+    Tornadus 0.8: the redirect row's cover (the Protect bonus for Knock Off's KO + 25) counts 80% of the time, and its
+    Tailwind credit needs both slots past the one Fake Out, which never happens (50edd01 credited the cover in full
+    and 20% of the setup)."""
+    sheet, _ = build(["Indeedee-F", "Tornadus"], ["Incineroar", "Baxcalibur"], obs_extra={"turn": 1}, hp={"Tornadus": 0.3})
+    assert sheet.flinch_risk == {0: 0.2, 1: 0.8}, sheet.flinch_risk
+    row = next(c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner")
+    assert "to itself) (20% that their Fake Out flinches it first) while slot 1 sets tailwind (80% that their Fake Out flinches it first)" in row["why"], row["why"]
+    knock_off = threat_hit(sheet, "Incineroar", "knockoff", 1)
+    bonus = tuning.DEFAULTS["protect_bonus_guaranteed"] if knock_off["ko"] == "guaranteed" else tuning.DEFAULTS["protect_bonus_possible"]
+    assert row["score"] == pytest.approx((bonus + 25) * 0.8, abs=0.11), (row, knock_off["ko"])
 
 
 def test_the_fake_out_rows_partner_setup_meets_their_fake_out_unless_ours_flinches_it_first():
