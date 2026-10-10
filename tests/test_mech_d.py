@@ -1109,25 +1109,35 @@ def test_a_plain_two_slot_row_keeps_each_slots_own_flinch_chance(monkeypatch):
     assert real["fake_out_setup"] == pytest.approx(0.8 * hands["fake_out_setup"] + 0.2 * whims["fake_out_setup"], abs=0.11), (real, hands, whims)
 
 
-def test_a_bonus_for_both_hits_needs_both_slots_to_act_past_one_fake_out(monkeypatch):
-    """focus_fire's +30 and priority_focus's bonus (and its gate) are for the two hits TOGETHER: all_act, both slots
-    acting with one fresh Fake Out flinching one of them. Talonflame (Gale Wings Brave Bird +1, 0.8 of the risk) and
-    Kingambit (Sucker Punch +1, 0.2) vs a fresh Incineroar + Chi-Yu: the two never both act, so the focus fire into Chi-Yu
-    keeps no bonus (its score is the same with focus_fire_bonus 0) and the priority focus (100% together, before) is no
-    row at all. On turn 3 (Incineroar no longer fresh) both stand: the bonus counts and the priority focus is 100%."""
-    def rows(turn, bonus=None):
-        if bonus is not None:
-            monkeypatch.setitem(tuning.DEFAULTS, "focus_fire_bonus", bonus)
+def test_a_bonus_for_both_hits_counts_when_their_fresh_fake_out_is_not_used(monkeypatch):
+    """focus_fire's +30 and priority_focus's bonus (and its gate) are for the two hits TOGETHER: both slots acting
+    (all_act), one fresh Fake Out flinching one of them when it is used. It is used fake_out_use of the time (0.5: the
+    search bot Faked Out on 8 of 16 first turns), not always as flinch_risk has it: always used, the bonus was 0 beside
+    one user and two flinchable slots and dropped doubles that KO the target before it moves (the fix4 decision review).
+    Talonflame (Gale Wings Brave Bird +1, 0.8 of the risk) and Kingambit (Sucker Punch +1, 0.2) vs a fresh Incineroar +
+    Chi-Yu: the focus fire into Chi-Yu keeps none of its bonus when the Fake Out is always used, all of it when it never
+    is and half at 0.5, where the priority focus takes Chi-Yu out first 50% of the time (no row when always used). On
+    turn 3 (Incineroar no longer fresh) both count whole: the bonus as with no Fake Out, the priority focus 100%."""
+    assert tuning.DEFAULTS["fake_out_use"] == 0.5
+
+    def rows(turn, use, bonus=30.0):
+        monkeypatch.setitem(tuning.DEFAULTS, "fake_out_use", use)
+        monkeypatch.setitem(tuning.DEFAULTS, "focus_fire_bonus", bonus)
         sheet, _ = build(["Talonflame", "Kingambit"], ["Incineroar", "Chi-Yu"], obs_extra={"turn": turn}, fresh=["Talonflame", "Kingambit"])
-        monkeypatch.setitem(tuning.DEFAULTS, "focus_fire_bonus", 30.0)
         return sheet, {c["name"]: c for c in sheet.candidates if c["name"] in ("focus_fire", "priority_focus")}
 
-    sheet, fresh = rows(1)
-    assert sheet.flinch_risk == {0: 0.8, 1: 0.2} and "focus_fire" in fresh and "priority_focus" not in fresh, (sheet.flinch_risk, fresh)
-    assert fresh["focus_fire"]["score"] == pytest.approx(rows(1, 0.0)[1]["focus_fire"]["score"], abs=0.11)
-    sheet, late = rows(3)
+    def bonus(turn, use):
+        return rows(turn, use)[1]["focus_fire"]["score"] - rows(turn, use, 0.0)[1]["focus_fire"]["score"]
+
+    sheet, always = rows(1, 1.0)
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2} and "focus_fire" in always and "priority_focus" not in always, (sheet.flinch_risk, always)
+    assert bonus(1, 1.0) == pytest.approx(0.0, abs=0.11)
+    full, half = bonus(1, 0.0), bonus(1, 0.5)
+    assert full > 2.0 and half == pytest.approx(0.5 * full, abs=0.16), (full, half)
+    assert "take it out first 50% of the time" in rows(1, 0.5)[1]["priority_focus"]["why"]
+    sheet, late = rows(3, 1.0)
     assert not sheet.flinch_risk and "take it out first 100% of the time" in late["priority_focus"]["why"], late
-    assert late["focus_fire"]["score"] > rows(3, 0.0)[1]["focus_fire"]["score"] + 1.0
+    assert bonus(3, 1.0) == pytest.approx(full, abs=0.16)
 
 
 def test_redirect_ignored_and_blocked_effects():

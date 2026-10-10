@@ -2597,7 +2597,7 @@ def _fake_out_aim(sheet: "TurnSheet") -> dict[int, float]:
     return {slot: 1.0 - (1.0 - min(1.0, r)) ** (1.0 / n) for slot, r in sheet.flinch_risk.items() if r > 0}
 
 
-def fake_out_cases(sheet: "TurnSheet", plan: dict[int, dict]) -> list[tuple[float, frozenset]]:
+def fake_out_cases(sheet: "TurnSheet", plan: dict[int, dict], use: float = 1.0) -> list[tuple[float, frozenset]]:
     """Which of our slots their fresh Fake Outs (+3) flinch this turn when each slot plays ``plan`` (slot -> {"priority",
     "move", "target"}): [(chance, the slots flinched)], the chances summing to 1. One Fake Out flinches ONE Pokémon:
     each fresh user aims at one of our slots as the sheet estimates (``_fake_out_aim``), so one user never flinches
@@ -2606,7 +2606,8 @@ def fake_out_cases(sheet: "TurnSheet", plan: dict[int, dict]) -> list[tuple[floa
     Hand). Our Fake Out into a user it reaches first (faster, not flinched before it moves, a target it can flinch:
     ``_flinchable``) stops that user's Fake Out when our slot acts (asleep or fully paralysed it stops nobody), and our
     Quick Guard up first stops them all. Each slot alone comes out at ``fake_out_spares``'s chance when nothing of ours
-    stops a user."""
+    stops a user. ``use``: the chance each user Fakes Out at all (else it flinches nobody); 1, the sheet's own
+    assumption (``flinch_risk``), unless a caller passes the tuning knob ``fake_out_use``."""
     aim = _fake_out_aim(sheet)
     if not aim:
         return [(1.0, frozenset())]
@@ -2628,9 +2629,9 @@ def fake_out_cases(sheet: "TurnSheet", plan: dict[int, dict]) -> list[tuple[floa
     # the +3 bracket in the speed order (ours first on a tie, as fake_out_spares reads it); a user the order lacks goes last
     events = sorted([(rank.get(("mine", n), 99), 0, n) for n in fast]
                     + [(rank.get(("theirs", u), 99) if u is not None else 100, 1, i) for i, u in enumerate(users)])
-    choices: list[tuple[int | None, float]] = list(aim.items())
-    if 1.0 - sum(aim.values()) > 1e-9:
-        choices.append((None, 1.0 - sum(aim.values())))  # this user's Fake Out goes nowhere it can flinch
+    choices: list[tuple[int | None, float]] = [(slot, use * a) for slot, a in aim.items()]
+    if 1.0 - sum(a for _, a in choices) > 1e-9:
+        choices.append((None, 1.0 - sum(a for _, a in choices)))  # no Fake Out, or one that goes nowhere it can flinch
     out: dict[frozenset, float] = {}
     for picks in itertools.product(choices, repeat=len(users)):
         for acting in itertools.product((True, False), repeat=len(stoppers)):
@@ -3448,9 +3449,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
     def all_act(picks: list[tuple[int, dict, dict, float]]) -> float:
         """Chance every slot in ``picks`` gets its action to count (``survival_factor``: not KO'd first, awake...), a fresh
         Fake Out flinching at most one of them per user (``fake_out_cases``): what a bonus for their hits TOGETHER is
-        worth. 1aef9227 T1: Close Combat and Moonblast both act 0% of the time beside Incineroar's one Fake Out."""
+        worth. Each user Fakes Out ``fake_out_use`` of the time (the search bot: 8 of 16 first turns), not always as
+        ``flinch_risk`` has it: always used, one user beside two flinchable slots left both acting 0% of the time and
+        dropped doubles that KO the target before it moves, most often the Fake Out user itself, whose Fake Out and
+        attack exclude each other (the fix4 decision review). 1aef9227 T1: Close Combat and Moonblast both act half
+        the time beside Incineroar's one Fake Out, and the Tailwind lead stays on top (m2_t1_tailwind_first)."""
         plan = plan_of(picks)
-        cases = fake_out_cases(sheet, plan) if len(plan) > 1 and any(sheet.flinch_risk.get(n) for n in plan) else [(1.0, None)]
+        use = float(P.get("fake_out_use", DEFAULTS["fake_out_use"]))
+        cases = fake_out_cases(sheet, plan, use=use) if len(plan) > 1 and any(sheet.flinch_risk.get(n) for n in plan) else [(1.0, None)]
         return sum(p * math.prod(survival_factor(n, sheet, opt.get("priority", 0) or 0, speed_rank, row, P,
                                                  flinched=None if hit is None else n in hit) for n, opt, row, _ in picks)
                    for p, hit in cases)
@@ -3538,9 +3544,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 picks.append(pick)
         if len(picks) < 2:
             continue
-        # both priority hits (+1 / +2) still move after a fresh Fake Out (+3), which flinches one of them (fake_out_cases)
+        # both priority hits (+1 / +2) still move after a fresh Fake Out (+3), which flinches one of them when it is used
+        # (fake_out_cases; used fake_out_use of the time, as all_act counts both slots acting)
         plan = plan_of(picks)
-        cases = fake_out_cases(sheet, plan) if any(sheet.flinch_risk.get(n) for n in plan) else [(1.0, frozenset())]
+        cases = fake_out_cases(sheet, plan, use=float(P.get("fake_out_use", DEFAULTS["fake_out_use"]))) \
+            if any(sheet.flinch_risk.get(n) for n in plan) else [(1.0, frozenset())]
         combined_ko = sum(p * _outcome([(float(r.get("hit_chance", 1.0)) * sheet.acts(n) * (0.0 if n in hit else 1.0), r) for n, _, r, _ in picks],
                                        theirs.get(pos))[1] for p, hit in cases)
         if combined_ko < 0.5:
