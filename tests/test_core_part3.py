@@ -266,8 +266,9 @@ def test_compose_double_heals_with_any_pinch_berry():
 # -- friendly fire: charged like damage into a foe, blocked by the ally's Protect -----------------------------------
 
 
-def test_friendly_fire_is_charged_in_hp_units():
+def test_friendly_fire_is_charged_in_hp_units(monkeypatch):
     # M2 T3: Earthquake also hits our own Archaludon (28.4-33.5%); the row that uses it pays ally_damage_w x that hit.
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer
     with_ff, *_ = _sheet_at(M2, 3, {})
     without, *_ = _sheet_at(M2, 3, {"ally_damage_w": 0.0})
     quake = next(o for e in with_ff.our_options if e["slot"] == 1 for o in e["options"] if o["move"] == "earthquake")
@@ -519,9 +520,10 @@ def test_a_taunted_spore_user_is_no_sleep_threat_and_draws_no_second_taunt():
     assert not [c for c in sheet.candidates if _labels(template, c)[0] == "taunt"], [c["why"] for c in sheet.candidates]
 
 
-def test_a_taunt_next_to_a_ko_on_its_target_is_worth_the_miss_only():
+def test_a_taunt_next_to_a_ko_on_its_target_is_worth_the_miss_only(monkeypatch):
     # Review finding 3: Heat Wave (90% accurate) KOs Amoonguss before it moves; the Taunt on it beside the Heat Wave is
     # credited only for the miss, and Gyarados Protects from Wild Charge instead (the deployed build's top row).
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer
     sheet, template, *_ = _synthetic(("Chi-Yu", "Gyarados"), ("Iron Hands", "Amoonguss"))
     assert _labels(template, sheet.candidates[0]) != ("heatwave", "taunt"), [c["why"] for c in sheet.candidates[:3]]
     assert sheet.candidates[0]["name"] == "protect_threatened"
@@ -602,3 +604,140 @@ def test_a_taunted_foe_has_no_protect_or_setup_column_and_spore_calls_are_scored
     assert not [c for c in cols for a in c.actions if a.kind in ("protect", "setup", "sleep")], [c.name for c in cols]
     m.opp_last_move = {"amoonguss": "spore", "chienpao": "iciclecrash"}
     assert ctx.prediction_matched({"actions": [("Amoonguss", "sleep", "spore")]}) == 1.0
+
+
+# -- core-5: the mixture's tactical errors (the five hand scenarios it failed with reply_mixture on by default) --------
+
+
+def _mix(mine, opp, bench=(), **kw):
+    """A reply-model context for a synthetic doubles turn (catalog sets), the mixture on and its seed pinned."""
+    sheet, template, obs, m = _synthetic(mine, opp, bench, **kw)
+    ours = {x.position: x for x in sheet.field.actives if x.side == "mine"}
+    theirs = {x.position: x for x in sheet.field.actives if x.side == "theirs"}
+    ctx = replies._Context(sheet, m, sorted(template["slots"], key=lambda s: s["slot"]), ours, theirs,
+                           tuning.merged({"reply_mixture": 1, "reply_seed": 7}), replies.opponent_class(m), sheet.turn, obs.get("opponent_team"))
+    return ctx, template
+
+
+def _act(ctx, template, slot: int, move_or_species: str, target: int = 0):
+    options = next(s for s in template["slots"] if s["slot"] == slot)["options"]
+    index = next(i for i, o in enumerate(options) if move_or_species in (o.get("move_id"), o.get("species")))
+    return ctx.actor_for(slot, {"option": index, "target": target})
+
+
+def _their(ctx, pos: int, move: str, slot: int):
+    hit = ctx.their_rows(pos, move)[slot]
+    return replies._Actor("theirs", pos, "attack", move=move, priority=hit.get("priority", 0) or 0, rows={slot: hit}, target=slot,
+                          species=ctx.theirs[pos].species)
+
+
+def test_rage_powder_draws_both_single_target_hits_while_the_redirector_stands():
+    # redirect_to_free_specs_attacker: Surging Strikes (159.2-189.2%) and the +1 Sucker Punch (100.0-118.5%) each KO Flutter
+    # Mane. Behind Rage Powder (+2) the Surging Strikes goes into Amoonguss (28.6-34.1%), the Sucker Punch fails (Amoonguss
+    # is not attacking), and the faster Flutter Mane's Moonblast KOs Urshifu (143.2-168.2%) before it moves. The cell had no
+    # redirection at all: both hits landed on Flutter Mane.
+    ctx, template = _mix(("Amoonguss", "Flutter Mane"), ("Urshifu-Rapid-Strike", "Kingambit"))
+    strikes, punch = _their(ctx, 1, "surgingstrikes", 1), _their(ctx, 2, "suckerpunch", 1)
+    col = replies._JointColumn("both into Flutter Mane", [strikes, punch], 1.0)
+    rage = replies._JointRow("rage", [_act(ctx, template, 0, "ragepowder"), _act(ctx, template, 1, "moonblast", 1)], {})
+    sludge = replies._JointRow("sludge", [_act(ctx, template, 0, "sludgebomb", 1), _act(ctx, template, 1, "moonblast", 1)], {})
+    assert ctx.cell(rage, col) > ctx.cell(sludge, col) + 100, (ctx.cell(rage, col), ctx.cell(sludge, col))
+    redirect = {"slot": 0, "p": 1.0, "move": "ragepowder"}
+    assert [(t, share) for t, _, share in ctx._aimed(strikes, redirect, {}, [strikes])] == [(1, 0.0), (0, 1.0)]
+    assert [(t, share) for t, _, share in ctx._aimed(punch, redirect, {}, [punch])] == [(1, 0.0)]  # drawn in, and it fails
+    # the redirection ends when the redirector faints (the Oct 9 loss 07a3cb1f): a KO already on it sends the hit home
+    down = {("mine", 0): [(1.0, {"damage_pct_of_current_hp": [150.0, 160.0], "ko": "guaranteed"})]}
+    assert [(t, share) for t, _, share in ctx._aimed(strikes, redirect, down, [strikes])] == [(1, 1.0)]
+
+
+def test_sucker_punch_needs_a_target_that_is_about_to_attack():
+    ctx, template = _mix(("Amoonguss", "Flutter Mane"), ("Urshifu-Rapid-Strike", "Kingambit"), ("Incineroar",))
+    punch = _their(ctx, 2, "suckerpunch", 0)
+    hit = punch.rows[0]
+    for ours, fails in (("sludgebomb", False), ("spore", True), ("incineroar", True)):
+        me = _act(ctx, template, 0, ours, 1 if ours != "incineroar" else 0)
+        assert ctx._fails_into(punch, hit, ("mine", 0), [punch, me], {}) is fails, ours
+    attack = _act(ctx, template, 0, "sludgebomb", 1)
+    assert ctx._fails_into(punch, hit, ("mine", 0), [attack, punch], {("mine", 0): 1.0})  # it has already moved
+
+
+def test_our_sleep_move_is_priced_like_theirs():
+    # intimidate_the_dancer: Spore was a flat status credit (35 points) against two chip attacks. Now, like their sleep move
+    # on us: the expected sleep's actions at sleep_future_w each, worth what the foe does with one (battle.threat_weight);
+    # a sleep move that lands before the foe moves stops this turn's action too.
+    ctx, template = _mix(("Amoonguss", "Whimsicott"), ("Gyarados", "Pelipper"))
+    spore = _act(ctx, template, 0, "spore", 1)
+    w, weight = tuning.DEFAULTS["sleep_future_w"], ctx.weights["gyarados"]
+    slept: dict = {}
+    after = ctx._our_sleep_gain(spore, 1.0, {}, {}, {("theirs", 1): 1.0}, slept)  # the faster Gyarados has moved
+    assert after == pytest.approx(weight * w * battle.SLEEP_TURNS) and not slept
+    before = ctx._our_sleep_gain(spore, 1.0, {}, {}, {}, slept)
+    assert before == pytest.approx(weight * w * (battle.SLEEP_TURNS - 1)) and slept == {("theirs", 1): 1.0}
+    assert ctx._our_sleep_gain(spore, 1.0, {("theirs", 1): 1.0}, {}, {}, {}) == 0.0  # into a working Protect
+    grass, template = _mix(("Amoonguss", "Whimsicott"), ("Rillaboom", "Pelipper"))
+    assert grass._our_sleep_gain(_act(grass, template, 0, "spore", 1), 1.0, {}, {}, {}, {}) == 0.0  # Grass ignores powders
+    names = [r.name for r in ctx.our_menu([])]
+    assert "spore_1_and_attack" in names and "spore_2_and_attack" in names  # one row per foe it can put to sleep
+
+
+def test_the_next_turn_charges_a_pokemon_once():
+    # Both foes KO our 5% Amoonguss next turn (Moonblast, Weather Ball); it has no Protect and there is no bench, so nothing
+    # answers it: it falls once, reply_next_w x its material. The one-ply term charged it once per foe (twice).
+    ctx, template = _mix(("Amoonguss", "Archaludon"), ("Whimsicott", "Pelipper"), hp={"Amoonguss": 0.05})
+    ctx._our_next_hits = lambda *a, **k: []  # no KO credit of ours: the charges alone
+    assert ctx._next_turn({}, {}, {}, []) == pytest.approx(-tuning.DEFAULTS["reply_next_w"] * ctx.material[0])
+
+
+def test_a_bench_and_a_redirector_answer_a_ko_next_turn():
+    ctx, template = _mix(("Amoonguss", "Flutter Mane"), ("Urshifu-Rapid-Strike", "Kingambit"), ("Incineroar",))
+    assert ctx._bench_ready()
+    alive = [(0, 1.0, 1.0, ctx.ours[0], ctx.material[0], None), (1, 1.0, 1.0, ctx.ours[1], ctx.material[1], None)]
+    strikes = ctx.their_rows(1, "surgingstrikes")[1]
+    assert ctx._redirect_answer(1, alive, strikes, ctx.theirs[1]) == pytest.approx(0.6)  # Amoonguss can Rage Powder again
+    assert ctx._redirect_answer(1, [alive[0][:1] + (0.5,) + alive[0][2:], alive[1]], strikes, ctx.theirs[1]) == pytest.approx(0.3)
+    assert ctx._redirect_answer(0, alive, ctx.their_rows(1, "surgingstrikes")[0], ctx.theirs[1]) == 0.0  # no redirector beside it
+
+
+def test_their_column_carries_the_ko_that_lands_before_our_slot_moves():
+    # protect_vs_ko: Surging Strikes (454.9-540.7%) and the +1 Aqua Jet (160.4-191.2%) both KO the 35% Flutter Mane; only Aqua
+    # Jet lands before it moves (307 vs 149). The column took Surging Strikes (two capped KO premiums tied, the first listed
+    # won), so the matrix let Flutter Mane's Moonblast KO Urshifu first.
+    ctx, template = _mix(("Flutter Mane", "Rillaboom"), ("Urshifu-Rapid-Strike", "Gyarados"), hp={"Flutter Mane": 0.35})
+    assert ctx.best_hit_into(1, 0)["move"] == "aquajet"
+
+
+def test_a_foe_that_can_ko_first_is_not_read_as_protecting():
+    # da9c168e T6: Lucario's Close Combat KOs the slower Kingambit first; the bot attacked into our double priority. Of its
+    # 7/9 fresh Protects against our one-move KO, both misses had that reason or a partner's fresh Fake Out.
+    seed = replies.SEEDS["fresh_protect_ko_covered"]
+    assert replies._p_protect("search", streak=0, ko_one=0.9, ko_two=0.0, facing=95.0, fresh_in=False, turn=6, covered=True) == seed
+    assert replies._p_protect("search", streak=0, ko_one=0.9, ko_two=0.0, facing=95.0, fresh_in=False, turn=6) == replies.SEEDS["fresh_protect_ko50"]
+    ctx, template = _mix(("Flutter Mane", "Rillaboom"), ("Urshifu-Rapid-Strike", "Gyarados"), hp={"Flutter Mane": 0.35})
+    assert ctx.covered(1) and ctx.covered_protect(1)  # Aqua Jet KOs Flutter Mane first; Moonblast KOs Urshifu
+    cols = ctx.their_menu()
+    rows = ctx.our_menu([])
+    matrix = [[ctx.cell(r, c) for c in cols] for r in rows]
+    prior, tally = replies._blended_prior(ctx, cols, matrix, ctx.P)
+    for j, c in enumerate(cols):
+        if any(a.kind == "protect" and a.slot == 1 for a in c.actions):
+            assert prior[j] <= tally[j] + 1e-9, (c.name, prior[j], tally[j])
+
+
+def test_an_intimidate_switch_in_weakens_the_hits_into_its_partner():
+    ctx, template = _mix(("Amoonguss", "Whimsicott"), ("Gyarados", "Pelipper"), ("Incineroar",))
+    switch = _act(ctx, template, 1, "incineroar")
+    gone, incoming = {("mine", 1): 1.0}, {("mine", 1): switch.incoming}
+    waterfall = _their(ctx, 1, "waterfall", 0)
+    row = waterfall.rows[0]
+    weak = ctx._under_intimidate(waterfall, row, 0, gone, incoming)
+    assert weak["damage_pct_of_current_hp"][1] < 0.8 * row["damage_pct_of_current_hp"][1]  # -1 Attack: about two thirds
+    hurricane = _their(ctx, 2, "hurricane", 0)
+    assert ctx._under_intimidate(hurricane, hurricane.rows[0], 0, gone, incoming) == hurricane.rows[0]  # special: untouched
+
+
+def test_a_faster_rock_slide_can_flinch():
+    ctx, template = _mix(("Garchomp", "Flutter Mane"), ("Gyarados", "Pelipper"))
+    rock = _act(ctx, template, 0, "rockslide")
+    assert ctx._flinch_chance(rock, ("theirs", 1)) == pytest.approx(0.3)
+    cloaked, template = _mix(("Garchomp", "Flutter Mane"), ("Gyarados", "Pelipper"), items={"Gyarados": "Covert Cloak"})
+    assert cloaked._flinch_chance(_act(cloaked, template, 0, "rockslide"), ("theirs", 1)) == 0.0

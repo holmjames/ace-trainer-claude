@@ -56,6 +56,7 @@ SEARCH_BOT_SEEDS = {
     "tailwind_when_available": 0.22,     # 5/25
     "voluntary_switch_rate": 0.16,       # 14/130 decisions (8/35 when facing our >= 0.5 KO with a bench)
     "fresh_protect_ko_switch": 0.11,     # 1/16 like-for-like: a fresh Protect, our one-move KO, a bench (the Oct 8 verification of m4 T2; 8/35 mixed in spent Protects)
+    "fresh_protect_ko_covered": 0.25,    # 0/2: of 7/9 fresh Protects against our one-move KO, both misses had a reason: it could KO first, or its partner's fresh Fake Out covered it (the da9c168e post-mortem, section 4; T6 Lucario attacked into our double priority)
     "sleep_unthreatened": 0.6,           # a sleep user with an awake target uses its sleep move (start value; Oct 8 evening loss: 6 of 7 turns)
     "sleep_threatened": 0.4,             # the same while our one-move KO threatens it
 }
@@ -114,10 +115,12 @@ def opponent_class(memory: MatchMemory | None) -> str:
     return "search"
 
 
-def _p_protect(klass: str, *, streak: int, ko_one: float, ko_two: float, facing: float, fresh_in: bool, turn: int | None) -> float:
+def _p_protect(klass: str, *, streak: int, ko_one: float, ko_two: float, facing: float, fresh_in: bool, turn: int | None,
+               covered: bool = False) -> float:
     """Chance this foe Protects this turn. Search bot: the pooled tally's seeds (SEEDS): never twice in a row, a fresh
-    Protect against our one-move KO about a coin flip, against a double-only KO 0.4, a lead on turn 1 and a fresh
-    switch-in on its first turn a little above that, a third when it only takes >= 30%. Generic LLM: Protects in KO
+    Protect against our one-move KO about a coin flip, but a quarter when it is ``covered`` (it can KO one of ours before
+    that slot moves, or its partner's fresh Fake Out covers it), against a double-only KO 0.4, a lead on turn 1 and a
+    fresh switch-in on its first turn a little above that, a third when it only takes >= 30%. Generic LLM: Protects in KO
     range about half the time, even again."""
     if klass == "random":
         return 0.15
@@ -127,6 +130,8 @@ def _p_protect(klass: str, *, streak: int, ko_one: float, ko_two: float, facing:
     if streak:
         return SEEDS["protect_after_protect"]
     if ko_one >= 0.5:
+        if covered:
+            return SEEDS["fresh_protect_ko_covered"]
         if (turn or 1) <= 1:
             return SEEDS["lead_turn1_protect"]
         if fresh_in:
@@ -230,17 +235,7 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
     if not rows or not cols:
         return list(candidates or [])
     matrix = [[ctx.cell(r, c) for c in cols] for r in rows]
-    prior = ctx.prior(cols)
-    tally = list(prior)
-    kappa = float(P.get("reply_search_qr", 0.0))
-    if kappa > 0 and klass == "search":
-        searched = _search_reply(matrix, prior, P)
-        # a one-turn search sees a sleep move as one lost action, our cells as the turns it takes: such a column keeps at
-        # least the class's own rate for it (the Oct 8 evening loss: Spore on 6 of 7 turns, a read of 0.05 on turn 1)
-        searched = [max(s, t) if any(a.kind == "sleep" for a in c.actions) else s for s, t, c in zip(searched, prior, cols)]
-        total = sum(searched) or 1.0
-        searched = [s / total for s in searched]
-        prior = [(1.0 - kappa) * a + kappa * b for a, b in zip(prior, searched)]
+    prior, tally = _blended_prior(ctx, cols, matrix, P)
     lam = _lambda(memory, ctx, cols, prior)
     # a column is plausible when either prior says so: an overconfident read (0.93-0.97 on one reply) must not shrink the
     # worst case to one column (review 5714330: 7 of 64 positions kept a single column at reply_search_qr 1)
@@ -277,8 +272,9 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
         r = rows[i]
         j_best = min(floor_cols, key=lambda j: matrix[i][j])
         cand = dict(r.payload)
-        cand.update({"score": round(value, 1), "value": round(value, 1), "worst": round(worst, 1),
-                     "best_reply": cols[j_best].name, "what": ctx.describe(r, cols[j_best])})
+        if cand.get("why") in (None, "", r.name):
+            cand["why"] = ctx.describe(r)  # a row the scorer did not explain: our actions in words (the prompt promises a why)
+        cand.update({"score": round(value, 1), "worst": round(worst, 1), "best_reply": cols[j_best].name})
         target_pos = ctx.main_target(r)
         for tag, col in (("if_protect", ctx.protect_column(cols, target_pos)), ("if_switch", ctx.switch_column(cols, target_pos))):
             if col is not None:
@@ -286,9 +282,35 @@ def evaluate(sheet: battle.TurnSheet, memory: MatchMemory | None, rng: random.Ra
         out.append(cand)
     sheet.reply = {"seed": seed, "class": klass, "lambda": round(lam, 2),
                    "columns": [{"name": c.name, "prior": round(prior[j], 2), "eq": round(eq_cols[j], 2)} for j, c in enumerate(cols)],
-                   "rows": [{"name": c["name"], "value": c["value"], "worst": c["worst"], "best_reply": c["best_reply"]} for c in out[:8]]}
+                   "rows": [{"name": c["name"], "value": c["score"], "worst": c["worst"], "best_reply": c["best_reply"]} for c in out[:8]]}
     _remember_prediction(memory, ctx, cols, prior, turn)
     return out
+
+
+def _blended_prior(ctx: "_Context", cols: list["_JointColumn"], matrix: list[list[float]], P: dict) -> tuple[list[float], list[float]]:
+    """(the prior over their columns, the class tally it starts from): for the search class, ``reply_search_qr`` of its
+    own read of the turn (``_search_reply``) and the rest the tally."""
+    prior = ctx.prior(cols)
+    tally = list(prior)
+    kappa = float(P.get("reply_search_qr", 0.0))
+    if kappa > 0 and ctx.klass == "search":
+        searched = _search_reply(matrix, prior, P)
+        # a one-turn search sees a sleep move as one lost action, our cells as the turns it takes: such a column keeps at
+        # least the class's own rate for it (the Oct 8 evening loss: Spore on 6 of 7 turns, a read of 0.05 on turn 1)
+        searched = [max(s, t) if any(a.kind == "sleep" for a in c.actions) else s for s, t, c in zip(searched, prior, cols)]
+        # the mirror: a foe facing our KO that can KO one of ours first (or whose partner's fresh Fake Out covers it) did not
+        # Protect in either such case (the da9c168e post-mortem), but the read prices our likely KO as if it would wait
+        # (da9c168e T6 Lucario 0.64, d9405f02 T6 Dragonite 0.73): such a Protect column keeps at most the class's own rate
+        capped = [j for j, c in enumerate(cols) if any(a.kind == "protect" and ctx.covered_protect(a.slot) for a in c.actions)]
+        excess = sum(max(0.0, searched[j] - prior[j]) for j in capped)
+        others = [j for j in range(len(cols)) if j not in capped]
+        mass = sum(searched[j] for j in others)
+        if excess > 0 and mass > 0:  # the excess goes to the other replies by their read, so a capped column stays capped
+            searched = [min(v, prior[j]) if j in capped else v * (1.0 + excess / mass) for j, v in enumerate(searched)]
+        total = sum(searched) or 1.0
+        searched = [s / total for s in searched]
+        prior = [(1.0 - kappa) * a + kappa * b for a, b in zip(prior, searched)]
+    return prior, tally
 
 
 def _softmax(values: list[float], beta: float) -> list[float]:
@@ -436,8 +458,12 @@ class _Context:
     # -- tables ------------------------------------------------------------------------------------------------------
 
     def _revealed(self) -> set[str]:
-        """Our Pokémon the opponent has seen on the field this battle (its search models switches to those)."""
+        """Our Pokémon the opponent has seen on the field this battle (its search models switches to those): from the
+        protocol log's entries (memory.entered_by_turn, rebuilt every turn, so a restarted agent sees the same set) and
+        our own turn records."""
         seen = {species_key(m.species) for m in self.ours.values()}
+        for entries in (getattr(self.memory, "entered_by_turn", None) or {}).values():
+            seen |= {species_key(sp) for tag, sp in entries if tag == "mine" and sp}
         for fields in getattr(self.memory, "turns", None) or []:
             for s in fields.get("actives") or []:
                 if s:
@@ -665,15 +691,20 @@ class _Context:
         return next((pos for pos, m in self.theirs.items() if species_key(m.species) == species_key(species)), None)
 
     def best_hit_into(self, pos: int, slot: int) -> dict | None:
-        """The foe's most dangerous known hit into our slot (expected damage points with the KO premium)."""
-        best, best_v = None, -1.0
+        """The foe's most dangerous known hit into our slot (expected damage points with the KO premium); a likely KO that
+        lands before our slot moves (priority, or the foe is faster) comes first: two KO moves tie on the capped premium,
+        and the first listed won (protect_vs_ko: Surging Strikes, which the faster Flutter Mane outspeeds, over the +1
+        Aqua Jet the LETHAL warning names)."""
+        best, best_v = None, (False, -1.0)
         for t in self.sheet.threats:
             if t["position"] != pos:
                 continue
             for h in t["hits"]:
                 if h["into_slot"] != slot or h["move"] == "fakeout":
                     continue
-                v = battle._danger(battle._avg(h["damage_pct_of_current_hp"]), h.get("hit_chance", 1.0), battle.ko_probability(h, with_accuracy=True))
+                p_ko = battle.ko_probability(h, with_accuracy=True)
+                first = (h.get("priority", 0) or 0) > 0 or self.speed_rank.get(("theirs", pos), 99) < self.speed_rank.get(("mine", slot), 99)
+                v = (p_ko >= 0.5 and first, battle._danger(battle._avg(h["damage_pct_of_current_hp"]), h.get("hit_chance", 1.0), p_ko))
                 if v > best_v:
                     best, best_v = h, v
         return best
@@ -715,7 +746,7 @@ class _Context:
             seen.add(key)
             rows.append(_JointRow(name, acts, payload or {}, cost))
 
-        def from_payload(name: str, p0: dict | None, p1: dict | None) -> None:
+        def from_payload(name: str, p0: dict | None, p1: dict | None, why: str | None = None) -> None:
             a0 = self.actor_for(0, p0, name) if p0 else None
             a1 = self.actor_for(1, p1, name) if p1 else None
             if self.sheet.alone and not self.sheet.stall_reasons and any(a is not None and a.kind == "protect" for a in (a0, a1)):
@@ -732,10 +763,10 @@ class _Context:
                         if not self.in_ko_range(a.slot) or (preview or {}).get("verdict", "safe") != "safe":
                             return
                         cost += battle.sleep_switch_cost(self.sheet, a.species, preview or {}, self.theirs, self.P)
-            add(name, a0, a1, {"name": name, "slot_0": p0, "slot_1": p1}, cost)
+            add(name, a0, a1, {"name": name, "slot_0": p0, "slot_1": p1, **({"why": why} if why else {})}, cost)
 
         for c in candidates:
-            from_payload(c["name"], c.get("slot_0"), c.get("slot_1"))
+            from_payload(c["name"], c.get("slot_0"), c.get("slot_1"), why=c.get("why"))  # the scorer's explanation travels with its row
         if len(self.ours) == 2 and all(n in self.ours for n in (0, 1)):
             best = {n: self.best_attack_answer(n) for n in (0, 1)}
             protect = {n: self.option_index(n, "protect") if self.option_index(n, "protect") is not None else self.option_index(n, "detect") for n in (0, 1)}
@@ -872,6 +903,12 @@ class _Context:
             if move_id not in SETUP_IDS and move_id not in battle.SETUP_MOVES and move_id not in battle.ALLY_ONLY and value <= 0:
                 continue
             legal = o.get("targets") or []
+            if move_id in battle.SLEEP_MOVES and any(t > 0 for t in legal):
+                # one row per foe it can put to sleep: the matrix picks the target (status_value aims by a flat danger sum)
+                for t in sorted(t for t in legal if t > 0 and t in self.theirs):
+                    if not battle._sleep_blocked({"id": move_id, **info}, self.theirs[t], me, self.theirs, self.fs):
+                        out.append((f"{move_id}_{t}", {"option": i, "target": t}))
+                continue
             if move_id in battle.ALLY_ONLY:
                 target = next((t for t in legal if t < 0), legal[0] if legal else 0)
             else:  # a move aimed at a foe goes where it is worth most (Taunt on the Spore user), not at target 0
@@ -1104,7 +1141,8 @@ class _Context:
         ko_two = 1.0 if (ko_one < 0.5 and self._two_move_ko(a.slot)) else 0.0
         fresh_in = key in self.their_fresh
         taunted = key in self.sheet.taunted
-        p_protect = _p_protect(self.klass, streak=streak, ko_one=ko_one, ko_two=ko_two, facing=facing, fresh_in=fresh_in, turn=self.turn) \
+        p_protect = _p_protect(self.klass, streak=streak, ko_one=ko_one, ko_two=ko_two, facing=facing, fresh_in=fresh_in, turn=self.turn,
+                               covered=self.covered(a.slot)) \
             if any(m["id"] in battle.PROTECT_LIKE for m in foe.moves) and not taunted else 0.0
         absorber = self.best_absorber(a.slot)
         has_protect = any(m["id"] in battle.PROTECT_LIKE for m in foe.moves)
@@ -1138,6 +1176,32 @@ class _Context:
         if partner is not None and partner.kind == "attack" and not partner.spread and not a.spread and partner.target == a.target:
             share *= 1.0 + SEEDS["both_attack_same_target"]  # both on one target 10/16 turns
         return rest * share
+
+    def covered_protect(self, pos: int) -> bool:
+        """Is this foe's fresh Protect the 'covered' case: our one-move KO threatens it and it is ``covered``?"""
+        return self.covered(pos) and self.ko_one(pos) >= 0.5
+
+    def ko_one(self, pos: int) -> float:
+        """Our best one-move KO chance on the foe at ``pos`` (accuracy included)."""
+        cache = self.__dict__.setdefault("_ko_one_cache", {})
+        if pos not in cache:
+            cache[pos] = max((battle.ko_probability(r, with_accuracy=True) for n in self.ours for opt in self.by_slot.get(n, {}).get("options") or []
+                              if not opt.get("fails") for r in opt.get("targets") or []
+                              if r.get("side") == "theirs" and (r.get("target") == pos or (r.get("target", 0) == 0 and self.pos_of(r["species"]) == pos))), default=0.0)
+        return cache[pos]
+
+    def covered(self, pos: int) -> bool:
+        """Does this foe have a reason not to Protect against our KO: a likely KO (>= 0.5) on one of our slots that lands
+        before that slot moves, or a fresh Fake Out on its partner (the da9c168e post-mortem's two exceptions)?"""
+        cache = self.__dict__.setdefault("_covered_cache", {})
+        if pos not in cache:
+            first_ko = any(h["into_slot"] in self.ours and battle.ko_probability(h, with_accuracy=True) >= 0.5
+                           and ((h.get("priority", 0) or 0) > 0 or self.speed_rank.get(("theirs", pos), 99) < self.speed_rank.get(("mine", h["into_slot"]), 99))
+                           for t in self.sheet.threats if t["position"] == pos for h in t["hits"] if h["move"] != "fakeout")
+            partner = next((m for p, m in self.theirs.items() if p != pos), None)
+            fake_out = partner is not None and species_key(partner.species) in self.their_fresh and any(m["id"] == "fakeout" for m in partner.moves)
+            cache[pos] = bool(first_ko or fake_out)
+        return cache[pos]
 
     def p_sleep(self, pos: int, *, threatened: bool) -> float:
         """This foe's sleep-move rate: the class start value updated by its own moves this game (memory's protocol-log
@@ -1219,7 +1283,8 @@ class _Context:
         hh_boost = getattr(data, "helping_hand_boost", None)
         moved: dict[tuple[str, int], tuple[float, dict]] = {}  # our slot -> (chance it has acted, its post-move rows)
         taunted: dict[tuple[str, int], float] = {}     # chance our Taunt landed on a foe before its status move
-        slept: dict[tuple[str, int], float] = {}       # chance a sleep move put our slot to sleep before it acted
+        slept: dict[tuple[str, int], float] = {}       # chance a sleep move put a Pokémon to sleep before it acted
+        redirect: dict | None = None                    # our Rage Powder / Follow Me this turn: {"slot", "p", "move"}
         tempo = 0.0
         for a in order:
             me_key = (a.side, a.slot)
@@ -1265,6 +1330,14 @@ class _Context:
                 tempo -= self._sleep_loss(a, p_act * (1.0 - taunted.get(me_key, 0.0)), protected, gone, incoming, acts, slept)
                 continue
             if a.kind == "status":
+                if a.side == "mine" and a.move in battle.REDIRECT_MOVES:
+                    # worth the hits it draws (below), and only while the redirector stands: no flat cover credit (the Oct 9
+                    # loss 07a3cb1f: Follow Me ended when the faster Wood Hammer KO'd Indeedee, and Draco Meteor went home)
+                    redirect = {"slot": a.slot, "p": p_act, "move": a.move}
+                    continue
+                if a.side == "mine" and a.move in battle.SLEEP_MOVES:
+                    tempo += self._our_sleep_gain(a, p_act, protected, gone, acts, slept)
+                    continue
                 if a.move in ("helpinghand", "coaching") and a.side == "mine":
                     boosted[("mine", 1 - a.slot)] = p_act  # the partner's attack this turn is x1.5
                 elif a.side == "mine":
@@ -1279,10 +1352,12 @@ class _Context:
                     tempo += worth * p_act * 0.5 * (1.0 - blocked)  # a Taunt or a Spore into a working Protect does nothing
                 continue
             # attacks and Fake Outs: each row lands on its target unless it Protected (and the Protect worked) or left
-            for tgt_slot, hit in a.rows.items():
+            for tgt_slot, hit, share in self._aimed(a, redirect, parts, order):
                 tgt_side = "theirs" if a.side == "mine" else "mine"
                 tgt_key = (tgt_side, tgt_slot)
-                p_land = p_act * float(hit.get("hit_chance", 1.0)) * (1.0 - protected.get(tgt_key, 0.0))
+                if self._fails_into(a, hit, tgt_key, order, acts):
+                    continue
+                p_land = p_act * share * float(hit.get("hit_chance", 1.0)) * (1.0 - protected.get(tgt_key, 0.0))
                 if gone.get(tgt_key, 0.0) > 0 and incoming.get(tgt_key):
                     p_in = p_land * gone[tgt_key]
                     p_land *= 1.0 - gone[tgt_key]
@@ -1323,8 +1398,14 @@ class _Context:
                     row_used = {**row_used, "damage_pct_of_current_hp": [round(lo * factor, 1), round(hi * factor, 1)]}
                     for k in ("per_hit", "first_hit", "hits"):
                         row_used.pop(k, None)
+                if a.side == "theirs":
+                    row_used = self._under_intimidate(a, row_used, tgt_slot, gone, incoming)
                 parts.setdefault(tgt_key, []).append((p_land, row_used))
                 hit_first[tgt_key] = 1.0 - (1.0 - hit_first.get(tgt_key, 0.0)) * (1.0 - p_land)
+                if a.kind == "attack" and tgt_key not in acts:
+                    chance = self._flinch_chance(a, tgt_key)  # a faster Rock Slide / Icicle Crash: it may not move at all
+                    if chance > 0:
+                        flinched[tgt_key] = 1.0 - (1.0 - flinched.get(tgt_key, 0.0)) * (1.0 - p_land * chance)
                 if a.kind == "fakeout" and tgt_side == "mine" and battle._flinchable(self.ours[tgt_slot], self.ours, self.fs):
                     flinched[tgt_key] = 1.0 - (1.0 - flinched.get(tgt_key, 0.0)) * (1.0 - p_land)
                 if a.kind == "fakeout" and tgt_side == "theirs" and self.flinchable_foe(tgt_slot):
@@ -1375,6 +1456,114 @@ class _Context:
             if a.side == "mine" and a.kind == "attack" and self.sheet.choice_locks.get(a.slot, {}).get(a.move):
                 value -= P.get("reply_dead_lock_w", 15.0) * acts.get(("mine", a.slot), 1.0)
         return value + tempo + self._next_turn(parts, gone, incoming, order) - row.cost
+
+    def _aimed(self, a: _Actor, redirect: dict | None, parts: dict, order: list[_Actor]) -> list[tuple[int, dict, float]]:
+        """(target, row, share) for each hit of this actor. A single-target hit of theirs that comes after our Rage Powder
+        or Follow Me goes into the redirector while it stands (the redirection ends when it faints: a faster hit that KOs
+        it sends the slower ones home); mech's ``data.redirect_ignored``: Grass types, Overcoat and Safety Goggles ignore
+        Rage Powder, Stalwart / Propeller Tail both. A Sucker Punch drawn into the redirector fails: it is not attacking."""
+        rows = list(a.rows.items())
+        if not redirect or a.side != "theirs" or a.spread or redirect["p"] <= 0:
+            return [(t, h, 1.0) for t, h in rows]
+        r_slot = redirect["slot"]
+        foe = self.theirs.get(a.slot)
+        if foe is None or data.redirect_ignored(redirect["move"], foe):
+            return [(t, h, 1.0) for t, h in rows]
+        q = redirect["p"] * self._alive_before(("mine", r_slot), parts, a, order)
+        out: list[tuple[int, dict, float]] = []
+        for t, h in rows:
+            if t == r_slot or q <= 0:
+                out.append((t, h, 1.0))
+                continue
+            out.append((t, h, 1.0 - q))
+            move = h.get("move") or a.move
+            drawn = self.their_rows(a.slot, move).get(r_slot)
+            if drawn is not None and not data.needs_target_attacking(move):
+                out.append((r_slot, drawn, q))
+        return out
+
+    def _fails_into(self, a: _Actor, hit: dict, tgt_key: tuple[str, int], order: list[_Actor], acts: dict) -> bool:
+        """Sucker Punch / Thunderclap (mech's ``data.needs_target_attacking``) fail unless the target is about to use a
+        damaging move: a status move, a Protect, a switch or a target that has already moved make them fail."""
+        if not data.needs_target_attacking(a.move or hit.get("move")):
+            return False
+        target = next((x for x in order if (x.side, x.slot) == tgt_key), None)
+        return target is None or target.kind not in ("attack", "fakeout") or tgt_key in acts
+
+    def _flinch_chance(self, a: _Actor, tgt_key: tuple[str, int]) -> float:
+        """A secondary flinch (Rock Slide / Icicle Crash 30%, Waterfall 20%: battle.FLINCH_CHANCE) on a target that has
+        not moved yet: Inner Focus, Shield Dust and Covert Cloak ignore it, Sheer Force removes it, Serene Grace doubles it."""
+        chance = battle.FLINCH_CHANCE.get(a.move, 0.0)
+        if not chance:
+            return 0.0
+        user = (self.ours if a.side == "mine" else self.theirs).get(a.slot)
+        target = (self.theirs if tgt_key[0] == "theirs" else self.ours).get(tgt_key[1])
+        if user is None or target is None or data.to_id(user.ability) == "sheerforce":
+            return 0.0
+        if data.secondary_blocked(target) or data.to_id(target.ability) in FLINCH_IMMUNE_ABILITIES:
+            return 0.0
+        return min(1.0, chance * (2.0 if data.to_id(user.ability) == "serenegrace" else 1.0))
+
+    def _under_intimidate(self, a: _Actor, row: dict, slot: int, gone: dict, incoming: dict) -> dict:
+        """Their physical hit into our slot after our OTHER slot brought in an Intimidate user this turn (switches go
+        first): the hit at the foe's Intimidated Attack (mech's ``intimidated_foes``: Clear Amulet, Defiant... respected),
+        weighted by the chance the switch happened. Intimidate cycling covers the partner, not only the newcomer."""
+        other = ("mine", 1 - slot)
+        p = gone.get(other, 0.0)
+        new = incoming.get(other)
+        mon = new[0] if isinstance(new, tuple) else new
+        if p <= 0 or not isinstance(mon, battle.Mon) or data.to_id(mon.ability) != "intimidate":
+            return row
+        if (data.move_info(a.move) or {}).get("category") != "Physical":
+            return row
+        weak = self._intimidated_row(a.slot, a.move, slot, mon)
+        lo, hi = row["damage_pct_of_current_hp"]
+        if weak is None or lo + hi <= 0:
+            return row
+        scale = (1.0 - p) + p * (sum(weak["damage_pct_of_current_hp"]) / max(lo + hi, 0.1))
+        out = {**row, "damage_pct_of_current_hp": [round(lo * scale, 1), round(hi * scale, 1)]}
+        for k in ("per_hit", "first_hit", "hits"):
+            out.pop(k, None)
+        out["ko"] = battle._ko_label(*out["damage_pct_of_current_hp"])
+        return out
+
+    def _intimidated_row(self, pos: int, move: str, slot: int, newcomer: battle.Mon) -> dict | None:
+        cache = self.__dict__.setdefault("_intimidated_cache", {})
+        key = (pos, move, slot, species_key(newcomer.species))
+        if key not in cache:
+            foe, me = self.theirs.get(pos), self.ours.get(slot)
+            mv = next((m for m in (foe.moves if foe else []) if m["id"] == move), None)
+            weakened = battle.intimidated_foes(newcomer, [foe])[0] if foe is not None else None
+            prof = None
+            if mv is not None and me is not None and weakened is not None and weakened is not foe:
+                prof = battle.hit_profile(weakened, mv, me, field=self.fs,
+                                          spread=battle.is_spread(mv, foes=len(self.ours), allies=len(self.theirs) - 1))
+            cache[key] = prof
+        return cache[key]
+
+    def _our_sleep_gain(self, a: _Actor, p_act: float, protected: dict, gone: dict, acts: dict, slept: dict) -> float:
+        """What our sleep move on a foe is worth in this cell, the mirror of ``_sleep_loss``: its later actions lost over
+        the expected sleep (``sleep_future_w`` each), this turn's too when it lands before the foe moves (``slept`` stops
+        that action), each action worth what the foe does to us with one (battle.threat_weight). Nothing through a
+        working Protect, into a foe that left, or into an immune or statused one (mech's status_move_blocked). A flat
+        credit undervalued it: Spore on the +1 Gyarados lost to two chip attacks (the intimidate_the_dancer scenario)."""
+        pos = a.target
+        foe = self.theirs.get(pos) if isinstance(pos, int) else None
+        me = self.ours.get(a.slot)
+        if foe is None or me is None or p_act <= 0:
+            return 0.0
+        mv = {"id": a.move, **(data.move_info(a.move) or {})}
+        if battle._sleep_blocked(mv, foe, me, self.theirs, self.fs):
+            return 0.0
+        key = ("theirs", pos)
+        p_land = p_act * data.hit_chance(mv, self.fs.weather if self.fs else None) * (1.0 - protected.get(key, 0.0)) * (1.0 - gone.get(key, 0.0))
+        if p_land <= 0:
+            return 0.0
+        first = key not in acts
+        if first:
+            slept[key] = 1.0 - (1.0 - slept.get(key, 0.0)) * (1.0 - p_land)
+        w = float(self.P.get("sleep_future_w", 0.5))
+        return p_land * self.weights.get(species_key(foe.species), 0.0) * w * (battle.SLEEP_TURNS - (1.0 if first else 0.0))
 
     def _sleep_loss(self, a: _Actor, p_use: float, protected: dict, gone: dict, incoming: dict, acts: dict, slept: dict) -> float:
         """What their sleep move costs us in this cell, in damage points: the target slot's later actions lost (this
@@ -1461,6 +1650,11 @@ class _Context:
                     # Landorus pivot's Earthquake into a Balloon-less Gholdengo was never counted)
                     ours_alive.append((n, gone[key] * alive_in, rem_in, mon, battle.material(mon, P), preview or {}))
         total = 0.0
+        # a slot of ours facing a KO next turn can also switch out (the newcomer takes the hit): a bench card answers part
+        # of that threat, like a Protect does (the hand scenarios: Incineroar's Fake Out turn was charged its full
+        # material for a Surging Strikes it can simply leave next turn, and every Protect row for the threats after it)
+        switch_answer = float(P.get("reply_next_switch", 0.5)) if self._bench_ready() else 0.0
+        keep: dict[int, float] = {}  # ours_alive index -> chance it is still standing after their hits next turn
         for pos, q, rem_f, foe, fresh in theirs_alive:
             # our best KO on it next turn, over our standing Pokémon, rescaled to what it has left
             best_p, best_first = 0.0, False
@@ -1475,8 +1669,13 @@ class _Context:
             if best_p > 0:
                 total += w * q * best_p * (1.0 - protect_answer("theirs", pos, foe, fresh)) \
                     * (P["ko_bonus_guaranteed"] + P.get("ko_threat_w", 0.0) * self.weights.get(species_key(foe.species), 0.0))
-            # its best KO on one of ours next turn, unless we take it out first
-            for n, p, rem_s, me, mat, preview in ours_alive:
+            # its KO on ours next turn, unless we take it out first: ONE target (the slot whose KO is worth most to it; a
+            # spread hit reaches every slot it hits), and each of ours falls at most once (it was charged once per foe and
+            # per slot: a Pokémon two foes could KO paid twice, a foe with two KO targets took both)
+            removed_first = best_p if best_first else 0.0
+            by_slot: dict[int, list[tuple[int, float]]] = {}
+            by_spread: dict[str, list[tuple[int, float]]] = {}
+            for i, (n, p, rem_s, me, mat, preview) in enumerate(ours_alive):
                 hit = self._their_next_hit(pos, foe, fresh, n, me, preview)
                 if hit is None:
                     continue
@@ -1484,9 +1683,44 @@ class _Context:
                 p_ko = battle.linear_ko(lo / rem_s, hi / rem_s) * float(hit.get("hit_chance", 1.0))
                 if p_ko <= 0:
                     continue
-                removed_first = best_p if best_first else 0.0
-                total -= w * q * p * p_ko * (1.0 - removed_first) * (1.0 - protect_answer("mine", n, me, preview is not None)) * mat
+                escape = max(protect_answer("mine", n, me, preview is not None), switch_answer,
+                             self._redirect_answer(n, ours_alive, hit, foe))
+                x = q * p_ko * (1.0 - removed_first) * (1.0 - escape)
+                by_slot.setdefault(n, []).append((i, x))
+                if (data.move_info(hit.get("move") or "") or {}).get("target") in battle.SPREAD_TARGETS:
+                    by_spread.setdefault(hit["move"], []).append((i, x))
+            if not by_slot:
+                continue
+
+            def worth(entries: list[tuple[int, float]]) -> float:
+                return sum(x * ours_alive[i][1] * ours_alive[i][4] for i, x in entries)
+
+            aimed = max(list(by_slot.values()) + list(by_spread.values()), key=worth)
+            for i, x in aimed:
+                keep[i] = keep.get(i, 1.0) * (1.0 - x)
+        for i, k in keep.items():
+            n, p, rem_s, me, mat, preview = ours_alive[i]
+            total -= w * p * (1.0 - k) * mat
         return total
+
+    def _redirect_answer(self, n: int, ours_alive: list, hit: dict, foe: battle.Mon) -> float:
+        """How much of a single-target KO threat next turn on our slot ``n`` our partner's Rage Powder / Follow Me answers:
+        all but the tempo (0.6, as a fresh Protect) times the chance the redirector stands next turn, nothing against a
+        spread hit or a foe that ignores it (mech's ``data.redirect_ignored``). The partner keeps attacking behind it."""
+        if (data.move_info(hit.get("move") or "") or {}).get("target") in battle.SPREAD_TARGETS:
+            return 0.0
+        standing = 0.0
+        for m, p, _, mon, _, _ in ours_alive:
+            if m == n:
+                continue
+            move = next((mv["id"] for mv in mon.moves if mv["id"] in battle.REDIRECT_MOVES), None)
+            if move and not data.redirect_ignored(move, foe):
+                standing += p
+        return 0.6 * min(1.0, standing)
+
+    def _bench_ready(self) -> bool:
+        """Do we have a Pokémon to switch in next turn (any switch option this turn: what leaves this turn joins the bench)?"""
+        return any(o.get("type") == "switch" for s in self.slots for o in s.get("options") or [])
 
     def _our_next_hits(self, n: int, me: battle.Mon, preview: dict | None, pos: int, foe: battle.Mon, fresh: bool) -> list[tuple[dict, bool]]:
         """Our slot's best hit next turn into the foe at ``pos`` (or into their switch-in when ``fresh``), with whether it
@@ -1611,9 +1845,9 @@ class _Context:
             flips += int(after and not before)
         return min(1.5, 0.3 + flips / len(pairs)) if flips else 0.1
 
-    def describe(self, row: "_JointRow", col: _JointColumn) -> str:
+    def describe(self, row: "_JointRow", col: _JointColumn | None = None) -> str:
         ours = "; ".join(self._actor_text(a) for a in row.actions)
-        return f"{ours} | worst reply: {col.name}"
+        return ours if col is None else f"{ours} | worst reply: {col.name}"
 
     def _actor_text(self, a: _Actor) -> str:
         if a.kind == "switch":
