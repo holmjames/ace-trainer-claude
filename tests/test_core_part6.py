@@ -17,7 +17,7 @@ from agent.pokemon.memory import observation_dict, species_key
 from altruagent import DecisionContext
 from altruagent.models import GameState
 from tests.test_live_semantics import _folder, _sequence, replay, turn_row
-from tests.test_mech_d import build
+from tests.test_mech_d import CATALOG, build
 
 M9 = "07a3cb1f"  # seat 1: we were player 2
 
@@ -215,6 +215,28 @@ def test_rage_powder_is_no_cover_against_an_attacker_that_ignores_it(monkeypatch
     # with Grass types alone on their side (Rillaboom, Amoonguss) Rage Powder draws nothing at all
     grass, _ = build(["Flutter Mane", "Amoonguss"], ["Rillaboom", "Amoonguss"], bench=[], hp={"Flutter Mane": 0.2})
     assert battle.status_value("ragepowder", sides(grass)[0][1], sides(grass)[1], grass, 1) == (0.0, 0)
+
+
+def test_exposed_after_says_the_partners_rage_powder_does_not_cover_an_attacker_that_ignores_it():
+    # The EXPOSED AFTER path: Wave Crash's recoil puts Basculegion in reach of the Goggles Incineroar's Knock Off. Amoonguss
+    # stands (a note, not a warning), and the note now says its Rage Powder does not draw that hit.
+    sheet, _ = build(["Basculegion", "Amoonguss"], ["Incineroar", "Kingambit"])
+    after = [n for n in sheet.notes if n.startswith("EXPOSED AFTER wavecrash") and "knockoff" in n]
+    assert len(after) == 1 and "ragepowder does not cover it" in after[0] and "Safety Goggles" in after[0], after
+    assert not [w for w in sheet.warnings if w.startswith("EXPOSED AFTER")], sheet.warnings
+
+
+def test_taunting_their_rage_powder_is_worth_nothing_when_both_of_ours_ignore_it():
+    # The opponent-side mirror: a Goggles Gyarados beside Rillaboom (Grass) ignores Rage Powder (and Spore), so a Taunt
+    # on Amoonguss blocks nothing (was 15: three turns of a Rage Powder that draws neither); beside Indeedee-F it still does.
+    goggles = {"Gyarados": {**CATALOG["Gyarados"], "item": "Safety Goggles"}}
+    sheet, _ = build(["Gyarados", "Rillaboom"], ["Amoonguss", "Kingambit"], cards=goggles)
+    ours, theirs = sides(sheet)
+    assert battle.taunt_value(ours[0], 0, 1, theirs[1], sheet) == 0.0
+    assert not [c for c in sheet.candidates if c["name"] == "taunt_status"], [c["why"] for c in sheet.candidates]
+    sheet, _ = build(["Gyarados", "Indeedee-F"], ["Amoonguss", "Kingambit"], cards=goggles)
+    ours, theirs = sides(sheet)
+    assert battle.taunt_value(ours[0], 0, 1, theirs[1], sheet) > 0
 
 
 def test_a_likely_spread_ko_on_the_partner_cancels_the_redirect_cover(tmp_path):

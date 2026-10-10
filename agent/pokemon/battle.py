@@ -2256,8 +2256,9 @@ def taunt_value(me: "Mon", slot_number: int, pos: int, foe: "Mon", sheet: "TurnS
         now = my_prio > prio or (my_prio == prio and faster)
         if mid in SLEEP_MOVES:
             per_use, kind, uses = float(sheet.sleep_threat.get(pos, 0.0)), "sleep", 2.0
-        elif mid in REDIRECT_MOVES:
-            per_use, kind, uses = 20.0, "redirect", 3.0
+        elif mid in REDIRECT_MOVES:  # nothing to block when every one of ours ignores it (Rage Powder: Grass, Goggles...)
+            ours = [m for m in (sheet.field.actives if sheet.field is not None else []) if m.side == "mine"] or [me]
+            per_use, kind, uses = (0.0 if all(data.redirect_ignored(mid, m) for m in ours) else 20.0), "redirect", 3.0
         elif mid in ("tailwind", "trickroom"):
             up = (mid == "tailwind" and "tailwind" in their_side) or (mid == "trickroom" and sheet.trick_room)
             per_use, kind, uses = (0.0 if up else float(SETUP_MOVES[mid])), "speed", 1.0
@@ -3173,8 +3174,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 gap = redirect_gap(number, h["position"], row)
                 if gap and gap[0]["broken_by"] is not None:
                     sheet.warnings.append(f"{text} {gap[1][0].upper()}{gap[1][1:]}.")
-                else:
-                    sheet.notes.append(text)
+                else:  # the redirector stands: a note, which still says when its redirect misses this hit (ignored, spread)
+                    sheet.notes.append(f"{text} {gap[1][0].upper()}{gap[1][1:]}." if gap else text)
 
     def joint_value(picks: list[tuple[int, dict | None, dict | None, float]], *, protect_aware: bool = False,
                     partner: str | None = None) -> float:
