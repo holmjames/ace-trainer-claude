@@ -708,14 +708,19 @@ class PokemonAgent:
             matches = opponent_model.prediction_matches(answer.get("opponent_prediction"), prediction.get("top_column") or {})
             meta.update({"override": {"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")}, "override_value": round(value, 1),
                          "best_row_score": best, "margin": round(margin, 1), "prediction_matches_code": matches})
-            if not rows or value >= best - margin or matches:
+            # Safety: a Protect from our last Pokémon with nothing to wait for only delays the same position (the prompt
+            # forbids it, both menus drop it). override_value credits it nothing, but nothing still passes the margin when
+            # row 0 is worth 0 or less (d9405f02 T7 and T9: 0 against 0.0 - 0.15), so it never plays over a row, read or not.
+            lone = bool(rows) and _protects_alone(proposed, sheet)
+            if (not rows or value >= best - margin or matches) and not lone:
                 meta["resolution"] = "override accepted" + (" (same as a row)" if same is not None else "") \
                     + (" on the opponent read" if rows and value < best - margin else "") + ("" if rows else " (no rows)")
                 return proposed
+            why = ("our last Pokémon's Protect has nothing to wait for (it only delays)" if lone else
+                   f"value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}")
             if not row_ok:
-                raise InvalidChoice(f"override rejected (value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}) and row "
-                                    f"{row!r} is not a candidate_turns row number 0..{len(rows) - 1}")
-            meta["resolution"] = f"override rejected: value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}; row {row} plays"
+                raise InvalidChoice(f"override rejected ({why}) and row {row!r} is not a candidate_turns row number 0..{len(rows) - 1}")
+            meta["resolution"] = f"override rejected: {why}; row {row} plays"
             self._say(f"[agent] override rejected ({meta['resolution']})")
         else:
             meta["resolution"] = "row"
@@ -1116,7 +1121,9 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None) -> flo
     (``battle._expected`` for a damaging move into its target, capped at what each foe has left, one KO bonus per foe;
     the Protect bonus for a slot under a LETHAL/HIGH RISK warning; a switch-in's preview score). The same arithmetic
     as the candidate generators for an attack row; a listed row keeps its own score. Replaced by the reply table's
-    cell values once the core lane's mixture is on."""
+    cell values once the core lane's mixture is on. A Protect from our last Pokémon with nothing to wait for earns
+    nothing: it only delays the same position (the prompt forbids it and both menus drop such rows; model audit R1/R7,
+    d9405f02 T7 and T9 passed the check at 45)."""
     P = params or DEFAULTS
     by_slot = {e.get("slot"): e for e in getattr(sheet, "our_options", None) or []}
     warnings = [str(w) for w in getattr(sheet, "warnings", None) or []]
@@ -1133,6 +1140,8 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None) -> flo
             continue
         move = _move_key(choice.get("move_id"))
         if move in _PROTECT_MOVES:
+            if _alone_with_nothing_to_wait_for(sheet):
+                continue
             threatened = any(f"slot {number} (" in w and (w.startswith("LETHAL") or w.startswith("HIGH RISK")) for w in warnings)
             extra += float(P.get("protect_bonus_guaranteed", 45.0)) if threatened else 0.0
             continue
@@ -1152,6 +1161,19 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None) -> flo
         lo, hi = sum(h[0] for h in hits), sum(h[1] for h in hits)
         total += min((lo + hi) / 2, 100.0) + (float(P.get("ko_bonus_guaranteed", 25.0)) if lo >= 100 else (float(P.get("ko_bonus_possible", 10.0)) if hi >= 100 else 0.0))
     return total
+
+
+def _alone_with_nothing_to_wait_for(sheet: Any) -> bool:
+    """Our last Pokémon stands alone and nothing a Protect could wait out is listed (battle._endgame's stall reasons)."""
+    return bool(getattr(sheet, "alone", False)) and not getattr(sheet, "stall_reasons", None)
+
+
+def _protects_alone(payload: Any, sheet: Any) -> bool:
+    """A payload in which our last Pokémon, alone with nothing to wait for, Protects."""
+    if not isinstance(payload, dict) or not _alone_with_nothing_to_wait_for(sheet):
+        return False
+    return any((payload.get(f"slot_{n}") or {}).get("type") == "move" and _move_key((payload.get(f"slot_{n}") or {}).get("move_id")) in _PROTECT_MOVES
+               for n in (0, 1))
 
 
 MAX_ROWS_SHOWN = 8  # top rows only: the model chooses among the best; the rest is noise and tokens
