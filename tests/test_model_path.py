@@ -813,6 +813,40 @@ def test_keys_at_0_send_the_oct_10_prompt_and_payload_texts_and_the_defaults_sen
     assert payload["answer_format"] == ANSWER_FORMAT_81C4591 and payload["instructions"] == INSTRUCTIONS_81C4591
 
 
+def _key_comment(key: str) -> str:
+    """The comment on tuning.py's DEFAULTS line for ``key``."""
+    lines = Path(tuning.__file__).read_text(encoding="utf-8").splitlines()
+    line = next(line for line in lines if line.lstrip().startswith(f'"{key}":'))
+    return line.split("#", 1)[1].strip()
+
+
+def test_rolling_prompt_v2_back_to_the_oct_10_prompt_takes_prompt_kb_with_it_and_the_comments_say_so():
+    """The deploy #4 review (2593dff): prompt_v2's tuning comment said "0 = the Oct 10 deploy's prompt (81c4591), byte for
+    byte", and prompts.py's said prompt_v2 is on by default, "the others off". With prompt_kb on by default, prompt_v2 0
+    alone sends 81c4591's prompt plus the knowledge base (10,487 chars), a prompt no model-on arm sent (A: the deploy's
+    defaults, B: recheck_v2 + prompt_v2, C: B + prompt_kb): a rollback that followed the comment would ship it expecting
+    deploy #3's. Both comments now say prompt_kb goes back with it. Comments only: no value and no prompt text moves."""
+    import hashlib
+
+    from agent.pokemon import prompts
+    from agent.pokemon.prompts import KNOWLEDGE_BASE, SYSTEM_PROMPT, system_prompt
+
+    alone = system_prompt(tuning.merged({"prompt_v2": 0.0}))  # prompt_v2 rolled back, prompt_kb left at its default
+    assert alone != SYSTEM_PROMPT and len(alone) == 10487
+    assert alone == SYSTEM_PROMPT.replace(prompts._LAST_LINE, "\n\n" + KNOWLEDGE_BASE + prompts._LAST_LINE)
+    both = system_prompt(tuning.merged({"prompt_v2": 0.0, "prompt_kb": 0.0}))
+    assert both == SYSTEM_PROMPT and hashlib.sha256(both.encode()).hexdigest() == SYSTEM_PROMPT_SHA256  # 81c4591's
+    v2_alone = system_prompt(tuning.merged({"prompt_kb": 0.0}))  # the prompt_kb comment's "prompt_v2 alone"
+    assert hashlib.sha256(v2_alone.encode()).hexdigest() == SYSTEM_PROMPT_V2_SHA256
+    v2, kb = _key_comment("prompt_v2"), _key_comment("prompt_kb")
+    assert "0 = the Oct 10 deploy's prompt" not in v2
+    assert v2.endswith("0 (with prompt_kb 0) = the Oct 10 deploy's prompt (81c4591), byte for byte; roll prompt_kb back with it")
+    assert kb.endswith("0 = deploy #4's prompt without it (prompt_v2 alone), byte for byte")
+    module = Path(prompts.__file__).read_text(encoding="utf-8")
+    assert "the others off" not in module and "# prompt_v2 and prompt_kb are on by default from deploy #4, answer_rules_v2 off;" in module
+    assert "prompt_v2 0 alone adds KNOWLEDGE_BASE to it: roll prompt_kb back with it" in module
+
+
 def test_rows_only_prompt_and_payload_say_the_rule_in_force():
     from agent.pokemon.prompts import SYSTEM_PROMPT, system_prompt
 

@@ -61,8 +61,9 @@ Lessons from overrides that lost (Oct 8):
 Answer only in the required JSON."""
 
 # -- the model-path variants (lane M1) ----------------------------------------------------------------------------------
-# prompt_v2 is on by default from deploy #4, the others off; with all of them off, system_prompt() is SYSTEM_PROMPT byte
-# for byte. The text depends only on the agent's params, so it is identical on every call of a match (the API caches
+# prompt_v2 and prompt_kb are on by default from deploy #4, answer_rules_v2 off; with all three off, system_prompt() is
+# SYSTEM_PROMPT byte for byte (prompt_v2 0 alone adds KNOWLEDGE_BASE to it: roll prompt_kb back with it, as no model-on
+# arm sent that prompt). The text depends only on the agent's params, so it is identical on every call of a match (the API caches
 # it). Every variant is built once, at import (VARIANTS): an anchor that no longer matches SYSTEM_PROMPT fails the
 # import and every test, never a decision.
 
