@@ -1347,7 +1347,11 @@ def _waits_out(sheet: Any, memory: Any = None) -> list[str]:
     a Poison type (it heals like Leftovers); an unactivated Flame Orb or Toxic Orb on our Guts holder (the status, and
     Guts' boost, start at the end of this turn). From the memory (the protocol log): our Wish from last turn at its
     position (it lands at the end of this turn); a foe whose Leech Seed drains into its position; a foe Yawn made
-    drowsy last turn (it falls asleep at the end of this turn, unless a status or Electric / Misty Terrain stops it).
+    drowsy last turn (it falls asleep at the end of this turn, unless a status or Electric / Misty Terrain stops it, or
+    it holds a Lum or Chesto Berry: in Gen 9 the berry cures the sleep the moment it starts, so it loses no turn).
+    The other Gen 9 ways a drowsy foe stays awake (the Showdown engine: Insomnia, Vital Spirit, Comatose, Purifying
+    Salt, Sweet Veil on it or its partner, Leaf Guard in sun, Shields Down, an Uproar) are on no card of the 48-card
+    catalog, and Safeguard and Flower Veil only stop a Yawn from landing, not the sleep of one already in place.
     None of them while that Protect would be a repeat (``memory.protect_streak`` > 0): it works 1 time in 3, and as none
     of them is a listed stall reason the system prompt already forbids it ("Never Protect on a streak without a listed
     stall reason"; the scorer's own Protect rows discount by 0.33 ** streak). The fresh Fake Out and the orb pay off only
@@ -1393,12 +1397,15 @@ def _waits_out(sheet: Any, memory: Any = None) -> list[str]:
             out.append(f"Leech Seed drains their {foe.species} into our {me.species} every turn")
         started = (getattr(memory, "drowsy", None) or {}).get(tag)
         if (started is not None and turn and started >= turn - 1 and not foe.status
-                and not (terrain in ("electric", "misty") and foe.grounded)):
+                and not (terrain in ("electric", "misty") and foe.grounded) and data.to_id(foe.item) not in _WAKE_BERRIES):
             out.append(f"their {foe.species} falls asleep at the end of this turn (Yawn)")
     return out
 
 
 _FIRST_TURN_ONLY = ("fakeout", "firstimpression")  # their hits that fail from the user's second turn out (battle.py's threats)
+# Berries that cure Yawn's sleep the moment it starts (Showdown, Gen 9: Lum Berry is eaten on AfterSetStatus, Chesto Berry on
+# the Update right after; no card of the catalog has Unnerve to stop that). The catalog's holders: Salamence, Milotic.
+_WAKE_BERRIES = ("lumberry", "chestoberry")
 
 
 def _ko_lands_first(sheet: Any, number: int) -> bool:

@@ -3,8 +3,9 @@
 1. A reply-mixture exception costs the mixture for that turn, never the match: the scorer's rows play (readiness 2B.1).
 2. Our last Pokémon's Protect with nothing to wait for earns no override credit and never plays over a row (model
    audit R1/R7; d9405f02 T7-T10). "Nothing to wait for" also checks what the sheet's stall reasons miss (a fresh Fake
-   Out, Black Sludge, a Wish, Leech Seed, Yawn, a Guts holder's orb), for a Protect that is not a repeat; the Fake Out
-   and the orb only when no sure KO lands first. d9405f02 T7's fresh Fake Out is neither: refused, as T8-T10.
+   Out, Black Sludge, a Wish, Leech Seed, Yawn on a foe without a Lum or Chesto Berry, a Guts holder's orb), for a
+   Protect that is not a repeat; the Fake Out and the orb only when no sure KO lands first. d9405f02 T7's fresh Fake Out
+   is neither: refused, as T8-T10.
 3. answer_rules_v2 (off by default): on the reply mixture the model chooses rows only; a lower row stands within
    max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1). Only on
    rows the mixture priced (a turn it did not price keeps E2); an override that repeats a listed row is that row; when
@@ -315,6 +316,36 @@ def test_waits_out_names_each_reason_the_stall_list_misses_and_nothing_else():
     assert _waits_out(_alone(plain, _mon("Iron Hands", "theirs", 2, ["fighting", "electric"], status="par")), memory) == []
     memory.drowsy = {"theirs:gholdengo": 4}  # stale: that Yawn resolved at the end of last turn
     assert _waits_out(_alone(plain, foe), memory) == []
+    # a Lum or Chesto Berry cures the sleep the moment it starts (Gen 9): the foe loses no turn, so nothing to wait for
+    # (the catalog's holders, Salamence and Milotic); once the berry is gone (eaten, knocked off) the reason is back
+    memory.drowsy = {"theirs:salamence": 5, "theirs:milotic": 5}
+    lum = _mon("Salamence", "theirs", 1, ["dragon", "flying"], item="Lum Berry", ability="Intimidate")
+    chesto = _mon("Milotic", "theirs", 2, ["water"], item="Chesto Berry", ability="Competitive")
+    assert _waits_out(_alone(plain, lum), memory) == [] and _waits_out(_alone(plain, chesto), memory) == []
+    assert _waits_out(_alone(plain, lum, chesto), memory) == []
+    lum.item = None
+    assert _waits_out(_alone(plain, lum, chesto), memory) == ["their Salamence falls asleep at the end of this turn (Yawn)"]
+    chesto.item = "Sitrus Berry"  # a berry that does not cure sleep
+    assert _waits_out(_alone(plain, chesto), memory) == ["their Milotic falls asleep at the end of this turn (Yawn)"]
+
+
+def test_the_catalog_has_no_other_card_that_stays_awake_through_a_yawn_already_in_place():
+    """_waits_out's Yawn reason knows the Gen 9 ways a drowsy foe does not fall asleep (the Showdown engine,
+    sim/node_modules/pokemon-showdown): a status, Electric / Misty Terrain under a grounded foe, a Lum or Chesto Berry.
+    The others need a card the 48-card catalog does not have: Insomnia, Vital Spirit, Comatose, Purifying Salt, Sweet
+    Veil, Leaf Guard, Shields Down, an Uproar user, or a setter of either terrain. (Safeguard and Flower Veil only keep a
+    Yawn from landing: the engine lets the sleep of one already in place through.) A card added with any of them needs a
+    rule in _waits_out first; Unnerve would stop the berries."""
+    cards = json.loads((Path(__file__).resolve().parent.parent / "data" / "cards.json").read_text())
+    assert len(cards) == 48
+    abilities = {c["ability"] for c in cards}
+    moves = {m for c in cards for m in c["moves"]}
+    assert not abilities & {"Insomnia", "Vital Spirit", "Comatose", "Purifying Salt", "Sweet Veil", "Leaf Guard", "Shields Down",
+                            "Electric Surge", "Misty Surge", "Hadron Engine", "Unnerve", "As One"}
+    assert not moves & {"Uproar", "Electric Terrain", "Misty Terrain"}
+    assert {(c["species"], c["item"]) for c in cards if c["item"] in ("Lum Berry", "Chesto Berry")} == {("Salamence", "Lum Berry"),
+                                                                                                    ("Milotic", "Chesto Berry")}
+    assert [c["species"] for c in cards if "Yawn" in c["moves"]] == ["Torkoal"]
 
 
 def test_a_repeat_protect_waits_nothing_out_and_a_sure_ko_first_makes_fake_out_and_the_orb_moot():
