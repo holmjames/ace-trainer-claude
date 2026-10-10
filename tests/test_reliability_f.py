@@ -626,7 +626,61 @@ def _launcher_env(tmp_path: Path, preflight_rc: int = 0) -> dict:
 
 
 def _launcher(env: dict, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+    """One launcher run to completion, in its own process group, which is reaped whatever happens (see _reap)."""
+    proc = subprocess.Popen(["bash", str(SCRIPT), *args], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            stdin=subprocess.DEVNULL, start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=60)
+    finally:
+        _reap(proc)
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+
+# The launcher as a Terminal starts it: SIGINT and SIGHUP at their defaults, whatever this test run inherited. A suite
+# started in the background of a non-interactive shell (`pytest ... &`) runs with SIGINT ignored, and nohup ignores
+# SIGHUP: the launcher, its `tail -f` and its trap inherit that (a non-interactive bash cannot trap a signal ignored on
+# entry), so the signal a test sends does nothing. Reproduced Oct 10: test_launcher_from_the_scripts_directory... then
+# fails (wait(10) times out after the SIGINT) and leaves `bash ./run_tournament.sh --match` and its tail behind (ppid 1),
+# as three full-suite runs in another worktree did at 00:09, 00:25 and 01:09.
+_DEFAULT_SIGNALS = ("import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); signal.signal(signal.SIGHUP, signal.SIG_DFL); "
+                    "os.execvp(sys.argv[1], sys.argv[1:])")
+
+
+def _start_launcher(env: dict, *args: str, cwd: Path | None = None, script: str | None = None) -> subprocess.Popen:
+    """The launcher in its own session and process group (bash, and the `tail -f` it ends in), with SIGINT and SIGHUP at
+    their defaults; the caller reaps it with _reap in a finally."""
+    return subprocess.Popen([sys.executable, "-c", _DEFAULT_SIGNALS, "bash", script or str(SCRIPT), *args], cwd=cwd, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True,
+                            text=True)
+
+
+def _signal_group(pgid: int, sig: int) -> bool:
+    """Send ``sig`` (0: none, a probe) to the process group: True if a live member got it. macOS answers EPERM, not
+    ESRCH, when the only members left are zombies (our processes all; nothing here is another user's)."""
+    try:
+        os.killpg(pgid, sig)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def _reap(proc: subprocess.Popen) -> None:
+    """No launcher outlives its test: SIGTERM to its process group (bash runs its trap and exits, `tail -f` dies), SIGKILL
+    to whatever is left after 5 s, then the leader is waited for. The detached loop is not in this group (its own
+    session): --stop stops it."""
+    pgid = proc.pid  # start_new_session: the launcher leads its own process group
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        proc.poll()  # an exited leader is reaped first: an unreaped one is a zombie member of the group
+        if not _signal_group(pgid, sig):
+            break  # no live member left
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            proc.poll()
+            if not _signal_group(pgid, 0):
+                break
+            time.sleep(0.05)
+    proc.wait(timeout=10)
+    assert not _signal_group(pgid, 0), f"launcher process group {pgid} survived SIGKILL"
 
 
 def _alive(pid: int) -> bool:
@@ -673,19 +727,22 @@ def test_launcher_resolves_its_own_path_before_changing_directory(tmp_path):
 def test_launcher_from_the_scripts_directory_really_starts_and_a_dead_loop_is_reported(tmp_path):
     env = _launcher_env(tmp_path)
     pid_file = tmp_path / "logs" / "runtime-tournament.pid"
-    launcher = subprocess.Popen(["bash", "./run_tournament.sh", "--match"], cwd=SCRIPT.parent, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True, text=True)
+    launcher = _start_launcher(env, "--match", cwd=SCRIPT.parent, script="./run_tournament.sh")
     try:
-        _wait_for(lambda: pid_file.exists() and "fake runtime started" in _log_text(tmp_path) and "runtime started detached" in _log_text(tmp_path))
+        _wait_for(lambda: pid_file.exists() and "fake runtime started" in _log_text(tmp_path) and "runtime started detached" in _log_text(tmp_path),
+                  seconds=30)
         loop_pid = int(pid_file.read_text())
         time.sleep(0.5)
         assert _alive(loop_pid)
-        os.killpg(launcher.pid, signal.SIGINT)
+        os.killpg(launcher.pid, signal.SIGINT)  # Ctrl+C in the launcher's Terminal: it stops following, the loop runs on
         launcher.wait(timeout=10)
-        assert "runtime started detached" in _log_text(tmp_path)
+        assert "runtime started detached" in _log_text(tmp_path) and _alive(loop_pid)
     finally:
-        _launcher(env, "--stop")
-    _wait_for(lambda: not _alive(loop_pid))
+        try:
+            _reap(launcher)  # first, so it can start nothing more
+        finally:
+            _launcher(env, "--stop")  # then the detached loop, which writes the pid file itself
+    _wait_for(lambda: not _alive(loop_pid), seconds=30)
     # A broken detach (the setsid shim exits at once): no "started", exit 1, no pid file left behind.
     broken = tmp_path / "broken"
     broken.mkdir()
@@ -710,10 +767,10 @@ def test_launcher_stops_when_the_preflight_fails(tmp_path):
 def test_launcher_runs_detached_survives_its_terminal_and_stops_on_request(tmp_path):
     env = _launcher_env(tmp_path)
     pid_file = tmp_path / "logs" / "runtime-tournament.pid"
-    launcher = subprocess.Popen(["bash", str(SCRIPT), "--match"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                stdin=subprocess.DEVNULL, start_new_session=True, text=True)
+    launcher = _start_launcher(env, "--match")
     try:
-        _wait_for(lambda: pid_file.exists() and "fake runtime started" in _log_text(tmp_path) and "runtime started detached" in _log_text(tmp_path))
+        _wait_for(lambda: pid_file.exists() and "fake runtime started" in _log_text(tmp_path) and "runtime started detached" in _log_text(tmp_path),
+                  seconds=30)
         loop_pid = int(pid_file.read_text())
         assert _alive(loop_pid)
         # The Terminal window closes: SIGHUP to the launcher's whole process group. The loop lives in its own session.
@@ -729,9 +786,12 @@ def test_launcher_runs_detached_survives_its_terminal_and_stops_on_request(tmp_p
         second = _launcher(env, "--match")
         assert second.returncode == 1 and "already running" in second.stdout and "fake pre-flight" not in second.stdout
     finally:
-        stop = _launcher(env, "--stop")
+        try:
+            _reap(launcher)  # a no-op once SIGHUP has ended it; the loop is in its own session
+        finally:
+            stop = _launcher(env, "--stop")
     assert stop.returncode == 0 and "stopped" in stop.stdout, stop.stdout
-    _wait_for(lambda: not _alive(loop_pid))
+    _wait_for(lambda: not _alive(loop_pid), seconds=30)
     assert not pid_file.exists()
     assert "fake runtime: signal, exiting" in _log_text(tmp_path) and "Stopping." in _log_text(tmp_path)
     assert _launcher(env, "--stop").returncode == 1

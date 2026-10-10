@@ -40,8 +40,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv  # noqa: E402
 
-load_dotenv(ROOT / ".env")
-
 from altruagent import DecisionContext  # noqa: E402
 from altruagent.models import GameState  # noqa: E402
 
@@ -413,6 +411,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tune", default="", help="tuning overrides as a JSON object (agent/pokemon/tuning.py keys), e.g. the "
                     "reply mixture of tests/test_replies_live.py: '{\"reply_mixture\": 1, \"reply_seed\": 7}'")
     args = ap.parse_args(argv)
+    load_dotenv(ROOT / ".env")  # here, not at import: scripts/live_positions.py reads SCENARIOS without touching .env
     params = tuning.merged(json.loads(args.tune)) if args.tune else None
     if params:
         print(tuning.label(params))

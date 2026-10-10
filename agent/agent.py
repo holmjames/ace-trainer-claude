@@ -54,7 +54,7 @@ from agent.pokemon import lineup as lineup_rules
 from agent.pokemon.log import DecisionLog, git_commit
 from agent.pokemon import opponent as opponent_model
 from agent.pokemon.memory import MatchMemory, observation_dict, species_key
-from agent.pokemon.prompts import KNOWN_SETS_PREAMBLE, LINEUP_INSTRUCTIONS, SYSTEM_PROMPT
+from agent.pokemon.prompts import KNOWN_SETS_PREAMBLE, LINEUP_INSTRUCTIONS, system_prompt
 from agent.pokemon.tuning import DEFAULTS
 
 VERSION = os.environ.get("AGENT_VERSION") or "m3"
@@ -151,9 +151,11 @@ _PROTECT_MOVES = {"protect", "detect", "wideguard", "quickguard", "spikyshield",
 _PIERCES_PROTECT = {"feint", "hyperspacefury", "hyperspacehole", "phantomforce", "shadowforce"}
 _FLINCH_PROOF_ABILITIES = {"innerfocus", "shielddust"}
 RECHECK_KO_PROBABILITY = 0.5  # a hit that lands first "removes" a threat when it KOs at least this often
+ROW_MARGIN_SHARE = 0.15  # answer_rules_v2: a lower row's margin is max(row_margin_points, this x |row 0's value|) (model audit R1)
 
 
-def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dict | None = None, info: dict | None = None) -> str | None:
+def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dict | None = None, info: dict | None = None,
+                    params: dict | None = None) -> str | None:
     """A valid answer that leaves a threatened slot attacking gets one explicit second look, unless the sheet shows
     the attack is right. The model keeps the final say (trades can be right), but it has to make that call with the
     warning and the concrete alternative row in front of it.
@@ -164,12 +166,19 @@ def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dic
     cannot KO is no escape (bcbaabe2 T13/T14 lost Arcanine to exactly that); the partner's hit (or the two hits
     together) removes the threat before it moves with p >= 0.5; a Fake Out that goes first flinches it; Protect is
     on a streak and no switch-in is safe; the threat pierces Protect and no pivot is safe; our last Pokémon with
-    nothing to wait for. ``info`` (optional) gets the outcome for the decision log."""
+    nothing to wait for. ``info`` (optional) gets the outcome for the decision log.
+
+    recheck_v2 in ``params`` (model audit R3, readiness item 10): no DOUBLE-TARGET triggers (a risk, not a forecast:
+    a slot left in under it alone fell 1 time in 28 live), and a LETHAL or EXPOSED trigger counts only when row 0
+    Protects or switches that slot - when row 0 attacks with it too, the code has already priced the warning. The
+    message then sends the model back to row 0, which the margin always accepts, so a recheck never asks for an
+    alternative that cannot play (with the old rules 53 of 94 rechecks on 895ef70's live replays named none)."""
     payload = value if isinstance(value, dict) else getattr(value, "payload", None)
     if not isinstance(payload, dict):
         return None
+    v2 = float((params or {}).get("recheck_v2", 0.0) or 0.0) > 0
     facts = _SheetFacts(sheet, memory, template)
-    triggers = facts.triggers()
+    triggers = facts.triggers(double=not v2)
     if not triggers:
         return None
     if getattr(sheet, "alone", False) and not getattr(sheet, "stall_reasons", None):
@@ -180,6 +189,9 @@ def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dic
     for number in (0, 1):
         slot = payload.get(f"slot_{number}") or {}
         if slot.get("type") != "move" or _move_key(slot.get("move_id")) in _PROTECT_MOVES:
+            continue
+        if v2 and any(t["slot"] == number for t in triggers) and not facts.top_row_covers(number):
+            skips.append(f"slot {number}: row 0 does not Protect or switch this slot either (the code priced the warning)")
             continue
         for trigger in [t for t in triggers if t["slot"] == number]:
             skip = facts.escape(number, trigger, payload)
@@ -195,6 +207,14 @@ def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dic
         _note(info, "skipped: " + "; ".join(skips) if skips else "no attacking slot under a trigger")
         return None
     _note(info, "fired: " + " | ".join(p[:80] for p in problems) + (" (skipped: " + "; ".join(skips) + ")" if skips else ""))
+    if v2:
+        row0 = facts.row_zero()
+        return ("Recheck before this is final. " + " | ".join(problems) +
+                " A Pokémon that is knocked out before it moves never gets its attack off, and one that is knocked out after it "
+                "moves is gone next turn. Keep your answer only if the other slot removes that threat first (priority, or faster "
+                "with a likely KO) or the trade wins the game; otherwise choose row 0."
+                + (" Row 0 takes that slot out of the line of fire: " + row0 + "." if row0 else "")
+                + " Answer again; reasoning_summary stays a one-sentence public description of the move itself.")
     alternatives = [facts.alternative(number) for number in (0, 1) if any(p.startswith(f"slot {number} ") for p in problems)]
     alternatives = [a for a in alternatives if a]
     return ("Recheck before this is final. " + " | ".join(problems) +
@@ -233,7 +253,8 @@ class _SheetFacts:
 
     # -- triggers --------------------------------------------------------------------------------------------------
 
-    def triggers(self) -> list[dict]:
+    def triggers(self, *, double: bool = True) -> list[dict]:
+        """LETHAL and DOUBLE-TARGET warnings and EXPOSED notes as triggers (``double=False``: no DOUBLE-TARGET, recheck_v2)."""
         out = []
         for text in getattr(self.sheet, "warnings", None) or []:
             text = str(text)
@@ -242,7 +263,7 @@ class _SheetFacts:
                 out.append({"kind": "lethal", "slot": int(m.group(4)), "threat": species_key(m.group(1)), "move": m.group(2), "text": text})
                 continue
             m = re.match(r"DOUBLE-TARGET: if both foes go into slot (\d) \((.+?)\) — (.+?)'s (\S+) \+ (.+?)'s (\S+) =", text)
-            if m:
+            if m and double:
                 out.append({"kind": "double", "slot": int(m.group(1)), "threat": species_key(m.group(3)), "move": m.group(4),
                             "threat2": species_key(m.group(5)), "move2": m.group(6), "text": text})
         for text in getattr(self.sheet, "notes", None) or []:
@@ -384,6 +405,27 @@ class _SheetFacts:
             return (f"row {row} {cand.get('name')}: slot {number} {what}, slot {other} option {theirs.get('option')} target {theirs.get('target')} "
                     f"— {str(cand.get('why'))[:160]}")
         return None
+
+    def row_zero(self) -> str | None:
+        """Row 0 in words for the recheck_v2 message: what each slot does there, and the sheet's why."""
+        rows = getattr(self.sheet, "candidates", None) or []
+        if not rows:
+            return None
+        cand = rows[0]
+        parts = []
+        for number in (0, 1):
+            mine = cand.get(f"slot_{number}") or {}
+            option = self.option_by_index(number, mine.get("option"))
+            if option is None:
+                continue
+            if option.get("type") == "switch":
+                what = f"switches to {option.get('species')}"
+            elif option.get("type") == "move":
+                what = str(option.get("move_id")) + (f" into target {mine.get('target')}" if mine.get("target") not in (None, 0) else "")
+            else:
+                what = "passes"
+            parts.append(f"slot {number} option {mine.get('option')} ({what})")
+        return f"row 0 {cand.get('name')}: " + ", ".join(parts) + f" — {str(cand.get('why'))[:160]}"
 
     def option_by_index(self, number: int, index: Any) -> dict | None:
         """The server's option at that index for the slot (moves, switches and pass alike: the sheet's own rows only
@@ -648,10 +690,11 @@ class PokemonAgent:
                       "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])}
         evidence = self.memory.opponent_evidence()
         klass = evidence["class"]
+        rows_only = self._rows_only(sheet)
         payload = {
             "decision": "doubles_turn",
             **choice.prompt,
-            "answer_format": (
+            "answer_format": _ANSWER_FORMAT_ROWS_ONLY if rows_only else _ANSWER_FORMAT_SCORER_TURN if self._answer_rules_v2() else (
                 "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. To propose a joint "
                 "action that is not a row, set override.use=true and give both slots as {option: <index from that slot's "
                 "options>, target: <integer>}; the code scores it against the rows before it may play. If the chosen option's "
@@ -667,40 +710,128 @@ class PokemonAgent:
             "tendencies": self.memory.opp_tendencies(),
             "observation": _compact(_battle_view(obs, roster, self.memory), _BATTLE_KEYS),
         }
-        _trim_turn_payload(payload)
+        _trim_turn_payload(payload, rows_only=rows_only)
         remaining = expected_remaining_turns(roster["ours"].get("remaining"), roster["theirs"].get("remaining"))
         recheck_info: dict[str, Any] = {}
         value, answer, info = self._ask(choice, payload, kind="turn",
-                                        recheck=lambda v: _lethal_recheck(v, sheet, memory=self.memory, template=template, info=recheck_info),
+                                        recheck=lambda v: _lethal_recheck(v, sheet, memory=self.memory, template=template, info=recheck_info,
+                                                                          params=self.params),
                                         clock=obs.get("clock"), remaining_turns=remaining,
                                         system_extra=KNOWN_SETS_PREAMBLE + json.dumps(known_sets, ensure_ascii=False, default=str))
         forced = any(slot.get("force_switch") for slot in template.get("slots") or [])
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced,
                                 threatened=_threatened_by_us(sheet), doubled=list(getattr(sheet, "focus_threats", None) or []))
+        summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
+        if answer:
+            played = _played_row_instead(answer, value, sheet, base)
+            if played is not None:
+                # the model's proposal did not play (an override ignored or rejected, our last Pokémon's Protect refused,
+                # a row sent back to row 0 by the margin): the public summary describes the row that did, not the move
+                # the model proposed (the M1 review), on every path: the deploy's scorer path (E2) as well as the mixture
+                meta["summary_from_row"] = played
+                summary = sheet.candidates[played].get("why") or summary
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
                   win_condition=(answer or {}).get("win_condition"), opponent_prediction=(answer or {}).get("opponent_prediction"),
                   resolution=meta, code_prediction=prediction, battle_roster=roster, turn_sheet=sheet.as_prompt(),
                   last_turns=payload["last_turns"], tendencies=payload["tendencies"], opponent_class=klass,
                   wall_ms=self._wall_ms(), recheck_outcome=recheck_info.get("recheck_outcome"), **info)
-        summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 
-    def _resolve_turn_answer(self, answer: dict, sheet: Any, base: Choice, prediction: dict, meta: dict) -> Any:
-        """The constrained answer (E2). A row plays as the sheet listed it. An override is validated like any payload,
-        scored with the same scorer as the rows (``override_value``), and rejected when its value trails the best
-        row by more than ``override_margin`` of the top value, unless the model's opponent prediction matches the
-        code's top column: then the read is the reason and it stands. A rejected override plays the chosen row."""
+    def _answer_rules_v2(self) -> bool:
+        """answer_rules_v2 is on with the reply mixture (model audit R1): the configuration whose prompt says rows only."""
+        return float(self.params.get("answer_rules_v2", 0.0) or 0.0) > 0 and float(self.params.get("reply_mixture", 0.0) or 0.0) > 0
+
+    def _rows_only(self, sheet: Any) -> bool:
+        """The rows-only rules decide this turn: answer_rules_v2 on the reply mixture, and the mixture priced this turn's
+        rows (``sheet.reply`` is set). Off (the default), on the scorer path at any setting, and on a turn the mixture did
+        not price (a replacement, a position it cannot read, a mixture failure: the rows are the scorer's), the E2 rules
+        below apply unchanged (model audit R7: on the scorer's rows off-menu plays beat row 1 out of sample)."""
+        return self._answer_rules_v2() and bool(getattr(sheet, "reply", None))
+
+    def _resolve_rows_only(self, answer: dict, sheet: Any, base: Choice, meta: dict) -> Any:
+        """Model audit R1, under answer_rules_v2 with the mixture. A proposed joint action is not played while rows exist:
+        it is logged (``meta["override_ignored"]``) and the chosen row plays (on the candidate's 77 live departures,
+        off-menu plays lost to its row 1 out of sample, -375, while listed lower rows were even). A lower row stands
+        when its value is within max(row_margin_points, 15% of |row 0's value|) of row 0's, else row 0 plays: the old
+        margin, 15% of max(row 0, 1), is 0.15 points on the mixture's scale whenever row 0 is 1 or less (57 of 121
+        live positions). No read bypass: the mixture already prices the replies a read names. A proposed joint action
+        that repeats a listed row is that row: it counts as row k (the margin judges it like a pick of row k), and both
+        values are logged (``meta["override_as_row"]``: row k's and the answer's own row's). With no rows at all, a
+        proposed joint action plays once it validates."""
         rows = list(sheet.candidates)
         row = answer.get("row")
         row_ok = isinstance(row, int) and not isinstance(row, bool) and 0 <= row < len(rows)
         override = answer.get("override") if isinstance(answer.get("override"), dict) else {}
         meta.clear()
+        if not rows:
+            if override.get("use"):
+                proposed = base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})  # InvalidChoice if illegal
+                meta["resolution"] = "override accepted (no rows)"
+                return proposed
+            raise InvalidChoice("this position has no rows: propose a joint action with override.use=true")
+        same = next((i for i, r in enumerate(rows) if r.get("slot_0") == override.get("slot_0") and r.get("slot_1") == override.get("slot_1")),
+                    None) if override.get("use") else None
+        if same is not None:
+            # the proposed joint action IS row `same`: play it as that row (the margin below judges it), log both values
+            meta["override_as_row"] = {"row": same, "value": rows[same].get("score"), "answer_row": row if row_ok else None,
+                                       "answer_row_value": rows[row].get("score") if row_ok else None}
+            row, row_ok = same, True
         if row_ok:
             meta.update({"row": row, "row_name": rows[row].get("name"), "row_score": rows[row].get("score")})
+        # "row k plays" is said only once the margin below has let row k through (the M1b review: the log read "override =
+        # row 4 (a listed row); row 4 plays; row 4 rejected: ...; row 0 plays")
+        meta["resolution"] = "row" if same is None else f"override = row {same} (a listed row)"
+        if override.get("use") and same is None:
+            ignored = {"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1"), "same_as_row": None}
+            try:
+                base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})
+                ignored["legal"] = True
+            except InvalidChoice:
+                ignored["legal"] = False
+            meta["override_ignored"] = ignored
+            meta["resolution"] = "override ignored (this build plays only listed rows)"
+        if not row_ok:
+            raise InvalidChoice(f"row must be a candidate_turns row number 0..{len(rows) - 1}, got {row!r} (this build plays only "
+                                "listed rows: leave override.use=false)")
+        if row > 0:
+            best = float(rows[0].get("score") or 0.0)
+            value = float(rows[row].get("score") or 0.0)
+            margin = max(float(self.params.get("row_margin_points", 50.0)), ROW_MARGIN_SHARE * abs(best))
+            meta.update({"row_value": value, "best_row_score": best, "margin": round(margin, 1)})
+            if value < best - margin:
+                earlier = meta["resolution"] + "; " if meta.get("resolution") not in (None, "row") else ""
+                meta["resolution"] = earlier + f"row {row} rejected: {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}; row 0 plays"
+                meta["row_played"] = 0
+                self._say(f"[agent] {meta['resolution']}")
+                return base.build({"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]})
+        if meta["resolution"] != "row":
+            meta["resolution"] += f"; row {row} plays"
+            if "override_ignored" in meta:
+                self._say(f"[agent] {meta['resolution']}")
+        return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
+
+    def _resolve_turn_answer(self, answer: dict, sheet: Any, base: Choice, prediction: dict, meta: dict) -> Any:
+        """The constrained answer (E2). A row plays as the sheet listed it. An override is validated like any payload,
+        scored with the same scorer as the rows (``override_value``), and rejected when its value trails the best
+        row by more than ``override_margin`` of the top value, unless the model's opponent prediction matches the
+        code's top column: then the read is the reason and it stands. A rejected override plays the chosen row.
+        With answer_rules_v2 on the mixture, ``_resolve_rows_only`` decides instead on the turns the mixture priced."""
+        if self._rows_only(sheet):
+            return self._resolve_rows_only(answer, sheet, base, meta)
+        rows = list(sheet.candidates)
+        row = answer.get("row")
+        row_ok = isinstance(row, int) and not isinstance(row, bool) and 0 <= row < len(rows)
+        override = answer.get("override") if isinstance(answer.get("override"), dict) else {}
+        meta.clear()
+        if self._answer_rules_v2():
+            meta["rules"] = "E2: the reply mixture did not price this turn's rows"  # answer_rules_v2 on, a scorer turn (R7)
+        if row_ok:
+            meta.update({"row": row, "row_name": rows[row].get("name"), "row_score": rows[row].get("score")})
+        rejected = None  # E2's rejection of the override, if any
         if override.get("use"):
             proposed = base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})  # InvalidChoice if illegal
             best = float(rows[0].get("score") or 0.0) if rows else 0.0
-            value = override_value(proposed, sheet, self.params)
+            value = override_value(proposed, sheet, self.params, memory=self.memory)
             same = next((r for r in rows if r.get("slot_0") == override.get("slot_0") and r.get("slot_1") == override.get("slot_1")), None)
             if same is not None:
                 value = float(same.get("score") or value)
@@ -708,15 +839,26 @@ class PokemonAgent:
             matches = opponent_model.prediction_matches(answer.get("opponent_prediction"), prediction.get("top_column") or {})
             meta.update({"override": {"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")}, "override_value": round(value, 1),
                          "best_row_score": best, "margin": round(margin, 1), "prediction_matches_code": matches})
-            if not rows or value >= best - margin or matches:
+            # Safety: a Protect from our last Pokémon with nothing to wait for only delays the same position (the prompt
+            # forbids it, both menus drop it). override_value credits it nothing, but nothing still passes the margin when
+            # row 0 is worth 0 or less (d9405f02 T7 and T9: 0 against 0.0 - 0.15), so it never plays over a row, read or
+            # not. Something to wait for that the sheet's stall reasons miss (_waits_out: a Wish about to land, a fresh Fake
+            # Out we would live to act after; never on a Protect streak) lets the margin judge it as before, and is logged.
+            waits = _waits_out(sheet, self.memory) if rows and _protects(proposed) and not getattr(sheet, "stall_reasons", None) else []
+            if waits:
+                meta["lone_protect_waits"] = waits
+            lone = bool(rows) and _protects_alone(proposed, sheet, self.memory)
+            if (not rows or value >= best - margin or matches) and not lone:
                 meta["resolution"] = "override accepted" + (" (same as a row)" if same is not None else "") \
                     + (" on the opponent read" if rows and value < best - margin else "") + ("" if rows else " (no rows)")
                 return proposed
+            why = ("our last Pokémon's Protect has nothing to wait for (it only delays)" if lone else
+                   f"value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}")
             if not row_ok:
-                raise InvalidChoice(f"override rejected (value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}) and row "
-                                    f"{row!r} is not a candidate_turns row number 0..{len(rows) - 1}")
-            meta["resolution"] = f"override rejected: value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}; row {row} plays"
-            self._say(f"[agent] override rejected ({meta['resolution']})")
+                raise InvalidChoice(f"override rejected ({why}) and row {row!r} is not a candidate_turns row number 0..{len(rows) - 1}")
+            # "row k plays" is added once the margin below has let row k through (the M1b review: the log read "override
+            # rejected: ...; row 2 plays; row 2 rejected: ...; row 0 plays")
+            rejected = meta["resolution"] = f"override rejected: {why}"
         else:
             meta["resolution"] = "row"
         if not row_ok:
@@ -742,6 +884,10 @@ class PokemonAgent:
                     self._say(f"[agent] {meta['resolution']}")
                     return base.build({"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]})
                 meta["resolution"] = earlier + f"row {row} stands on the opponent read (the reply table rates it at least as well against the predicted column)"
+        if rejected is not None:
+            if meta["resolution"] == rejected:  # the margin passed row k (a row that stands on the read says so itself)
+                meta["resolution"] += f"; row {row} plays"
+            self._say(f"[agent] override rejected ({meta['resolution']})")
         return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
 
     def _opponent_class_view(self) -> dict:
@@ -794,7 +940,8 @@ class PokemonAgent:
                       "consecutive failures (code plays #1); retrying on the next decision")
             return choice.fallback(), None, info
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # SYSTEM_PROMPT at the defaults, byte for byte; never raises (a failed variant sends SYSTEM_PROMPT and says so)
+        messages = [{"role": "system", "content": system_prompt(self.params, log=self._say)}]
         if system_extra:
             messages.append({"role": "system", "content": system_extra})  # the match's known sets: cached across turns
         messages.append({"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)})
@@ -1111,12 +1258,14 @@ def minimal_legal_payload(state: GameState) -> Any:
     return first
 
 
-def override_value(payload: dict, sheet: Any, params: dict | None = None) -> float:
+def override_value(payload: dict, sheet: Any, params: dict | None = None, *, memory: Any = None) -> float:
     """The value of a proposed joint action on the rows' scale: the per-slot row values the sheet's scorer uses
     (``battle._expected`` for a damaging move into its target, capped at what each foe has left, one KO bonus per foe;
     the Protect bonus for a slot under a LETHAL/HIGH RISK warning; a switch-in's preview score). The same arithmetic
     as the candidate generators for an attack row; a listed row keeps its own score. Replaced by the reply table's
-    cell values once the core lane's mixture is on."""
+    cell values once the core lane's mixture is on. A Protect from our last Pokémon with nothing to wait for (no stall
+    reason on the sheet and none of ``_waits_out``'s, which reads ``memory``) earns nothing: it only delays the same
+    position (the prompt forbids it and both menus drop such rows; model audit R1/R7, d9405f02 T7 and T9 passed at 45)."""
     P = params or DEFAULTS
     by_slot = {e.get("slot"): e for e in getattr(sheet, "our_options", None) or []}
     warnings = [str(w) for w in getattr(sheet, "warnings", None) or []]
@@ -1133,6 +1282,8 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None) -> flo
             continue
         move = _move_key(choice.get("move_id"))
         if move in _PROTECT_MOVES:
+            if _alone_with_nothing_to_wait_for(sheet, memory):
+                continue
             threatened = any(f"slot {number} (" in w and (w.startswith("LETHAL") or w.startswith("HIGH RISK")) for w in warnings)
             extra += float(P.get("protect_bonus_guaranteed", 45.0)) if threatened else 0.0
             continue
@@ -1154,15 +1305,163 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None) -> flo
     return total
 
 
+def _played_row_instead(answer: dict, value: Any, sheet: Any, base: Choice) -> int | None:
+    """The row that played when it is not what the model proposed (its override, or the row it named), else None: an
+    override ignored (rows only) or rejected (E2), or a row sent back to row 0 by the margin. Compares the payloads, so a
+    first answer kept after a failed recheck is judged on what it proposed."""
+    rows = list(getattr(sheet, "candidates", None) or [])
+    override = answer.get("override") if isinstance(answer.get("override"), dict) else {}
+    row = answer.get("row")
+    try:
+        if override.get("use"):
+            proposed = base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})
+        elif isinstance(row, int) and not isinstance(row, bool) and 0 <= row < len(rows):
+            proposed = base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
+        else:
+            proposed = None
+    except InvalidChoice:
+        proposed = None  # an illegal proposal never plays
+    if proposed is not None and proposed == value:
+        return None
+    for index, cand in enumerate(rows):
+        try:
+            if base.build({"slot_0": cand["slot_0"], "slot_1": cand["slot_1"]}) == value:
+                return index
+        except InvalidChoice:
+            continue
+    return None
+
+
+def _alone_with_nothing_to_wait_for(sheet: Any, memory: Any = None) -> bool:
+    """Our last Pokémon stands alone and nothing a Protect could wait out is listed: neither battle._endgame's stall
+    reasons nor ``_waits_out``'s."""
+    return bool(getattr(sheet, "alone", False)) and not getattr(sheet, "stall_reasons", None) and not _waits_out(sheet, memory)
+
+
+def _protects(payload: Any) -> bool:
+    """A payload in which a slot uses a Protect-like move."""
+    return isinstance(payload, dict) and any(
+        (payload.get(f"slot_{n}") or {}).get("type") == "move" and _move_key((payload.get(f"slot_{n}") or {}).get("move_id")) in _PROTECT_MOVES
+        for n in (0, 1))
+
+
+def _protects_alone(payload: Any, sheet: Any, memory: Any = None) -> bool:
+    """A payload in which our last Pokémon, alone with nothing to wait for, Protects."""
+    return _protects(payload) and _alone_with_nothing_to_wait_for(sheet, memory)
+
+
+def _waits_out(sheet: Any, memory: Any = None) -> list[str]:
+    """What a Protect from our last Pokémon, alone on the field, waits out beyond battle._endgame's stall reasons (which
+    list their Tailwind / Trick Room / screens running out, their burn, poison and sand damage, our Leftovers and Grassy
+    Terrain): each changes the position a turn later, so that Protect does more than delay (the M1 review). From the
+    sheet: a FRESH opposing Fake Out that can flinch it (Protect blocks it, and from the next turn it fails: the sheet's
+    flinch_risk, which already leaves out Ghost types, Inner Focus, Covert Cloak and Psychic Terrain); our Black Sludge on
+    a Poison type (it heals like Leftovers); an unactivated Flame Orb or Toxic Orb on our Guts holder (the status, and
+    Guts' boost, start at the end of this turn). From the memory (the protocol log): our Wish from last turn at its
+    position (it lands at the end of this turn); a foe whose Leech Seed drains into its position; a foe Yawn made
+    drowsy last turn (it falls asleep at the end of this turn, unless a status or Electric / Misty Terrain stops it, or
+    it holds a Lum or Chesto Berry: in Gen 9 the berry cures the sleep the moment it starts, so it loses no turn).
+    The other Gen 9 ways a drowsy foe stays awake (the Showdown engine: Insomnia, Vital Spirit, Comatose, Purifying
+    Salt, Sweet Veil on it or its partner, Leaf Guard in sun, Shields Down, an Uproar) are on no card of the 48-card
+    catalog, and Safeguard and Flower Veil only stop a Yawn from landing, not the sleep of one already in place.
+    None of them while that Protect would be a repeat (``memory.protect_streak`` > 0): it works 1 time in 3, and as none
+    of them is a listed stall reason the system prompt already forbids it ("Never Protect on a streak without a listed
+    stall reason"; the scorer's own Protect rows discount by 0.33 ** streak). The fresh Fake Out and the orb pay off only
+    if we act next turn: under a sure KO on our slot that lands before we move, this turn and the next (``_ko_lands_first``)
+    the Protect only delays it, Fake Out or not. d9405f02 T7 is both (the M1 review): Cresselia Protected on T6, and
+    Gholdengo's Shadow Ball (116.9-137.7%) KOs it first whether or not Iron Hands' fresh Fake Out lands.
+    Empty unless our last Pokémon stands alone; the sheet itself is never changed."""
+    if not getattr(sheet, "alone", False):
+        return []
+    fs = getattr(sheet, "field", None)
+    actives = list(getattr(fs, "actives", None) or [])
+    me = next((m for m in actives if getattr(m, "side", None) == "mine"), None)
+    if me is None:
+        return []
+    if memory is not None and memory.protect_streak(me.species, me.position) > 0:
+        return []  # a repeat Protect: no reason here makes it one the prompt allows
+    out: list[str] = []
+    acts_next_turn = not _ko_lands_first(sheet, me.position)
+    risk = float((getattr(sheet, "flinch_risk", None) or {}).get(me.position, 0.0) or 0.0)
+    if risk > 0 and acts_next_turn:
+        out.append(f"a fresh Fake Out can flinch our {me.species} this turn ({round(risk * 100)}%): Protect blocks it, and from "
+                   "next turn it fails")
+    item, ability = data.to_id(me.item), data.to_id(me.ability)
+    types = {str(t).lower() for t in me.types or []}
+    if item == "blacksludge" and "poison" in types:
+        out.append(f"our {me.species} heals a little (Black Sludge)")
+    if ability == "guts" and not me.status and acts_next_turn and (item == "flameorb" and "fire" not in types
+                                                                   or item == "toxicorb" and not types & {"poison", "steel"}):
+        out.append(f"our {me.species}'s {'Flame Orb' if item == 'flameorb' else 'Toxic Orb'} activates at the end of this turn "
+                   "(Guts boosts its Attack from then on)")
+    if memory is None:
+        return out
+    turn = int(getattr(memory, "log_turn", 0) or 0) or (sheet.turn if isinstance(getattr(sheet, "turn", None), int) else 0)
+    position = "mine:" + ("a" if me.position == 0 else "b")
+    if turn and (getattr(memory, "wishes", None) or {}).get(position) == turn - 1:
+        out.append(f"our Wish from last turn heals {me.species} at the end of this turn")
+    terrain = getattr(fs, "terrain", None)
+    for foe in actives:
+        if getattr(foe, "side", None) != "theirs":
+            continue
+        tag = "theirs:" + species_key(foe.species)
+        if (getattr(memory, "seeded", None) or {}).get(tag) == position:
+            out.append(f"Leech Seed drains their {foe.species} into our {me.species} every turn")
+        started = (getattr(memory, "drowsy", None) or {}).get(tag)
+        if (started is not None and turn and started >= turn - 1 and not foe.status
+                and not (terrain in ("electric", "misty") and foe.grounded) and data.to_id(foe.item) not in _WAKE_BERRIES):
+            out.append(f"their {foe.species} falls asleep at the end of this turn (Yawn)")
+    return out
+
+
+_FIRST_TURN_ONLY = ("fakeout", "firstimpression")  # their hits that fail from the user's second turn out (battle.py's threats)
+# Berries that cure Yawn's sleep the moment it starts (Showdown, Gen 9: Lum Berry is eaten on AfterSetStatus, Chesto Berry on
+# the Update right after; no card of the catalog has Unnerve to stop that). The catalog's holders: Salamence, Milotic.
+_WAKE_BERRIES = ("lumberry", "chestoberry")
+
+
+def _ko_lands_first(sheet: Any, number: int) -> bool:
+    """A sure KO on our slot ``number`` that lands before it moves, this turn and the next: the sheet's LETHAL warning for
+    a guaranteed KO (no "KO chance" given) from a move that still works next turn (not Fake Out or First Impression),
+    with no escape listed (our priority move, or the partner, taking the threat out first)."""
+    for text in getattr(sheet, "warnings", None) or []:
+        text = str(text)
+        m = re.match(r"LETHAL: (.+?)'s (\S+?)( with priority \+\d)? hits slot (\d) \(", text)
+        if not m or int(m.group(4)) != number or _move_key(m.group(2)) in _FIRST_TURN_ONLY:
+            continue
+        if "% KO chance)" in text or "goes first and KOs it" in text or "can take it out first" in text:
+            continue
+        return True
+    return False
+
+
 MAX_ROWS_SHOWN = 8  # top rows only: the model chooses among the best; the rest is noise and tokens
+# answer_rules_v2 on the mixture (model audit R1): the answer format matches the rule in force, rows only.
+_ANSWER_FORMAT_ROWS_ONLY = (
+    "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. Leave override.use=false: "
+    "this build plays only listed rows, and a proposed joint action is logged for review while your row plays. Only when "
+    "candidate_turns is empty, set override.use=true and give both slots as {option: <index from that slot's options>, "
+    "target: <integer>}: if the chosen option's targets list is non-empty, target must be one of those integers; otherwise "
+    "send target 0."
+)
+# answer_rules_v2 on the mixture, on a turn the mixture did not price (a replacement, a mixture failure): the scorer's rows,
+# so its E2 rule applies, and this turn's answer format says so against the system prompt's rows-only bullets.
+_ANSWER_FORMAT_SCORER_TURN = (
+    "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. This turn's rows come from "
+    "the code's scorer, not the reply mixture (there is no reply_table), so the scorer's rule applies this turn, not rows "
+    "only: to propose a joint action that is not a row, set override.use=true and give both slots as {option: <index from "
+    "that slot's options>, target: <integer>}; the code scores it against the rows before it may play. If the chosen "
+    "option's targets list is non-empty, target must be one of those integers; otherwise send target 0."
+)
 _TEAM_ENTRY_KEYS = ("species", "current_hp", "max_hp", "current_hp_fraction", "status", "ability", "item", "boosts", "fainted", "active",
                     "revealed_moves", "moves", "is_terastallized")
 
 
-def _trim_turn_payload(payload: dict) -> None:
+def _trim_turn_payload(payload: dict, *, rows_only: bool = False) -> None:
     """Take out what the model sees elsewhere: each active Pokémon's full summary appears in the server's slots, in
     active_pokemon and in team (keep it once, in team), typing and base stats live in the known_sets block, and only
-    the top rows are shown. Measured on the Oct 8 positions: ~23k chars -> ~13k."""
+    the top rows are shown. Measured on the Oct 8 positions: ~23k chars -> ~13k. ``rows_only`` (answer_rules_v2 on the
+    mixture): the instructions say an override is for a position without rows."""
     for slot in payload.get("slots") or []:
         active = slot.get("active")
         if isinstance(active, dict):
@@ -1170,7 +1469,9 @@ def _trim_turn_payload(payload: dict) -> None:
     # The adapter's own instructions describe the old slot_0/slot_1 answer and repeat the server's how-to-submit text:
     # the answer format is answer_format and the system prompt now.
     if "instructions" in payload:
-        payload["instructions"] = "See answer_format: answer with a row, an opponent_prediction and a win_condition (override only with a reason)."
+        payload["instructions"] = ("See answer_format: answer with a row, an opponent_prediction and a win_condition (override only "
+                                   "when there are no rows)." if rows_only else
+                                   "See answer_format: answer with a row, an opponent_prediction and a win_condition (override only with a reason).")
     sheet = payload.get("turn_sheet") or {}
     rows = sheet.get("candidate_turns")
     if isinstance(rows, list) and len(rows) > MAX_ROWS_SHOWN:
@@ -1327,7 +1628,9 @@ def battle_roster(obs: dict, template: dict, memory: MatchMemory) -> dict:
     opp_back = sorted(k for k in seen if k not in opp_field_keys and k not in opp_fainted)
     unseen = max(0, 4 - len(seen))
     could_be = sorted(k for k in memory.opp_cards if k not in seen) if unseen else []
-    status = {k: "on_field" for k in opp_field_keys}
+    # sorted: a set's order follows PYTHONHASHSEED, and this dict goes into the user message (the M1b review: 59 of the 138
+    # live decisions' message digests varied from run to run)
+    status = {k: "on_field" for k in sorted(opp_field_keys)}
     status.update({k: "in_back" for k in opp_back})
     status.update({k: "fainted" for k in opp_fainted})
     for k in memory.opp_cards:

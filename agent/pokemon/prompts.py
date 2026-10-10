@@ -7,6 +7,9 @@ the user message: the roster, the turn sheet with its numbered rows, the code's 
 
 from __future__ import annotations
 
+import sys
+from typing import Any, Callable, Mapping
+
 SYSTEM_PROMPT = """You are playing a Pokémon VGC doubles battle (4v4, level 50, no Terastallization) for a tournament agent.
 
 Each request is one decision. Everything in the request comes from the game server and from a code helper that already did the bookkeeping; both are authoritative. Choose only from the options given. Never invent moves, species, or targets.
@@ -56,6 +59,148 @@ Lessons from overrides that lost (Oct 8):
 - Speed control is tempo. Their Tailwind/Trick Room has a turn count in the notes: with one or two turns left, Protecting or switching through it can beat trading under it. Ours is worth using while it lasts.
 
 Answer only in the required JSON."""
+
+# -- the model-path variants (lane M1) ----------------------------------------------------------------------------------
+# Each is off by default, and system_prompt() of the defaults is SYSTEM_PROMPT byte for byte. The text depends only on
+# the agent's params, so it is identical on every call of a match (the API caches it). Every variant is built once, at
+# import (VARIANTS): an anchor that no longer matches SYSTEM_PROMPT fails the import and every test, never a decision.
+
+_ROW_BULLETS = (
+    "- row: the number of the candidate_turns row you choose. Pick a row unless you have a concrete reason the sheet does not show.\n"
+    "- override: use=true only to propose a joint action that is not a row (both slots: option index and target, exactly like the "
+    "rows). The code scores it with the same scorer as the rows and REJECTS it when its value trails the best row by more than the "
+    "override margin, unless your opponent_prediction matches the code's own top prediction; then your read of the opponent is the "
+    "reason and it stands. A rejected override plays your row instead.\n"
+)
+# answer_rules_v2 on the reply mixture (model audit R1): the model chooses rows only; the bullets say the rule in force.
+_ROW_BULLETS_ROWS_ONLY = (
+    "- row: the number of the candidate_turns row you choose. Row 0 is the code's best turn against their likely replies; each row "
+    "shows its value (score), its worst case and the reply that hurts it most. Choose another row when you can name what row 0 gets "
+    "wrong. A row whose value trails row 0 by more than {margin} points plays row 0 instead.\n"
+    "- override: leave use=false. This build plays only listed rows; a proposed joint action is logged for review and your row "
+    "plays. Only when candidate_turns is empty, propose a joint action with use=true.\n"
+)
+
+
+# prompt_v2 (model audit R2): DOUBLE-TARGET is a risk, not a forecast; three lessons from live games lead the lessons.
+_PROTECT_LINE = "The Protect procedure, in this order, for a slot under a LETHAL, EXPOSED or DOUBLE-TARGET warning:\n"
+_PROTECT_LINE_V2 = ("The Protect procedure, in this order, for a slot under a LETHAL or EXPOSED warning. DOUBLE-TARGET alone is a "
+                    "risk, not a forecast (both foes must pick that slot): cover it only when row 0 does.\n")
+_LESSONS_HEADER = "Lessons from overrides that lost (Oct 8):\n"
+_LESSONS_HEADER_V2 = (
+    "Lessons from live games:\n"
+    "- Leaving row 0 to attack where it Protects or switches paid off when our hit lands first and KOs the threat, or when no "
+    "LETHAL warning names that slot.\n"
+    "- Adding a Protect or a switch that row 0 does not make lost more than it saved: their attacks often went to the other slot "
+    "or hit the switch-in. Add one only for a slot a LETHAL warning names, and keep the other slot's action.\n"
+    "- Moving an attack from row 0's target to a foe that can Protect or switch out lost more than it gained.\n"
+)
+# prompt_v2: the class line no longer reads as a forecast for one slot (the M1 review: it said the search bot "doubles
+# our biggest threat about half the time" next to "DOUBLE-TARGET alone is a risk, not a forecast"). What prices doubles is
+# the rows (the scorer's double-target threats and cover rows, the mixture's columns), not opponent_model's prediction,
+# which gives one kind per slot and no target (the M1b review).
+_DOUBLES_CLAUSE = "it doubles our biggest threat about half the time;"
+_DOUBLES_CLAUSE_V2 = ("it sometimes sends both attacks into one of our Pokémon, but not into a predictable slot (the rows already "
+                      "price doubles);")
+# prompt_v2 (model audit R5): opponent_prediction in the code's own words (agent/pokemon/opponent.py SETUP_MOVES).
+_PREDICTION_BULLET = ("- opponent_prediction: what you expect each of their slots to do this turn (their_slot_1 / their_slot_2: "
+                      "attack, protect, switch, setup, fakeout, none) and why, in one clause.\n")
+_PREDICTION_BULLET_V2 = (
+    "- opponent_prediction: what you expect each of their slots to do this turn, in the code's words, and why in one clause. "
+    "attack = a damaging move, spread moves included. setup = Tailwind, Trick Room, Icy Wind, Electroweb, Snarl, Reflect, Light "
+    "Screen, or a stat boost (Nasty Plot, Calm Mind, Swords Dance, Dragon Dance, Bulk Up, Quiver Dance). fakeout = Fake Out on "
+    "its first turn out. protect = Protect or Detect. switch = it leaves the field. none = no action. Predict switch when that "
+    "Pokémon faces our likely KO, cannot Protect (it just did) and has a Pokémon seen in back that resists our hit.\n"
+)
+
+# prompt_kb (model audit R4): general mechanics and rules the turn sheet does not spell out, checked against the repo's
+# mechanics (data/moves.json priorities, data.POWDER_MOVES, battle.py's Multiscale / Stamina / Glaive Rush / grounded
+# rules, preview_sim's screen turns): the audit's "for five turns" is eight from a Light Clay holder (two of the
+# catalog's three screen setters hold one), and Prankster screens beat only our attacks without priority. Mechanics and
+# general rules only: no opponent or player is named, and nothing about how opponents tend to play or what reviewed
+# matches showed is in it (the audit's tenth item, a base rate, and item 1's closing sentence on where a fresh Fake Out
+# user aims are left out: the M1 and M1b reviews).
+KNOWLEDGE_BASE = """Battle reference (level 50 doubles, no Terastallization). Facts the turn sheet does not spell out:
+1. Fake Out (+3 priority) works only on the user's first turn on the field and flinches one target. Ghost types are immune. Inner Focus, Shield Dust and Covert Cloak stop the flinch. Psychic Terrain blocks it into a grounded target.
+2. Priority that KOs removes the attacker before it moves: Extreme Speed (+2), Sucker Punch (+1; fails if the target is not attacking or has already moved), Ice Shard and Aqua Jet (+1), Grassy Glide (+1 in Grassy Terrain). A priority hit that does not KO stops nothing.
+3. A single-target hit lands on whoever is in the slot when it resolves: a switch-in takes every hit aimed at that slot, plus Spikes if it is grounded. Choose a switch-in by the hits aimed at that slot this turn.
+4. U-turn and Volt Switch hit, then the user leaves: a slower hit aimed at it lands on the newcomer. If Protect blocks the U-turn, the user stays in.
+5. Earthquake also hits your ally. Flying types, Levitate and Air Balloon ignore Ground moves. Any damaging hit pops an Air Balloon; after that, Ground moves land.
+6. A sleeping Pokémon cannot be put to sleep again. While their sleep user is active, keeping the sleeper in leaves the sleep move one target; switching it out hands the sleep move a fresh one. Grass types, Overcoat and Safety Goggles ignore Spore and Rage Powder.
+7. Multiscale halves damage at full HP; any chip removes it. Stamina raises Defense one stage per hit taken, and every hit of a multi-hit move counts.
+8. After Glaive Rush, until its next turn, the user takes double damage and every move hits it.
+9. Intimidate lowers both foes' Attack one stage on entry. Reflect and Light Screen cut that category's damage to about two thirds in doubles, for five turns (eight from a Light Clay holder); Prankster sets them before your attacks that lack priority."""
+_LAST_LINE = "\n\nAnswer only in the required JSON."
+
+
+def _on(params: Mapping[str, Any] | None, key: str) -> bool:
+    try:
+        return float((params or {}).get(key, 0.0) or 0.0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _swap(text: str, old: str, new: str) -> str:
+    if text.count(old) != 1:
+        raise ValueError(f"system prompt anchor not found exactly once: {old[:60]!r}")
+    return text.replace(old, new)
+
+
+_MARGIN = "{margin}"  # the rows-only bullets' placeholder, filled with row_margin_points per call (str.replace cannot raise)
+
+
+def build_variant(base: str, *, rows_only: bool = False, v2: bool = False, kb: bool = False) -> str:
+    """``base`` (SYSTEM_PROMPT) with the variants switched on. ``rows_only`` (answer_rules_v2 with reply_mixture): the row
+    and override bullets of model audit R1, the lower-row margin left as ``{margin}``. ``v2`` (prompt_v2): R2's Protect
+    procedure line and lessons from live games, the search bot's doubles no longer a forecast for one slot, R5's
+    opponent_prediction vocabulary (with it the sheet's DOUBLE-TARGET warnings end neutrally, battle.py). ``kb``
+    (prompt_kb): R4's battle reference (KNOWLEDGE_BASE) before the last line. Raises ValueError when an anchor is not
+    found exactly once."""
+    text = base
+    if rows_only:
+        text = _swap(text, _ROW_BULLETS, _ROW_BULLETS_ROWS_ONLY)
+    if v2:
+        text = _swap(text, _PROTECT_LINE, _PROTECT_LINE_V2)
+        text = _swap(text, _DOUBLES_CLAUSE, _DOUBLES_CLAUSE_V2)
+        text = _swap(text, _LESSONS_HEADER, _LESSONS_HEADER_V2)
+        text = _swap(text, _PREDICTION_BULLET, _PREDICTION_BULLET_V2)
+    if kb:
+        text = _swap(text, _LAST_LINE, "\n\n" + KNOWLEDGE_BASE + _LAST_LINE)
+    return text
+
+
+def build_variants(base: str) -> dict[tuple[bool, bool, bool], str]:
+    """Every combination of the three variants, keyed (rows_only, v2, kb)."""
+    return {(r, v, k): build_variant(base, rows_only=r, v2=v, kb=k) for r in (False, True) for v in (False, True) for k in (False, True)}
+
+
+VARIANTS = build_variants(SYSTEM_PROMPT)  # at import: a broken anchor raises here
+
+
+def _warn(log: Callable[[str], Any] | None, line: str) -> None:
+    try:
+        if log is not None:
+            log(line)
+        else:
+            print(line, file=sys.stderr)
+    except Exception:  # noqa: BLE001 — a closed console cannot cost a decision
+        pass
+
+
+def system_prompt(params: Mapping[str, Any] | None = None, *, log: Callable[[str], Any] | None = None) -> str:
+    """The battle system prompt for these tuning params, read from VARIANTS (built at import; see ``build_variant``).
+    Never raises: should anything fail here at decision time, the deploy's SYSTEM_PROMPT is sent and ``log`` (stderr
+    by default) gets one line."""
+    try:
+        rows_only = _on(params, "answer_rules_v2") and _on(params, "reply_mixture")
+        text = VARIANTS[(rows_only, _on(params, "prompt_v2"), _on(params, "prompt_kb"))]
+        if rows_only:
+            text = text.replace(_MARGIN, f"{float((params or {}).get('row_margin_points', 50.0)):g}")
+        return text
+    except Exception as exc:  # noqa: BLE001 — a prompt variant must never cost a decision
+        _warn(log, f"[prompts] system prompt variant failed ({type(exc).__name__}: {str(exc)[:120]}); sending SYSTEM_PROMPT")
+        return SYSTEM_PROMPT
+
 
 KNOWN_SETS_PREAMBLE = "known_sets for this match (identical every turn; the opponent's unrevealed moves and items are real):\n"
 

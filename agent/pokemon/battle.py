@@ -1888,10 +1888,13 @@ def _double_target_threats(sheet: "TurnSheet", ours: dict[int, "Mon"], P: dict) 
         sheet.focus_threats.append({"slot": number, "species": me.species, "moves": [f"{t1['species']} {h1['move']}", f"{t2['species']} {h2['move']}"],
                                     "damage_pct_of_current_hp": [round(lo, 1), round(hi, 1)], "ko_chance": round(chance, 2), "before_we_move": before})
         if chance >= 0.5:
+            # prompt_v2 (model audit R2): a risk, not a forecast. The old last sentence told the model to cover this slot,
+            # against the prompt's "cover it only when row 0 does" (a slot left in under DOUBLE-TARGET alone fell 1 in 28).
+            last = (" Both foes can reach this slot; it falls only if both choose it." if float(P.get("prompt_v2", 0.0) or 0.0) > 0 else
+                    " Opponents double the target that threatens them most; Protect or switch if that is this slot.")
             sheet.warnings.append(
                 f"DOUBLE-TARGET: if both foes go into slot {number} ({me.species}) — {t1['species']}'s {h1['move']} + {t2['species']}'s "
-                f"{h2['move']} = {lo:.0f}-{hi:.0f}% — it goes down" + (" BEFORE it moves" if before else "")
-                + ". Opponents double the target that threatens them most; Protect or switch if that is this slot.")
+                f"{h2['move']} = {lo:.0f}-{hi:.0f}% — it goes down" + (" BEFORE it moves" if before else "") + "." + last)
 
 
 def _endgame(sheet: "TurnSheet", slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int, "Mon"], fs: "FieldState") -> None:
@@ -3762,10 +3765,17 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
     candidates.sort(key=lambda c: -c["score"])
     if P.get("reply_mixture", 0) and not forced and memory is not None:
         # Workstream A: value every row against the opponent's plausible replies (agent/pokemon/replies.py).
-        from . import replies  # local import: replies imports this module
+        try:
+            from . import replies  # local import: replies imports this module
 
-        ranked = replies.evaluate(sheet, memory, None, slots=slots, ours=ours, theirs=theirs, params=P, candidates=candidates,
-                                  obs={"turn": sheet.turn})
+            ranked = replies.evaluate(sheet, memory, None, slots=slots, ours=ours, theirs=theirs, params=P, candidates=candidates,
+                                      obs={"turn": sheet.turn})
+        except Exception as exc:  # noqa: BLE001 — a mixture bug costs the mixture for this turn, never the match (readiness 2B.1)
+            # Uncontained, the exception reached the agent's guard and every later turn of the match played the smoke
+            # agent's move. The scorer's own ranking and cut below play instead; the table it may have filled is reset.
+            ranked = []
+            sheet.reply = {}
+            sheet.notes.append(f"The reply mixture failed this turn ({type(exc).__name__}: {str(exc)[:80]}); the rows are the scorer's.")
         if ranked:
             candidates = ranked
             # the mixture's rows carry their worst case and best reply: the model sees five (the sixth was within the override
