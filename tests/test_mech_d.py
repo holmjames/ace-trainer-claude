@@ -793,6 +793,41 @@ def test_gale_wings_is_plus_one_at_full_hp_and_the_priority_blocks_apply():
     assert ours_bb.get("fails") and "BLOCKED" in ours_bb["note"] and not ours_bb["targets"], ours_bb
 
 
+def test_gale_wings_puts_a_full_hp_talonflames_tailwind_at_plus_one():
+    """Should-fix B (fix3 review): gale_wings gave a full-HP Talonflame +1 on its Flying ATTACKS only; its Tailwind (a
+    Flying status move) stayed +0 where status priority is computed. best_action: under their Tailwind, Garchomp's Rock
+    Slide KOs Talonflame before a +0 move, not before the +1 Tailwind, which keeps its 55 (the best attacks row pairs it
+    with Sucker Punch); Flame Body Talonflame (no Gale Wings, same damage) keeps only survival_factor of it. taunt_value:
+    Tornadus's Prankster Taunt (+1) on a full-HP Talonflame (195) no longer beats its +1 Tailwind (Talonflame is faster),
+    so this turn's Tailwind counts at the later turns' weight; at 99% HP it is +0 and the Taunt blocks it now."""
+    flame_body = {"Talonflame": {**CATALOG["Talonflame"], "ability": "Flame Body"}}
+    their_tailwind = {"turn": 2, "opponent_side_conditions": {"TAILWIND": 1}}
+
+    def row(**kw):
+        sheet, _ = build(["Talonflame", "Kingambit"], ["Garchomp", "Archaludon"], obs_extra=their_tailwind, **kw)
+        return sheet, next(c for c in sheet.candidates if c["name"] == "best_attacks")
+
+    sheet, got = row()
+    plain, ctrl = row(cards=flame_body)
+    assert got["why"].startswith("slot 0 tailwind") and ctrl["why"].startswith("slot 0 tailwind"), (got["why"], ctrl["why"])
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(plain.speed_order)}
+    lost = 1.0 - battle.survival_factor(0, plain, 0, rank)
+    assert lost > 0.5, lost
+    assert got["score"] == pytest.approx(ctrl["score"] + battle.SETUP_MOVES["tailwind"] * lost, abs=0.11), (got["score"], ctrl["score"], lost)
+
+    def taunt(hp):
+        sheet, _ = build(["Tornadus", "Kingambit"], ["Talonflame", "Archaludon"], hp={"Talonflame": hp})
+        tornadus = next(m for m in sheet.field.actives if m.side == "mine" and m.position == 0)
+        talonflame = next(m for m in sheet.field.actives if m.side == "theirs" and m.species == "Talonflame")
+        return battle.taunt_value(tornadus, 0, talonflame.position, talonflame, sheet)
+
+    tailwind = battle.SETUP_MOVES["tailwind"] * battle.TAUNT_USE["speed"]
+    w = tuning.DEFAULTS["sleep_future_w"]
+    other = 10.0 * battle.TAUNT_USE["other"]  # its Taunt (+0): ours (+1) blocks it this turn
+    assert taunt(1.0) == pytest.approx(tailwind * w + other, abs=0.06)
+    assert taunt(0.99) == pytest.approx(tailwind + other, abs=0.06)
+
+
 def test_fresh_fake_out_note_needs_a_slot_it_can_flinch():
     """FRESH tells the model to expect a flinch on one of our slots, so it needs a slot Fake Out can flinch. In Psychic
     Terrain beside our grounded Archaludon (or Indeedee-F) the other slot is the Air Balloon Gholdengo, a Ghost type:

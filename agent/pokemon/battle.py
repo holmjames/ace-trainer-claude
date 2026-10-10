@@ -327,9 +327,11 @@ def effective_move(attacker: "Mon", move: dict, defender: "Mon", fs: "FieldState
 
 def gale_wings(attacker: "Mon", move: dict) -> dict:
     """``move`` with Gale Wings' +1 priority when it applies: a Flying move used at full HP by a Pokémon with Gale Wings
-    (Talonflame's Brave Bird and Tailwind). The turn sheet builds our options and their threats from it, so the
-    per-target Psychic Terrain and Armor Tail blocks apply; preview_sim reads its priority the same way. effective_move
-    leaves it out: the draft's matchup races (matchup.py) and the card tiers built from them do not have it."""
+    (Talonflame's Brave Bird and Tailwind). The turn sheet builds our attack options and their threats from it (Brave
+    Bird), so the per-target Psychic Terrain and Armor Tail blocks apply; best_action prices our Flying status moves
+    with it and taunt_value the foe's (Tailwind at +1: a move on its own side, which Psychic Terrain does not block);
+    preview_sim reads its priority the same way. effective_move leaves it out: the draft's matchup races (matchup.py)
+    and the card tiers built from them do not have it."""
     if data.to_id(attacker.ability) == "galewings" and attacker.hp_fraction >= 0.999 and data.to_id(move.get("type")) == "flying":
         return {**move, "priority": (move.get("priority") or 0) + 1}
     return move
@@ -2306,7 +2308,8 @@ def taunt_value(me: "Mon", slot_number: int, pos: int, foe: "Mon", sheet: "TurnS
         info = data.move_info(mid) or {}
         if data.is_damaging(info) or mid in PROTECT_LIKE:
             continue
-        prio = (info.get("priority") or 0) + (1 if data.to_id(foe.ability) == "prankster" else 0)
+        # Prankster's +1 on its status moves, and Gale Wings' on a full-HP Talonflame's Tailwind (gale_wings)
+        prio = (gale_wings(foe, {**info, "id": mid}).get("priority") or 0) + (1 if data.to_id(foe.ability) == "prankster" else 0)
         now = my_prio > prio or (my_prio == prio and faster)
         if mid in SLEEP_MOVES:
             per_use, kind, uses = float(sheet.sleep_threat.get(pos, 0.0)), "sleep", 2.0
@@ -3133,7 +3136,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     continue
                 if not allow_ally_only and move_id in ALLY_ONLY:
                     continue
-                prio = info.get("priority", 0) or 0
+                # Gale Wings: a full-HP Talonflame's Tailwind is +1 (gale_wings, as its Brave Bird on the sheet)
+                prio = gale_wings(me, {**info, "id": move_id}).get("priority", 0) or 0
                 if data.to_id(me.ability) == "prankster" and info.get("category") == "Status":
                     prio += 1  # Prankster: status moves get +1 priority (Tailwind before their attacks land)
                 sv, target = status_value(move_id, me, theirs, sheet, number, has_ally=len(ours) > 1)
