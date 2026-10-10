@@ -36,6 +36,7 @@ import math
 import os
 import random
 import secrets
+import sys
 from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
@@ -638,12 +639,97 @@ def first_pick_bonus(board, c: int, pool: list[int], params: dict, *, we_first: 
     return bonus, t
 
 
+# -- per-card corrections to the finished-draft value (``draft_card_adjust_w``) -------------------------------------------
+#
+# The Oct 10 card analysis (draft lane 8) fitted 13,841 of our own simulator games against the draft's own value of the
+# finished draft (DraftSearch.finished at the 39f50af defaults, draft_support_w 0.25): that value is overconfident, and
+# some cards win more, or less, than it credits, beside it. data/draft_card_adjust.json holds those corrections in its
+# unit, log-odds: "us", added when the card is in the four we would bring; "them", added (our-win log-odds) for each of
+# their considered fours that holds it, before the mean / worst blend. Archaludon is in neither section: the first-pick
+# policy and table carry it, and this table must not move it. With the key above 0, DraftSearch.finished adds key x
+# table to every four-against-four value, so the lookahead sees it at every leaf. The greedy rollouts (Board.score), the
+# fitted per-card strengths (Board.resid, data/draft_model.json), the first-pick policy and table, exposure, the
+# counter-picker and Team Preview never see it. Static repo data, the same for every opponent. 0 = the shipped draft,
+# bit for bit (the table is not even read).
+CARD_ADJUST_FILE = data.DATA_DIR / "draft_card_adjust.json"
+CARD_ADJUST_LIMIT = 0.5  # the largest |log-odds| an entry may hold
+CARD_ADJUST_EXCLUDED = frozenset({"archaludon"})  # species ids the table must never hold
+
+
+@dataclass(frozen=True)
+class CardAdjustTable:
+    us: dict[str, float] = field(default_factory=dict)  # species id -> log-odds when it is in our four
+    them: dict[str, float] = field(default_factory=dict)  # species id -> our-win log-odds per considered four of theirs holding it
+
+    def entries(self) -> int:
+        """How many non-zero entries the table holds."""
+        return sum(1 for section in (self.us, self.them) for v in section.values() if v)
+
+    def vectors(self, board, w: float) -> tuple[list[float], list[float]]:
+        """(a_us, a_them) per index of ``board`` (or a SupportView of it: the indices are shared), times ``w``: what
+        DraftSearch takes as ``card_adjust``."""
+        ids = [data.to_id(u.species) for u in board.units]
+        return [w * self.us.get(s, 0.0) for s in ids], [w * self.them.get(s, 0.0) for s in ids]
+
+
+_CARD_ADJUST_TABLES: dict[str, CardAdjustTable] = {}
+_CARD_ADJUST_ERRORS: dict[str, str] = {}  # table path -> why it could not be used (it then counts as empty)
+
+
+def card_adjust_table(path: str | Path | None = None) -> CardAdjustTable:
+    """The per-card table (``path``, else the shipped data/draft_card_adjust.json), read once per process and cached by
+    path. Every entry must be finite, within +-CARD_ADJUST_LIMIT, a catalog card (data/cards.json) and not Archaludon.
+    A file that cannot be read or breaks a rule counts as empty: one WARNING on stderr, and the draft notes say so."""
+    source = str(path or CARD_ADJUST_FILE)
+    table = _CARD_ADJUST_TABLES.get(source)
+    if table is None:
+        try:
+            raw = json.loads(Path(source).read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raise ValueError("expected a JSON object with \"us\" and \"them\"")
+            sections = []
+            for key in ("us", "them"):
+                section = _table_section(raw, key)
+                for sid, v in section.items():
+                    if abs(v) > CARD_ADJUST_LIMIT:
+                        raise ValueError(f"{key!r} {sid}: {v} is beyond +-{CARD_ADJUST_LIMIT}")
+                    if sid in CARD_ADJUST_EXCLUDED:
+                        raise ValueError(f"{key!r} holds {sid}, which this table must not move")
+                    if data.catalog_card(species=sid) is None:
+                        raise ValueError(f"{key!r} {sid} is not a catalog card")
+                sections.append(section)
+            table = CardAdjustTable(*sections)
+        except (OSError, ValueError, TypeError) as exc:
+            _CARD_ADJUST_ERRORS[source] = f"{type(exc).__name__}: {exc}"
+            print(f"WARNING: draft card table {source} unusable ({_CARD_ADJUST_ERRORS[source]}); it counts as empty",
+                  file=sys.stderr, flush=True)
+            table = CardAdjustTable()
+        _CARD_ADJUST_TABLES[source] = table
+    return table
+
+
+def card_adjust_note(w: float, species: str) -> str:
+    """The line every ranked card carries with ``draft_card_adjust_w`` = ``w`` > 0: the table's weight and size, this
+    card's entries, and a WARNING when the shipped file could not be used."""
+    table = card_adjust_table()
+    sid = data.to_id(species)
+    parts = []
+    if table.us.get(sid):
+        parts.append(f"{table.us[sid]:+.2f} in our four")
+    if table.them.get(sid):
+        parts.append(f"{table.them[sid]:+.2f} in theirs")
+    error = _CARD_ADJUST_ERRORS.get(str(CARD_ADJUST_FILE))
+    return (f"card table (weight {w:g}, {table.entries()} entries): {species} {', '.join(parts) or 'no entry'}"
+            + (f"; WARNING: the shipped table could not be used ({error}), so it counts as empty" if error else ""))
+
+
 class DraftSearch:
     """Snake-draft lookahead on a ``matchup.Board`` (indices into one list of cards)."""
 
     def __init__(self, board, *, lookahead: int = 3, minimax: float = 0.5, reply_depth: int = 1, counter_replies: int = 3,
                  counter_prior: float = 0.0, four_eval: bool = True, their_fours: int = 3, robust: float = 0.25,
-                 hole_w: float = 0.0, sleep_w: float = 0.0) -> None:
+                 hole_w: float = 0.0, sleep_w: float = 0.0,
+                 card_adjust: tuple[list[float], list[float]] | None = None) -> None:
         self.board = board
         self.lookahead = max(0, int(lookahead))
         self.minimax = max(0.0, min(1.0, float(minimax)))
@@ -655,6 +741,7 @@ class DraftSearch:
         self.robust = max(0.0, min(1.0, float(robust)))  # weight on the worst of those fours (lineup_v2_robust)
         self.hole_w = float(hole_w)  # log-odds per coverage hole (Board.holes): their card none of our four can hit for 40%
         self.sleep_w = float(sleep_w)  # x Board.sleep_reach of their four into ours, charged in the four-against-four value
+        self.card_adjust = card_adjust  # (a_us, a_them) per board index, x draft_card_adjust_w (CardAdjustTable.vectors); None = off
         self.items = board.items
         self._counter_base: list[float] | None = None  # per card: role points + raw strength (counterpick.counter_value)
         self._beats: dict[tuple[int, int], float | None] = {}
@@ -731,7 +818,10 @@ class DraftSearch:
         four-against-four value is charged their sleepers' reach into our four (Board.sleep_reach: their Spore against
         our sleep-proof cards) and their likeliest fours are picked with their reach into our six. One-sided: our own
         sleepers earn nothing (the brief's scope; the Oct 9 review measured that half moving 10 live picks toward our
-        own Amoonguss / Torkoal)."""
+        own Amoonguss / Torkoal). With ``card_adjust`` the per-card corrections join each value
+        (``_finished_adjusted``); without it this code runs as it always has."""
+        if self.card_adjust is not None:
+            return self._finished_adjusted(us, them, include)
         key = (tuple(sorted(us)), tuple(sorted(them)), include)
         cached = self._finished.get(key)
         if cached is not None:
@@ -749,6 +839,40 @@ class DraftSearch:
                     continue
                 f = list(four)
                 values = [score4(f, g) - sleep_w * reach(g, f) - hole_w * (len(holes(f, g)) - len(holes(g, f))) for g in theirs]
+                value = (1 - self.robust) * sum(values) / len(values) + self.robust * min(values)
+                if best is None or value > best[0]:
+                    best = (value, four)
+            result = best
+        self._finished[key] = result
+        return result
+
+    def _finished_adjusted(self, us: list[int], them: list[int], include: int | None = None) -> tuple[float, tuple[int, ...]]:
+        """``finished`` with the per-card table (``card_adjust``, draft_card_adjust_w > 0): each four-against-four
+        value gains the sum of a_us over our four and of a_them over their four, before the mean / worst blend; the
+        six-against-six fallback gains both six sums. Their likeliest fours are still ranked by Board.score4 against
+        our six (plus the sleep reach) exactly as in ``finished``: the table changes what a four is worth to us, not
+        which fours they bring."""
+        key = (tuple(sorted(us)), tuple(sorted(them)), include)
+        cached = self._finished.get(key)
+        if cached is not None:
+            return cached
+        a_us, a_them = self.card_adjust
+        if not self.four_eval or len(us) < 4 or len(them) < 4:
+            result = (self.board.score(us, them) + sum(a_us[i] for i in us) + sum(a_them[j] for j in them), tuple(us))
+        else:
+            score4, holes, hole_w = self.board.score4, self.board.holes, self.hole_w
+            sleep_w, reach = self.sleep_w if self.board.sleepers else 0.0, self.board.sleep_reach
+            theirs = sorted(combinations(them, 4), key=lambda g: -(score4(list(g), us) + sleep_w * reach(list(g), us)))[: self.their_fours]
+            theirs = [list(g) for g in theirs]
+            their_adjust = [sum(a_them[j] for j in g) for g in theirs]
+            best: tuple[float, tuple[int, ...]] | None = None
+            for four in combinations(us, 4):
+                if include is not None and include not in four:
+                    continue
+                f = list(four)
+                our_adjust = sum(a_us[i] for i in f)
+                values = [score4(f, g) - sleep_w * reach(g, f) - hole_w * (len(holes(f, g)) - len(holes(g, f))) + our_adjust + t
+                          for g, t in zip(theirs, their_adjust)]
                 value = (1 - self.robust) * sum(values) / len(values) + self.robust * min(values)
                 if best is None or value > best[0]:
                     best = (value, four)
@@ -1038,13 +1162,15 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
     we_first = picks_made in FIRST_SLOTS  # it is our turn, so the slot says which drafter we are
     order = pick_order(picks_made, we_first)
     support_w = float(P.get("draft_support_w", 0.0))  # > 0: the search sees support-blunted answers (SupportView)
+    adjust_w = float(P.get("draft_card_adjust_w", 0.0))  # > 0: per-card corrections in the finished-draft value
+    card_adjust = card_adjust_table().vectors(board, adjust_w) if adjust_w > 0 else None
     search = DraftSearch(SupportView(board, support_w) if support_w > 0 else board,
                          lookahead=int(P.get("draft_lookahead", 3)), minimax=P.get("draft_minimax", 0.5),
                          reply_depth=int(P.get("draft_reply_depth", 1)), counter_replies=int(P.get("draft_counter_replies", 3)),
                          counter_prior=float(P.get("draft_counter_prior", 0.0)),
                          four_eval=bool(P.get("draft_four_eval", 1)), their_fours=int(P.get("draft_their_fours", 3)),
                          robust=float(P.get("lineup_v2_robust", 0.25)), hole_w=float(P.get("draft_hole_w", 0.0)),
-                         sleep_w=float(P.get("draft_sleep_w", 0.0)))
+                         sleep_w=float(P.get("draft_sleep_w", 0.0)), card_adjust=card_adjust)
     # Our first two picks also read the pool itself (first_pick_bonus): full weight on the first, half on the second.
     policy_w = first_pick_policy_w(memory, P)
     team = tuple(board.units[k].species for k in us)  # for the first-pick table's pair entries
@@ -1072,6 +1198,8 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
             notes.append(f"beats {answered[:3]}")
         if support_w > 0:
             notes.extend(support_notes(board, i, us, them))
+        if adjust_w > 0:
+            notes.append(card_adjust_note(adjust_w, me.species))
         # Sleep (Board.sleep_reach; draft_sleep_w): their sleep-move users this card cannot be slept by, and ours.
         proof_vs = [board.units[j].species for j in them if board.sleep_r[j] and board.proof[j][i]]
         if proof_vs:
