@@ -156,6 +156,7 @@ def test_the_mixture_payload_stays_inside_the_ops_budget(tmp_path, monkeypatch):
     # table's duplicate rows and implausible replies; the default scorer's payload is 15,350)
     from tests import test_reliability_f as R
 
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 1.0)  # the shipped default is 0 (Oct 10)
     monkeypatch.setitem(tuning.DEFAULTS, "reply_seed", 7.0)
     agent, sheet, template, build = R._position(R.MATCH_BCBAABE2, 0, 13)
     provider = R._FakeProvider(R._turn_answer(row=0), R._turn_answer(row=0))
@@ -187,6 +188,7 @@ def test_a_restarted_agent_sees_the_same_mixture(monkeypatch, tmp_path):
     from agent.pokemon import replies
     from tests import test_reliability_f as R
 
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 1.0)  # the shipped default is 0 (Oct 10)
     monkeypatch.setitem(tuning.DEFAULTS, "reply_seed", 7.0)
     monkeypatch.setattr(replies, "_lambda", lambda memory, ctx, cols, prior: 0.3)
     monkeypatch.setattr(replies, "opponent_class", lambda memory: "search")

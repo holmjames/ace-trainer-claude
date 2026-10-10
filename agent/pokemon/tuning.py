@@ -109,7 +109,7 @@ DEFAULTS: dict[str, float] = {
     "protect_aimed_risk": 0.62,    # with protect_prior_rows: the Protect rate of a foe facing our KO that one of our single-target moves aimed at last turn (4/6 pooled)
     "ko_threat_w": 0.5,            # KO bonus scales by the threat removed (its best action into us, in damage points) x this (Oct 8)
     "exposure_w": 1.0,             # charge for the EXTRA KO risk a move creates for its user (stat drops, recoil, Glaive Rush) x its value
-    "reply_mixture": 1.0,          # 1 = rank candidates by the reply mixture (agent/pokemon/replies.py); 0 = the scorer above. On since Oct 9 (paired simulator A/B vs the search bot's newest version at its 15 s preview)
+    "reply_mixture": 0.0,          # 1 = rank candidates by the reply mixture (agent/pokemon/replies.py); 0 = the scorer above. Off for the Oct 10 deploy: its simulator gain is not yet significant and the model-facing path (override gate, speed control) needs work first
     "reply_seed": 0.0,             # the mixture's tie-break seed: 0 = a secret per-match seed (logged), else this value (tests, replays)
     "reply_worst_w": 0.15,         # the mixture's risk aversion: the row's worst plausible reply weighted into its value
     "reply_floor_margin": 100.0,   # never a row whose worst plausible reply trails the best worst case by more than this (one Pokémon)

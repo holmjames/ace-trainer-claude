@@ -484,7 +484,8 @@ SPEED_CONTROL_ROLES = frozenset({"tailwind", "trickroom", "speed_drop"})
 BEATS_MARGIN = 0.2
 
 # A first-pick table (log-odds, the search value's unit), for calibrating the policy from simulator series without
-# touching the search: data/first_pick_adjust.json ships all zeros, which is the policy exactly as before. Sections:
+# touching the search: all zeros is the policy exactly as before; data/first_pick_adjust.json ships two entries
+# (Archaludon, by draft order, Oct 10). Sections:
 # "adjust" (species -> log-odds, either draft order), "adjust_we_first" / "adjust_they_first" (added in that order
 # only), and "pairs" ("A + B" -> log-odds, added to B at our second pick when A is our first pick, and vice versa:
 # the Oct 9 series analysis found a pair of picks losing where each card alone did not). Every entry follows the
@@ -605,7 +606,7 @@ def first_pick_bonus(board, c: int, pool: list[int], params: dict, *, we_first: 
              + float(params.get("draft_first_scarcity_w", 0.0)) * t["scarcity"]
              - float(params.get("draft_first_exposure_w", 0.0)) * t["exposure"] / 6.0
              + float(params.get("draft_first_guard_w", 0.0)) * t["guard"])
-    if t["adjust"]:  # the shipped table is all zeros: the sum above is then the bonus, bit for bit
+    if t["adjust"]:  # with an all-zeros table the sum above is the bonus, bit for bit
         bonus += float(params.get("draft_first_adjust_w", 0.0)) * t["adjust"]
     return bonus, t
 
