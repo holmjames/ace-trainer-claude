@@ -80,6 +80,49 @@ _ROW_BULLETS_ROWS_ONLY = (
 )
 
 
+# prompt_v2 (model audit R2): DOUBLE-TARGET is a risk, not a forecast; three lessons from live games lead the lessons.
+_PROTECT_LINE = "The Protect procedure, in this order, for a slot under a LETHAL, EXPOSED or DOUBLE-TARGET warning:\n"
+_PROTECT_LINE_V2 = ("The Protect procedure, in this order, for a slot under a LETHAL or EXPOSED warning. DOUBLE-TARGET alone is a "
+                    "risk, not a forecast (both foes must pick that slot): cover it only when row 0 does.\n")
+_LESSONS_HEADER = "Lessons from overrides that lost (Oct 8):\n"
+_LESSONS_HEADER_V2 = (
+    "Lessons from live games:\n"
+    "- Leaving row 0 to attack where it Protects or switches paid off when our hit lands first and KOs the threat, or when no "
+    "LETHAL warning names that slot.\n"
+    "- Adding a Protect or a switch that row 0 does not make lost more than it saved: their attacks often went to the other slot "
+    "or hit the switch-in. Add one only for a slot a LETHAL warning names, and keep the other slot's action.\n"
+    "- Moving an attack from row 0's target to a foe that can Protect or switch out lost more than it gained.\n"
+)
+# prompt_v2 (model audit R5): opponent_prediction in the code's own words (agent/pokemon/opponent.py SETUP_MOVES).
+_PREDICTION_BULLET = ("- opponent_prediction: what you expect each of their slots to do this turn (their_slot_1 / their_slot_2: "
+                      "attack, protect, switch, setup, fakeout, none) and why, in one clause.\n")
+_PREDICTION_BULLET_V2 = (
+    "- opponent_prediction: what you expect each of their slots to do this turn, in the code's words, and why in one clause. "
+    "attack = a damaging move, spread moves included. setup = Tailwind, Trick Room, Icy Wind, Electroweb, Snarl, Reflect, Light "
+    "Screen, or a stat boost (Nasty Plot, Calm Mind, Swords Dance, Dragon Dance, Bulk Up, Quiver Dance). fakeout = Fake Out on "
+    "its first turn out. protect = Protect or Detect. switch = it leaves the field. none = no action. Predict switch when that "
+    "Pokémon faces our likely KO, cannot Protect (it just did) and has a Pokémon seen in back that resists our hit.\n"
+)
+
+# prompt_kb (model audit R4): general mechanics the turn sheet does not spell out, each tied to a live error. Checked
+# against the repo's mechanics (data/moves.json priorities, data.POWDER_MOVES, battle.py's Multiscale / Stamina /
+# Glaive Rush / grounded rules, preview_sim's screen turns): the audit's "for five turns" is eight from a Light Clay
+# holder (two of the catalog's three screen setters hold one), and Prankster screens beat only our attacks without
+# priority. No opponent or player is named; item 10 is a rate over all reviewed games.
+KNOWLEDGE_BASE = """Battle reference (level 50 doubles, no Terastallization). Facts the turn sheet does not spell out:
+1. Fake Out (+3 priority) works only on the user's first turn on the field and flinches one target. Ghost types are immune. Inner Focus, Shield Dust and Covert Cloak stop the flinch. Psychic Terrain blocks it into a grounded target. A FRESH Fake Out user tends to aim at the slot whose action matters most: do not make that slot carry the turn's key KO.
+2. Priority that KOs removes the attacker before it moves: Extreme Speed (+2), Sucker Punch (+1; fails if the target is not attacking or has already moved), Ice Shard and Aqua Jet (+1), Grassy Glide (+1 in Grassy Terrain). A priority hit that does not KO stops nothing.
+3. A single-target hit lands on whoever is in the slot when it resolves: a switch-in takes every hit aimed at that slot, plus Spikes if it is grounded. Choose a switch-in by the hits aimed at that slot this turn.
+4. U-turn and Volt Switch hit, then the user leaves: a slower hit aimed at it lands on the newcomer. If Protect blocks the U-turn, the user stays in.
+5. Earthquake also hits your ally. Flying types, Levitate and Air Balloon ignore Ground moves. Any damaging hit pops an Air Balloon; after that, Ground moves land.
+6. A sleeping Pokémon cannot be put to sleep again. While their sleep user is active, keeping the sleeper in leaves the sleep move one target; switching it out hands the sleep move a fresh one. Grass types, Overcoat and Safety Goggles ignore Spore and Rage Powder.
+7. Multiscale halves damage at full HP; any chip removes it. Stamina raises Defense one stage per hit taken, and every hit of a multi-hit move counts.
+8. After Glaive Rush, until its next turn, the user takes double damage and every move hits it.
+9. Intimidate lowers both foes' Attack one stage on entry. Reflect and Light Screen cut that category's damage to about two thirds in doubles, for five turns (eight from a Light Clay holder); Prankster sets them before your attacks that lack priority.
+10. In reviewed games, a slot left in under LETHAL with no escape fell 4 times in 5; under DOUBLE-TARGET alone, 1 time in 28. A LETHAL threat went into the warned slot about half the time."""
+_LAST_LINE = "\n\nAnswer only in the required JSON."
+
+
 def _on(params: Mapping[str, Any] | None, key: str) -> bool:
     try:
         return float((params or {}).get(key, 0.0) or 0.0) > 0
@@ -95,11 +138,19 @@ def _swap(text: str, old: str, new: str) -> str:
 
 def system_prompt(params: Mapping[str, Any] | None = None) -> str:
     """The battle system prompt for these tuning params. ``answer_rules_v2`` with ``reply_mixture``: the row and override
-    bullets of model audit R1 (rows only; the lower-row margin is ``row_margin_points``)."""
+    bullets of model audit R1 (rows only; the lower-row margin is ``row_margin_points``). ``prompt_v2``: R2's Protect
+    procedure line and lessons from live games, R5's opponent_prediction vocabulary. ``prompt_kb``: R4's battle
+    reference (KNOWLEDGE_BASE) before the last line."""
     text = SYSTEM_PROMPT
     if _on(params, "answer_rules_v2") and _on(params, "reply_mixture"):
         margin = float((params or {}).get("row_margin_points", 50.0))
         text = _swap(text, _ROW_BULLETS, _ROW_BULLETS_ROWS_ONLY.format(margin=f"{margin:g}"))
+    if _on(params, "prompt_v2"):
+        text = _swap(text, _PROTECT_LINE, _PROTECT_LINE_V2)
+        text = _swap(text, _LESSONS_HEADER, _LESSONS_HEADER_V2)
+        text = _swap(text, _PREDICTION_BULLET, _PREDICTION_BULLET_V2)
+    if _on(params, "prompt_kb"):
+        text = _swap(text, _LAST_LINE, "\n\n" + KNOWLEDGE_BASE + _LAST_LINE)
     return text
 
 

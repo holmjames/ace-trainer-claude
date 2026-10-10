@@ -7,6 +7,8 @@
    max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1).
 4. recheck_v2 (off by default): no DOUBLE-TARGET triggers; LETHAL / EXPOSED fire only where row 0 covers that slot;
    the message sends the model back to row 0 (model audit R3, readiness item 10).
+5. prompt_v2 and prompt_kb (off by default): the audit's R2 and R5 prompt text and its R4 knowledge base, checked
+   against the mechanics data; the defaults send the Oct 10 deploy's prompt and payload byte for byte.
 
 Positions are replayed from the live captures (tests/fixtures/live/) through a code-only agent; the model is a scripted
 fake or absent. No test calls a model.
@@ -491,3 +493,67 @@ def test_recheck_v2_still_sends_back_an_attack_that_leaves_row_0s_protect_7ce710
     message, info, _ = _recheck_at("7ce71025", 0, 1, 1, V2)
     assert message and "slot 0 attacks with headlongrush although: EXPOSED" in message
     assert "otherwise choose row 0. Row 0 takes that slot out of the line of fire: row 0 protect_threatened: slot 0 option 3 (protect)" in message
+
+
+# -- 5. prompt_v2 and prompt_kb: the audit's prompt text and knowledge base (model audit R2, R4, R5) -----------------------
+
+
+def test_prompt_v2_makes_double_target_a_risk_leads_with_the_live_lessons_and_defines_the_prediction_words():
+    from agent.pokemon.prompts import SYSTEM_PROMPT, system_prompt
+
+    text = system_prompt(tuning.merged({"prompt_v2": 1}))
+    assert ("The Protect procedure, in this order, for a slot under a LETHAL or EXPOSED warning. DOUBLE-TARGET alone is a risk, "
+            "not a forecast (both foes must pick that slot): cover it only when row 0 does.\n1. A priority escape THAT KOS") in text
+    assert "for a slot under a LETHAL, EXPOSED or DOUBLE-TARGET warning" not in text
+    lessons = text[text.index("Lessons from live games:\n"):text.index("\n\nAnswer only in the required JSON.")].splitlines()
+    assert lessons[1].startswith("- Leaving row 0 to attack where it Protects or switches paid off")
+    assert lessons[2].startswith("- Adding a Protect or a switch that row 0 does not make lost more than it saved")
+    assert lessons[3] == "- Moving an attack from row 0's target to a foe that can Protect or switch out lost more than it gained."
+    old = SYSTEM_PROMPT[SYSTEM_PROMPT.index("Lessons from overrides that lost (Oct 8):\n"):SYSTEM_PROMPT.index("\n\nAnswer only")].splitlines()
+    assert lessons[4:] == old[1:] and "Lessons from overrides that lost" not in text  # the existing lessons follow, unchanged
+    assert ("- opponent_prediction: what you expect each of their slots to do this turn, in the code's words, and why in one clause. "
+            "attack = a damaging move, spread moves included. setup = Tailwind, Trick Room, Icy Wind, Electroweb, Snarl, Reflect") in text
+    assert "Predict switch when that Pokémon faces our likely KO, cannot Protect (it just did) and has a Pokémon seen in back" in text
+    assert "(their_slot_1 / their_slot_2: attack, protect, switch, setup, fakeout, none)" not in text
+    # the setup words are the code's own (the code predicts setup for exactly these, plus the stat boosts named)
+    from agent.pokemon.opponent import SETUP_MOVES
+
+    named = {"tailwind", "trickroom", "icywind", "electroweb", "snarl", "reflect", "lightscreen", "nastyplot", "calmmind",
+             "swordsdance", "dragondance", "bulkup", "quiverdance"}
+    assert named == set(SETUP_MOVES)
+
+
+def test_prompt_kb_is_the_audits_ten_facts_checked_against_the_mechanics_data():
+    from agent.pokemon import data, preview_sim
+    from agent.pokemon.prompts import KNOWLEDGE_BASE, SYSTEM_PROMPT, system_prompt
+
+    text = system_prompt(tuning.merged({"prompt_kb": 1}))
+    assert text.endswith("\n\n" + KNOWLEDGE_BASE + "\n\nAnswer only in the required JSON.")
+    assert text.replace("\n\n" + KNOWLEDGE_BASE, "") == SYSTEM_PROMPT  # nothing else moves
+    assert len(KNOWLEDGE_BASE.split()) < 450 and [line[:3] for line in KNOWLEDGE_BASE.splitlines()[1:]] == [f"{i}. " for i in range(1, 10)] + ["10."]
+    # the facts against the repo's mechanics data
+    priority = {m: (data.move_info(m) or {}).get("priority") for m in ("fakeout", "extremespeed", "suckerpunch", "iceshard", "aquajet")}
+    assert priority == {"fakeout": 3, "extremespeed": 2, "suckerpunch": 1, "iceshard": 1, "aquajet": 1}
+    assert "Fake Out (+3 priority)" in KNOWLEDGE_BASE and "Extreme Speed (+2)" in KNOWLEDGE_BASE and "Ice Shard and Aqua Jet (+1)" in KNOWLEDGE_BASE
+    assert (data.move_info("earthquake") or {}).get("target") == "allAdjacent"  # "Earthquake also hits your ally"
+    assert {"spore", "ragepowder"} <= set(data.POWDER_MOVES)  # Grass types, Overcoat and Safety Goggles ignore both
+    assert (preview_sim.SCREEN_TURNS, preview_sim.LIGHT_CLAY_TURNS) == (5, 8) and "eight from a Light Clay holder" in KNOWLEDGE_BASE
+    by_id, _ = data._catalog()
+    assert any(c.get("item") == "Light Clay" and {"Reflect", "Light Screen"} & set(c.get("moves") or []) for c in by_id.values())
+    # general mechanics and behaviour only: no opponent, player or class is named
+    import re
+
+    assert not re.findall(r"\b(search\w*|bots?|llm|entrants?|players?|opponent_model)\b", KNOWLEDGE_BASE.lower())
+
+
+def test_the_arms_prompts_are_identical_on_every_call_and_the_defaults_stay_the_deploys():
+    """Arm C's system prompt (all four model-path keys on the mixture) is one text for the whole match: the first system
+    message of two decisions is byte-identical, and it carries all three changes."""
+    from agent.pokemon.prompts import KNOWLEDGE_BASE, system_prompt
+
+    arm_c = {**RULES, "recheck_v2": 1.0, "prompt_v2": 1.0, "prompt_kb": 1.0}
+    first, _ = _ask_at("bcbaabe2", 0, 13, arm_c, _answer(0))
+    second, _ = _ask_at("bcbaabe2", 0, 14, arm_c, _answer(0))
+    text = system_prompt(tuning.merged(arm_c))
+    assert first.calls[0][0] == second.calls[0][0] == {"role": "system", "content": text}
+    assert KNOWLEDGE_BASE in text and "Lessons from live games:" in text and "This build plays only listed rows" in text
