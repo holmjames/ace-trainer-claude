@@ -646,11 +646,12 @@ def first_pick_bonus(board, c: int, pool: list[int], params: dict, *, we_first: 
 # some cards win more, or less, than it credits, beside it. data/draft_card_adjust.json holds those corrections in its
 # unit, log-odds: "us", added when the card is in the four we would bring; "them", added (our-win log-odds) for each of
 # their considered fours that holds it, before the mean / worst blend. Archaludon is in neither section: the first-pick
-# policy and table carry it, and this table must not move it. With the key above 0, DraftSearch.finished adds key x
-# table to every four-against-four value, so the lookahead sees it at every leaf. The greedy rollouts (Board.score), the
-# fitted per-card strengths (Board.resid, data/draft_model.json), the first-pick policy and table, exposure, the
-# counter-picker and Team Preview never see it. Static repo data, the same for every opponent. 0 = the shipped draft,
-# bit for bit (the table is not even read).
+# policy and table carry it, and this table must not move it: where the table would lower the chance that the pick is
+# Archaludon, rank_picks_v2 ranks the decision without it (the Archaludon floor). With the key above 0,
+# DraftSearch.finished adds key x table to every four-against-four value, so the lookahead sees it at every leaf. The
+# greedy rollouts (Board.score), the fitted per-card strengths (Board.resid, data/draft_model.json), the first-pick
+# policy and table, exposure, the counter-picker and Team Preview never see it. Static repo data, the same for every
+# opponent. 0 = the shipped draft, bit for bit (the table is not even read).
 CARD_ADJUST_FILE = data.DATA_DIR / "draft_card_adjust.json"
 CARD_ADJUST_LIMIT = 0.5  # the largest |log-odds| an entry may hold
 CARD_ADJUST_EXCLUDED = frozenset({"archaludon"})  # species ids the table must never hold
@@ -708,10 +709,14 @@ def card_adjust_table(path: str | Path | None = None) -> CardAdjustTable:
     return table
 
 
-def card_adjust_note(w: float, species: str) -> str:
+def card_adjust_note(w: float, species: str | None) -> str:
     """The line every ranked card carries with ``draft_card_adjust_w`` = ``w`` > 0: the table's weight and size, this
-    card's entries, and a WARNING when the shipped file could not be used."""
+    card's entries (``species``; None: the head alone, for the Archaludon floor's line), and a WARNING when the shipped
+    file could not be used."""
     table = card_adjust_table()
+    head = f"card table (weight {w:g}, {table.entries()} entries)"
+    if species is None:
+        return head
     sid = data.to_id(species)
     parts = []
     if table.us.get(sid):
@@ -719,7 +724,7 @@ def card_adjust_note(w: float, species: str) -> str:
     if table.them.get(sid):
         parts.append(f"{table.them[sid]:+.2f} in theirs")
     error = _CARD_ADJUST_ERRORS.get(str(CARD_ADJUST_FILE))
-    return (f"card table (weight {w:g}, {table.entries()} entries): {species} {', '.join(parts) or 'no entry'}"
+    return (f"{head}: {species} {', '.join(parts) or 'no entry'}"
             + (f"; WARNING: the shipped table could not be used ({error}), so it counts as empty" if error else ""))
 
 
@@ -1135,10 +1140,61 @@ def _drafted_ids(memory: MatchMemory) -> set[str]:
 
 def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params: dict | None = None) -> list[ScoredCard]:
     """Every offered card, best first, valued by the rest-of-draft lookahead (what ``choose_pick_v2`` chooses from;
-    draft-only replays and tests read the whole ranking). Empty when nothing offered is a known card."""
+    draft-only replays and tests read the whole ranking). Empty when nothing offered is a known card.
+
+    The Archaludon floor (``draft_card_adjust_w`` > 0 only): when Archaludon is offered, the decision is ranked a
+    second time without the per-card table, and if the table would lower the chance that the pick is Archaludon
+    (its share of ``seed_window``: a sole leader pushed into a shared tie window, or a window member pushed out), the
+    ranking without the table is the answer, every card noting why. The table may still raise that chance."""
+    P = params or DEFAULTS
+    ranked = _rank_picks_v2(legal_actions, memory, P)
+    if float(P.get("draft_card_adjust_w", 0.0)) <= 0 or not any(_card_adjust_protected(s) for s in ranked):
+        return ranked
+    plain = _rank_picks_v2(legal_actions, memory, {**P, "draft_card_adjust_w": 0.0})
+    before, after = protected_chance(plain, P), protected_chance(ranked, P)
+    if after >= before:
+        return ranked
+    note = (card_adjust_note(float(P["draft_card_adjust_w"]), None) + f": set aside at this pick (Archaludon floor): it would "
+            f"lower the chance the pick is Archaludon from {100 * before:.0f}% to {100 * after:.0f}%, so the cards are "
+            "ranked without it")
+    for card in plain:
+        card.notes.append(note)
+    return plain
+
+
+def seed_window(ranked: list[ScoredCard], P: dict) -> list[ScoredCard]:
+    """The cards of ``ranked`` that ``choose_pick_v2``'s secret seed draws among, each equally likely: those within
+    ``draft_tiebreak_eps`` win chance of the best score (``tiebreak``), cut to the fewest-exposure ones when
+    ``draft_tiebreak_exposure`` > 0 (``tiebreak_exposure``); the best alone at eps 0."""
     from . import matchup
 
-    P = params or DEFAULTS
+    if not ranked:
+        return []
+    eps = float(P.get("draft_tiebreak_eps", 0.0))
+    if eps <= 0:
+        return [ranked[0]]
+    top = matchup.win_probability(max(s.score for s in ranked))
+    tied = [s for s in ranked if top - matchup.win_probability(s.score) <= eps]
+    if float(P.get("draft_tiebreak_exposure", 0.0)) > 0:
+        fewest = min(s.exposure for s in tied)
+        tied = [s for s in tied if s.exposure == fewest]
+    return tied
+
+
+def _card_adjust_protected(card: ScoredCard) -> bool:
+    return data.to_id(card.species) in CARD_ADJUST_EXCLUDED
+
+
+def protected_chance(ranked: list[ScoredCard], P: dict) -> float:
+    """The chance that the pick from ``ranked`` is a card the per-card table must not move (Archaludon)."""
+    window = seed_window(ranked, P)
+    return sum(map(_card_adjust_protected, window)) / len(window) if window else 0.0
+
+
+def _rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, P: dict) -> list[ScoredCard]:
+    """``rank_picks_v2`` before the Archaludon floor."""
+    from . import matchup
+
     offered = [(a, memory.pool_cards.get(card_id_of(a))) for a in legal_actions
                if a.action_id.startswith(PREFIX) or "draft" in a.action_id]
     offered = [(a, c) for a, c in offered if c]

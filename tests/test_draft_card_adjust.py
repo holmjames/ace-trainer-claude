@@ -160,7 +160,8 @@ def test_an_empty_table_at_the_key_values_every_pick_exactly_as_key_zero(monkeyp
         values.clear()
         b = draft.rank_picks_v2(state.legal_actions, memory, on)
         vb = [p.value for p in values]
-        assert va == vb  # bit for bit
+        offered = {(memory.pool_cards.get(draft.card_id_of(x)) or {}).get("species") for x in state.legal_actions}
+        assert vb == (va + va if "Archaludon" in offered else va)  # bit for bit (the Archaludon floor ranks twice)
         assert [(s.species, s.score, s.exposure, s.notes) for s in a] == \
                [(s.species, s.score, s.exposure, [n for n in s.notes if not n.startswith("card table")]) for s in b]
 
@@ -284,9 +285,8 @@ def test_team_preview_never_sees_the_key():
 @needs_data
 def test_archaludon_keeps_its_place_at_our_first_pick_on_the_live_drafts():
     """Where Archaludon tops our first pick's ranking on the live drafts, it still does with the key on (with and without
-    the support key; four of the 14 such live decisions, both draft orders). The table holds no Archaludon entry. (One
-    of the 14, 7551b7da seat 1 with the support key, keeps Archaludon on top by 0.001 and so shares the tie window
-    with Gholdengo: the pinned simulator A/B's Archaludon rule is the check that counts.)"""
+    the support key; four of the 14 such live decisions, both draft orders). The table holds no Archaludon entry. The
+    Archaludon floor tests below cover every live decision that offers it, at every pick."""
     for session, seat in (("0a2b7c2a", 0), ("51c86e5c", 0), ("07a3cb1f", 1), ("bcbaabe2", 0)):  # we first x2, they first x2
         name, state, memory = next(live_decisions(session, seat))  # our first pick
         for off_p, on_p in ((tuning.DEFAULTS, ON), (SUPPORT, SUPPORT_ON)):
@@ -296,3 +296,100 @@ def test_archaludon_keeps_its_place_at_our_first_pick_on_the_live_drafts():
 
 def test_a_legal_action_list_without_known_cards_is_untouched_by_the_key():
     assert draft.rank_picks_v2([LegalAction("draft_pick:x", "Draft x", {})], MatchMemory(), ON) == []
+
+
+# -- the Archaludon floor ---------------------------------------------------------------------------------------------------
+#
+# The table holds no Archaludon entry, yet the cards it raises (and the denial it adds) can still outbid Archaludon where
+# the search bot never leaves it to us (they drafted first, or our second pick on) and so where the simulator A/B cannot
+# see it, but live opponents can (draft lane 8 review: 34 of the 132 live decisions offer it, 27 of them at such picks).
+
+
+def seed_chance(ranked, P, species="Archaludon"):
+    """The chance that choose_pick_v2's secret seed takes ``species`` from ``ranked``: its share of the tie window
+    (cards within draft_tiebreak_eps win chance of the best score; written out here, independent of draft.py)."""
+    eps = float(P.get("draft_tiebreak_eps", 0.0))
+    top = matchup.win_probability(ranked[0].score)
+    window = [s.species for s in ranked if top - matchup.win_probability(s.score) <= eps] if eps > 0 else [ranked[0].species]
+    return window.count(species) / len(window)
+
+
+def archaludon_decisions():
+    """Every live draft decision that offers Archaludon (seat by seat, in pick order, one memory per seat)."""
+    for folder in sorted(p for p in LIVE.iterdir() if p.is_dir()):
+        for seat in (0, 1):
+            if not list(folder.glob(f"draft-*-seat{seat}.json")):
+                continue
+            for name, state, memory in live_decisions(folder.name, seat):
+                offered = {(memory.pool_cards.get(draft.card_id_of(a)) or {}).get("species") for a in state.legal_actions}
+                if "Archaludon" in offered:
+                    yield f"{folder.name[:8]} s{seat} our pick {len(memory.my_cards) + 1}", state, memory
+
+
+@needs_data
+@pytest.mark.parametrize("off, on", [(tuning.DEFAULTS, ON), (SUPPORT, SUPPORT_ON)], ids=["support 0", "support 0.25"])
+def test_the_table_never_lowers_archaludons_chance_on_the_live_drafts(off, on):
+    """On every live decision that offers Archaludon, both draft orders and every pick: the chance the pick is
+    Archaludon with the table on is at least its chance without it. A sole leader stays the sole leader (no
+    table-made tie window), a window member stays in the window, and the table may still raise it (1aef9227 below).
+    Before the floor: 07a3cb1f s1 and 48f23a42 s0 lost it outright (support 0), and 7551b7da s1 shared its window
+    (support 0.25)."""
+    seen, lowered = 0, []
+    for where, state, memory in archaludon_decisions():
+        a = draft.rank_picks_v2(state.legal_actions, memory, off)
+        b = draft.rank_picks_v2(state.legal_actions, memory, on)
+        pa, pb = seed_chance(a, off), seed_chance(b, on)
+        if pb < pa:
+            lowered.append((where, pa, pb, [(s.species, s.score) for s in b[:3]]))
+        seen += 1
+    assert seen >= 34  # the 20 live drafts' Archaludon decisions
+    assert lowered == []
+
+
+@needs_data
+def test_where_the_floor_holds_the_pick_is_ranked_without_the_table():
+    """Live 7551b7da seat 1, our first pick after they drafted first, with the support key: without the table
+    Archaludon leads alone; with it, Gholdengo comes within the tie window (the seed would pass Archaludon half the
+    time). The floor ranks this decision without the table, bit for bit, and every card says why."""
+    name, state, memory = next(live_decisions("7551b7da", 1))
+    assert not memory.my_cards and memory.opp_cards
+    off = draft.rank_picks_v2(state.legal_actions, memory, SUPPORT)
+    assert off[0].species == "Archaludon" and seed_chance(off, SUPPORT) == 1.0
+    on = draft.rank_picks_v2(state.legal_actions, memory, SUPPORT_ON)
+    assert [(s.species, s.score, s.exposure) for s in on] == [(s.species, s.score, s.exposure) for s in off]
+    for s_on, s_off in zip(on, off):
+        lines = [n for n in s_on.notes if n.startswith("card table")]
+        assert len(lines) == 1 and "Archaludon floor" in lines[0] and "100% to 50%" in lines[0], lines
+        assert [n for n in s_on.notes if not n.startswith("card table")] == s_off.notes
+
+
+@needs_data
+def test_the_floor_keeps_what_the_table_gives_archaludon():
+    """Live 1aef9227 seat 0, our second pick (they drafted first): without the table the search takes Sylveon and
+    Archaludon is outside the window; with it Archaludon is the pick. The floor stops losses only."""
+    name, state, memory = next(d for d in live_decisions("1aef9227", 0) if len(d[2].my_cards) == 1)
+    off = draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS)
+    assert off[0].species == "Sylveon" and seed_chance(off, tuning.DEFAULTS) == 0.0
+    on = draft.rank_picks_v2(state.legal_actions, memory, ON)
+    assert on[0].species == "Archaludon" and seed_chance(on, ON) == 1.0
+    assert not any("Archaludon floor" in n for s in on for n in s.notes)
+
+
+@needs_data
+def test_the_floor_ranks_a_second_time_only_where_archaludon_is_offered(monkeypatch):
+    calls = []
+    original = draft.DraftSearch.__init__
+
+    def init(self, board, **kwargs):
+        calls.append(kwargs.get("card_adjust") is not None)
+        original(self, board, **kwargs)
+
+    monkeypatch.setattr(draft.DraftSearch, "__init__", init)
+    kinds = set()
+    for where, state, memory in live_decisions("7551b7da", 1):  # Archaludon is offered at our first pick only
+        offered = "Archaludon" in {(memory.pool_cards.get(draft.card_id_of(a)) or {}).get("species") for a in state.legal_actions}
+        calls.clear()
+        draft.rank_picks_v2(state.legal_actions, memory, ON)
+        assert calls == ([True, False] if offered else [True]), (where, calls)  # one search with the table, one without
+        kinds.add(offered)
+    assert kinds == {True, False}
