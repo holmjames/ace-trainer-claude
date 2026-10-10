@@ -15,22 +15,89 @@ same process could read:
 - preview_sim._CALC: pure values, but a warm memo lets the deadline-bound deep Team Preview run more rollouts than the
   fresh process the runtime gives the match.
 
-agent/pokemon/match_state.py empties the last three where a match's memory is created (PokemonAgent); the caches that
-are pure functions of their keys stay. Every test here fails on 81c4591 except one guard: a match starting while
-another is live leaves that match's seed alone.
+agent/pokemon/match_state.py empties _DUELS, _BOARDS, _SUPPORT_PAIRS and _CALC where a match's memory is created
+(PokemonAgent); the caches that are pure functions of their keys stay. Every test here fails on 81c4591 except two guards: a match starting while
+another is live leaves that match's seed alone, and the caches kept across matches come out of a match unchanged.
 """
 
 from __future__ import annotations
 
+import copy
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
+
+from altruagent import DecisionContext
+from altruagent.models import GameState
 
 from agent.agent import PokemonAgent
 from agent.pokemon import data, draft, matchup, preview_sim, tuning
 from agent.pokemon.memory import MatchMemory
+from test_live_semantics import LIVE, _sequence
+
+ROOT = Path(__file__).resolve().parent.parent
+SEED = 0x5EED5EED5EED  # pinned on the match memory, as the replay tools do: every run draws the same tie-breaks
+TIMING = re.compile(r"in \d+(\.\d+)?s|\d+ rollouts|\d+ rounds")
+# What the decision log keeps of each decision: the play and everything a reader or the model sees around it.
+# Left out: timestamps, latencies, the clock, and the opponent's measured think time (our own wall clock feeds it).
+KEEP = {
+    "draft": ("card_id", "species", "score", "notes", "offered"),
+    "lineup": ("payload", "candidates", "preview_table"),
+    "turn": ("payload", "turn_sheet", "battle_roster", "code_prediction", "opponent_prediction", "win_condition", "last_turns"),
+}
+FIRST, SECOND = ("6ce0b81e", 0), ("93a98b6f", 0)  # the Oct 10 audit's pair: the first caches Grimmsnarl / Sylveon the other way
 
 
 def _agent(**kw) -> PokemonAgent:
     return PokemonAgent(None, capture_dir="", log=lambda *_: None, **kw)
+
+
+def _untimed(value):
+    if isinstance(value, str):
+        return TIMING.sub("<t>", value)
+    if isinstance(value, list):
+        return [_untimed(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _untimed(v) for k, v in value.items()}
+    return value
+
+
+def replay_match(session8: str, seat: int, log_dir: str) -> list[dict]:
+    """Every decision of one captured live match, played through a brand-new agent (the runtime's create_agent(), code
+    only, the deep Team Preview off), as the decision log records it."""
+    folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(session8))
+    agent = _agent(version="match-state", log_dir=log_dir, params=tuning.merged({"lineup_sim_budget_s": 0.0}))
+    agent.memory.tiebreak_seed = SEED
+    for path in _sequence(folder, seat):
+        raw = json.loads(path.read_text())
+        state = GameState.from_mcp_state(raw)
+        if not state.legal_actions:
+            continue
+        agent.choose_action(state, DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
+                                                   agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=seat))
+    rows = [json.loads(line) for f in sorted(Path(log_dir).glob("*.jsonl")) for line in f.read_text().splitlines() if line.strip()]
+    return [{"kind": r["kind"], **{k: _untimed(r.get(k)) for k in KEEP[r["kind"]]}} for r in rows if r.get("kind") in KEEP]
+
+
+def _new_process(matches: list[tuple[str, int]], log_root: Path) -> list[list[dict]]:
+    """``replay_match`` for each of ``matches``, one after another, in ONE new Python process. Several matches: a
+    long-lived process meeting them in order; one match: the runtime's spawn-per-match worker."""
+    code = ("import json, sys; sys.path[:0] = sys.argv[1:3]; import agent, test_match_state as t; "
+            "games = [(a.split(':')[0], int(a.split(':')[1])) for a in sys.argv[4:]]; "
+            "print(json.dumps({'agent': agent.__file__, 'matches': [t.replay_match(s, seat, f'{sys.argv[3]}/{s}-{seat}') for s, seat in games]}))")
+    proc = subprocess.run([sys.executable, "-c", code, str(ROOT), str(ROOT / "tests"), str(log_root), *[f"{s}:{seat}" for s, seat in matches]],
+                          cwd=ROOT, capture_output=True, text=True, timeout=600)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert Path(out["agent"]).resolve().is_relative_to(ROOT), out["agent"]  # the new process ran this tree's code
+    return out["matches"]
+
+
+def _canon(row: dict) -> str:
+    return json.dumps(row, sort_keys=True, default=str)
 
 
 def _card(species: str) -> dict:
@@ -129,3 +196,39 @@ def test_a_new_match_empties_the_per_match_caches_and_keeps_the_pure_ones():
     assert all(draft._SUPPORT_RESIST.get(k) is v for k, v in kept["resists"].items())
 
 
+# -- captured live matches: one process against fresh processes ----------------------------------------------------
+
+
+def test_two_live_matches_in_one_process_decide_as_two_fresh_processes(tmp_path):
+    """6ce0b81e then 93a98b6f (seat 0 each) in one process, against each alone in a new process: every draft, Team
+    Preview and battle decision, its scores, notes, candidates, rows and the model's view are the same. On 81c4591 the
+    second match's picks 4-6 came out with other values and notes in the long-lived process."""
+    long_lived = _new_process([FIRST, SECOND], tmp_path / "one-process")
+    fresh = [_new_process([match], tmp_path / f"fresh-{match[0]}")[0] for match in (FIRST, SECOND)]
+    for (session8, seat), mine, theirs in zip((FIRST, SECOND), long_lived, fresh):
+        assert mine and len(mine) == len(theirs), (session8, len(mine), len(theirs))
+        assert {r["kind"] for r in mine} == {"draft", "lineup", "turn"}
+        differ = [f"{a['kind']} #{i}: {[k for k in a if a[k] != b.get(k)]}" for i, (a, b) in enumerate(zip(mine, theirs))
+                  if _canon(a) != _canon(b)]
+        assert not differ, f"{session8} seat {seat}: {len(differ)} of {len(mine)} decisions differ from a fresh process: {differ[:6]}"
+
+
+def test_the_caches_kept_across_matches_come_out_of_a_match_unchanged(tmp_path):
+    """Guard (passes on 81c4591 too): the caches a new match keeps are pure only while no caller changes a cached
+    object, so a whole live match must leave every entry an earlier match left exactly as it was."""
+    replay_match(*FIRST, str(tmp_path / "first"))
+
+    def kept() -> dict[str, dict]:
+        return {"units": matchup._UNITS, "openings": matchup._OPENINGS, "models": matchup._MODEL_CACHE,
+                "tiers": matchup._TIERS_CACHE, "first-pick tables": draft._ADJUST_TABLES, "resists": draft._SUPPORT_RESIST,
+                "pokedex": data.pokedex(), "moves": data.moves(), "defaults": tuning.DEFAULTS}
+
+    before = {name: copy.deepcopy(dict(cache)) for name, cache in kept().items()}
+    catalog = copy.deepcopy(data._catalog())
+    assert before["units"] and before["openings"]
+    replay_match(*SECOND, str(tmp_path / "second"))
+    after = kept()
+    for name, entries in before.items():
+        changed = [k for k, v in entries.items() if k in after[name] and after[name][k] != v]
+        assert not changed, f"{name}: {len(changed)} cached entries changed during a match, e.g. {str(changed[0])[:120]}"
+    assert data._catalog() == catalog
