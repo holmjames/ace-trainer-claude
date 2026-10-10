@@ -645,13 +645,15 @@ def first_pick_bonus(board, c: int, pool: list[int], params: dict, *, we_first: 
 # finished draft (DraftSearch.finished at the 39f50af defaults, draft_support_w 0.25): that value is overconfident, and
 # some cards win more, or less, than it credits, beside it. data/draft_card_adjust.json holds those corrections in its
 # unit, log-odds: "us", added when the card is in the four we would bring; "them", added (our-win log-odds) for each of
-# their considered fours that holds it, before the mean / worst blend. Archaludon is in neither section: the first-pick
-# policy and table carry it, and this table must not move it: where the table would lower the chance that the pick is
-# Archaludon, rank_picks_v2 ranks the decision without it (the Archaludon floor). With the key above 0,
-# DraftSearch.finished adds key x table to every four-against-four value, so the lookahead sees it at every leaf. The
-# greedy rollouts (Board.score), the fitted per-card strengths (Board.resid, data/draft_model.json), the first-pick
-# policy and table, exposure, the counter-picker and Team Preview never see it. Static repo data, the same for every
-# opponent. 0 = the shipped draft, bit for bit (the table is not even read).
+# their considered fours that holds it, before the mean / worst blend. draft_card_adjust_w weighs "us" (our own play
+# with the card) and draft_card_adjust_them_w "them" (how well the search bot, the only opponent in those games, uses
+# it: another opponent may not). Archaludon is in neither section: the first-pick policy and table carry it, and this
+# table must not move it: where the table would lower the chance that the pick is Archaludon, rank_picks_v2 ranks the
+# decision without it (the Archaludon floor). With either key above 0, DraftSearch.finished adds key x table to every
+# four-against-four value, so the lookahead sees it at every leaf. The greedy rollouts (Board.score), the fitted
+# per-card strengths (Board.resid, data/draft_model.json), the first-pick policy and table, exposure, the
+# counter-picker and Team Preview never see it. Static repo data, the same for every opponent. Both keys 0 = the
+# shipped draft, bit for bit (the table is not even read).
 CARD_ADJUST_FILE = data.DATA_DIR / "draft_card_adjust.json"
 CARD_ADJUST_LIMIT = 0.5  # the largest |log-odds| an entry may hold
 CARD_ADJUST_EXCLUDED = frozenset({"archaludon"})  # species ids the table must never hold
@@ -662,15 +664,16 @@ class CardAdjustTable:
     us: dict[str, float] = field(default_factory=dict)  # species id -> log-odds when it is in our four
     them: dict[str, float] = field(default_factory=dict)  # species id -> our-win log-odds per considered four of theirs holding it
 
-    def entries(self) -> int:
-        """How many non-zero entries the table holds."""
-        return sum(1 for section in (self.us, self.them) for v in section.values() if v)
+    def entries(self, us: bool = True, them: bool = True) -> int:
+        """How many non-zero entries the table holds (in the sections asked for)."""
+        return sum(1 for on, section in ((us, self.us), (them, self.them)) if on for v in section.values() if v)
 
-    def vectors(self, board, w: float) -> tuple[list[float], list[float]]:
-        """(a_us, a_them) per index of ``board`` (or a SupportView of it: the indices are shared), times ``w``: what
-        DraftSearch takes as ``card_adjust``."""
+    def vectors(self, board, w: float, w_them: float | None = None) -> tuple[list[float], list[float]]:
+        """(a_us, a_them) per index of ``board`` (or a SupportView of it: the indices are shared), "us" times ``w`` and
+        "them" times ``w_them`` (default ``w``): what DraftSearch takes as ``card_adjust``."""
+        w_them = w if w_them is None else w_them
         ids = [data.to_id(u.species) for u in board.units]
-        return [w * self.us.get(s, 0.0) for s in ids], [w * self.them.get(s, 0.0) for s in ids]
+        return [w * self.us.get(s, 0.0) for s in ids], [w_them * self.them.get(s, 0.0) for s in ids]
 
 
 _CARD_ADJUST_TABLES: dict[str, CardAdjustTable] = {}
@@ -709,19 +712,27 @@ def card_adjust_table(path: str | Path | None = None) -> CardAdjustTable:
     return table
 
 
-def card_adjust_note(w: float, species: str | None) -> str:
-    """The line every ranked card carries with ``draft_card_adjust_w`` = ``w`` > 0: the table's weight and size, this
-    card's entries (``species``; None: the head alone, for the Archaludon floor's line), and a WARNING when the shipped
-    file could not be used."""
+def card_adjust_weights(P: dict) -> tuple[float, float]:
+    """(draft_card_adjust_w, draft_card_adjust_them_w): the weights of the table's "us" and "them" sections; the table
+    is on when either is above 0. A weight below 0 counts as 0."""
+    return max(0.0, float(P.get("draft_card_adjust_w", 0.0))), max(0.0, float(P.get("draft_card_adjust_them_w", 0.0)))
+
+
+def card_adjust_note(w: float, species: str | None, w_them: float | None = None) -> str:
+    """The line every ranked card carries with the table on: its weights (``w`` for "us", ``w_them`` for "them",
+    default ``w``) and the entries they reach, this card's entries (``species``; None: the head alone, for the
+    Archaludon floor's line), and a WARNING when the shipped file could not be used."""
+    w_them = w if w_them is None else w_them
     table = card_adjust_table()
-    head = f"card table (weight {w:g}, {table.entries()} entries)"
+    weights = f"weight {w:g}" if w == w_them else f"weights us {w:g}, them {w_them:g}"
+    head = f"card table ({weights}, {table.entries(us=w > 0, them=w_them > 0)} entries)"
     if species is None:
         return head
     sid = data.to_id(species)
     parts = []
-    if table.us.get(sid):
+    if w > 0 and table.us.get(sid):
         parts.append(f"{table.us[sid]:+.2f} in our four")
-    if table.them.get(sid):
+    if w_them > 0 and table.them.get(sid):
         parts.append(f"{table.them[sid]:+.2f} in theirs")
     error = _CARD_ADJUST_ERRORS.get(str(CARD_ADJUST_FILE))
     return (f"{head}: {species} {', '.join(parts) or 'no entry'}"
@@ -1142,19 +1153,20 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
     """Every offered card, best first, valued by the rest-of-draft lookahead (what ``choose_pick_v2`` chooses from;
     draft-only replays and tests read the whole ranking). Empty when nothing offered is a known card.
 
-    The Archaludon floor (``draft_card_adjust_w`` > 0 only): when Archaludon is offered, the decision is ranked a
-    second time without the per-card table, and if the table would lower the chance that the pick is Archaludon
+    The Archaludon floor (the per-card table on: ``card_adjust_weights``): when Archaludon is offered, the decision
+    is ranked a second time without the table, and if the table would lower the chance that the pick is Archaludon
     (its share of ``seed_window``: a sole leader pushed into a shared tie window, or a window member pushed out), the
     ranking without the table is the answer, every card noting why. The table may still raise that chance."""
     P = params or DEFAULTS
     ranked = _rank_picks_v2(legal_actions, memory, P)
-    if float(P.get("draft_card_adjust_w", 0.0)) <= 0 or not any(_card_adjust_protected(s) for s in ranked):
+    w_us, w_them = card_adjust_weights(P)
+    if not (w_us > 0 or w_them > 0) or not any(_card_adjust_protected(s) for s in ranked):
         return ranked
-    plain = _rank_picks_v2(legal_actions, memory, {**P, "draft_card_adjust_w": 0.0})
+    plain = _rank_picks_v2(legal_actions, memory, {**P, "draft_card_adjust_w": 0.0, "draft_card_adjust_them_w": 0.0})
     before, after = protected_chance(plain, P), protected_chance(ranked, P)
     if after >= before:
         return ranked
-    note = (card_adjust_note(float(P["draft_card_adjust_w"]), None) + f": set aside at this pick (Archaludon floor): it would "
+    note = (card_adjust_note(w_us, None, w_them) + f": set aside at this pick (Archaludon floor): it would "
             f"lower the chance the pick is Archaludon from {100 * before:.0f}% to {100 * after:.0f}%, so the cards are "
             "ranked without it")
     for card in plain:
@@ -1218,8 +1230,9 @@ def _rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, P: dic
     we_first = picks_made in FIRST_SLOTS  # it is our turn, so the slot says which drafter we are
     order = pick_order(picks_made, we_first)
     support_w = float(P.get("draft_support_w", 0.0))  # > 0: the search sees support-blunted answers (SupportView)
-    adjust_w = float(P.get("draft_card_adjust_w", 0.0))  # > 0: per-card corrections in the finished-draft value
-    card_adjust = card_adjust_table().vectors(board, adjust_w) if adjust_w > 0 else None
+    adjust_w, adjust_them_w = card_adjust_weights(P)  # either > 0: per-card corrections in the finished-draft value
+    adjust_on = adjust_w > 0 or adjust_them_w > 0
+    card_adjust = card_adjust_table().vectors(board, adjust_w, adjust_them_w) if adjust_on else None
     search = DraftSearch(SupportView(board, support_w) if support_w > 0 else board,
                          lookahead=int(P.get("draft_lookahead", 3)), minimax=P.get("draft_minimax", 0.5),
                          reply_depth=int(P.get("draft_reply_depth", 1)), counter_replies=int(P.get("draft_counter_replies", 3)),
@@ -1254,8 +1267,8 @@ def _rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, P: dic
             notes.append(f"beats {answered[:3]}")
         if support_w > 0:
             notes.extend(support_notes(board, i, us, them))
-        if adjust_w > 0:
-            notes.append(card_adjust_note(adjust_w, me.species))
+        if adjust_on:
+            notes.append(card_adjust_note(adjust_w, me.species, adjust_them_w))
         # Sleep (Board.sleep_reach; draft_sleep_w): their sleep-move users this card cannot be slept by, and ours.
         proof_vs = [board.units[j].species for j in them if board.sleep_r[j] and board.proof[j][i]]
         if proof_vs:

@@ -21,9 +21,12 @@ from agent.pokemon import data, draft, lineup, matchup, tuning
 from agent.pokemon.memory import MatchMemory, observation_dict
 
 W = 0.5  # the gate's weight
-ON = tuning.merged({"draft_card_adjust_w": W})
+BOTH = {"draft_card_adjust_w": W, "draft_card_adjust_them_w": W}  # the whole table: "us" and "them" at the gate's weight
+ON = dict(tuning.DEFAULTS, **BOTH)
 SUPPORT = tuning.merged({"draft_support_w": 0.25})  # the deploy #4 draft
-SUPPORT_ON = tuning.merged({"draft_support_w": 0.25, "draft_card_adjust_w": W})
+SUPPORT_ON = dict(SUPPORT, **BOTH)
+US_ONLY = dict(SUPPORT, draft_card_adjust_w=W)  # "us" alone (draft_card_adjust_them_w 0)
+THEM_ONLY = dict(SUPPORT, draft_card_adjust_them_w=W)  # "them" alone (draft_card_adjust_w 0)
 LIVE = Path(__file__).parent / "fixtures" / "live"
 CATALOG = {c["species"]: c for c in json.loads((data.DATA_DIR / "cards.json").read_text())} if (data.DATA_DIR / "cards.json").exists() else {}
 needs_data = pytest.mark.skipif(not CATALOG or not (data.DATA_DIR / "pokedex.json").exists(), reason="needs data/ tables")
@@ -61,6 +64,13 @@ def write(tmp_path: Path, body) -> Path:
 def test_the_key_ships_off():
     assert tuning.DEFAULTS["draft_card_adjust_w"] == 0.0
     assert ON["draft_card_adjust_w"] == W
+
+
+def test_the_them_key_ships_off_and_is_a_tuning_key():
+    """draft_card_adjust_them_w scales the "them" section on its own (draft lane 8 review: those entries say how
+    well the search bot uses each card, so another opponent may need a different weight); off by default."""
+    assert tuning.DEFAULTS["draft_card_adjust_them_w"] == 0.0
+    assert tuning.merged(BOTH)["draft_card_adjust_them_w"] == W
 
 
 # -- the data file ------------------------------------------------------------------------------------------------------
@@ -393,3 +403,84 @@ def test_the_floor_ranks_a_second_time_only_where_archaludon_is_offered(monkeypa
         assert calls == ([True, False] if offered else [True]), (where, calls)  # one search with the table, one without
         kinds.add(offered)
     assert kinds == {True, False}
+
+
+# -- the two halves: draft_card_adjust_w ("us") and draft_card_adjust_them_w ("them") ---------------------------------------
+
+
+@needs_data
+def test_each_weight_scales_only_its_own_section():
+    table = draft.CardAdjustTable(us={"kingambit": 0.4}, them={"whimsicott": 0.3})
+    board, at = board_of(*US, *THEM)
+    a_us, a_them = table.vectors(board, 0.5, 0.25)
+    assert a_us[at["Kingambit"]] == 0.2 and a_them[at["Whimsicott"]] == 0.075
+    assert a_us[at["Whimsicott"]] == 0.0 and a_them[at["Kingambit"]] == 0.0
+    assert table.vectors(board, 0.5, 0.0)[1] == [0.0] * board.n and table.vectors(board, 0.0, 0.5)[0] == [0.0] * board.n
+    assert table.vectors(board, 0.5) == table.vectors(board, 0.5, 0.5)  # one weight: both sections, as before
+
+
+def spy_card_adjust(monkeypatch):
+    seen = []
+    original = draft.DraftSearch.__init__
+
+    def init(self, board, **kwargs):
+        seen.append((board, kwargs.get("card_adjust")))
+        original(self, board, **kwargs)
+
+    monkeypatch.setattr(draft.DraftSearch, "__init__", init)
+    return seen
+
+
+@needs_data
+@pytest.mark.parametrize("params, w_us, w_them", [(US_ONLY, W, 0.0), (THEM_ONLY, 0.0, W), (SUPPORT_ON, W, W)],
+                         ids=["us only", "them only", "both"])
+def test_the_search_gets_each_section_at_its_own_weight(monkeypatch, params, w_us, w_them):
+    """Live 6ce0b81e seat 0 (no Archaludon offered, so one search per decision): the vectors handed to the search are
+    the table's sections at their own weights; equal weights give the single-weight vectors, float for float (the
+    first build's arm B)."""
+    table = draft.card_adjust_table()
+    seen = spy_card_adjust(monkeypatch)
+    for _, state, memory in live_decisions("6ce0b81e", 0):
+        seen.clear()
+        ranked = draft.rank_picks_v2(state.legal_actions, memory, params)
+        (board, card_adjust), = seen
+        ids = [data.to_id(u.species) for u in board.units]
+        assert card_adjust == ([w_us * table.us.get(s, 0.0) for s in ids], [w_them * table.them.get(s, 0.0) for s in ids])
+        if w_us == w_them:
+            assert card_adjust == table.vectors(board, W)
+        for pick in ranked:
+            line, = [n for n in pick.notes if n.startswith("card table")]
+            head = f"weight {W:g}" if w_us == w_them else f"weights us {w_us:g}, them {w_them:g}"
+            assert line.startswith(f"card table ({head}, ")
+            sid = data.to_id(pick.species)
+            assert ("in our four" in line) == bool(w_us and table.us.get(sid))
+            assert ("in theirs" in line) == bool(w_them and table.them.get(sid))
+
+
+@needs_data
+def test_the_halves_add_up_to_the_whole_table():
+    """On a fixed six-against-six, the finished value moves by the "us" half plus the "them" half, each alone."""
+    table = draft.card_adjust_table()
+    board, at = board_of(*US, *THEM)
+    us, them = [at[s] for s in US], [at[s] for s in THEM]
+
+    def value(w_us, w_them):
+        return draft.DraftSearch(board, hole_w=0.5, card_adjust=table.vectors(board, w_us, w_them)).finished(us, them)[0]
+
+    base = draft.DraftSearch(board, hole_w=0.5).finished(us, them)[0]
+    d_us, d_them, d_both = value(W, 0.0) - base, value(0.0, W) - base, value(W, W) - base
+    assert d_us and d_them
+    # the best four can differ between the three, so the halves add up only when they all bring the same four
+    fours = {draft.DraftSearch(board, hole_w=0.5, card_adjust=table.vectors(board, *w)).finished(us, them)[1]
+             for w in ((W, 0.0), (0.0, W), (W, W))}
+    if len(fours) == 1:
+        assert d_both == pytest.approx(d_us + d_them, abs=1e-9)
+
+
+@needs_data
+def test_the_floor_reads_both_halves(monkeypatch):
+    """The Archaludon floor's second ranking turns both halves off, and the "them" half alone also reaches it."""
+    seen = spy_card_adjust(monkeypatch)
+    name, state, memory = next(live_decisions("7551b7da", 1))
+    draft.rank_picks_v2(state.legal_actions, memory, THEM_ONLY)
+    assert [c is not None for _, c in seen] == [True, False]
