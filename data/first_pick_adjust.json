@@ -50,7 +50,11 @@
     "Whimsicott": 0.0,
     "Wo-Chien": 0.0
   },
-  "adjust_we_first": {},
-  "adjust_they_first": {},
+  "adjust_we_first": {
+    "Archaludon": 1.5
+  },
+  "adjust_they_first": {
+    "Archaludon": 0.7
+  },
   "pairs": {}
 }
