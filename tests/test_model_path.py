@@ -359,7 +359,7 @@ def t6_rules():
 def test_rows_only_lower_rows_stand_within_50_points_where_the_old_rule_sent_them_back(t6_rules):
     agent, sheet, template, choice = t6_rules
     rows = sheet.candidates
-    assert agent._rows_only() and sheet.reply and [r["score"] for r in rows] == [61.5, 28.2, 10.8, -2.6, -6.2]
+    assert agent._rows_only(sheet) and sheet.reply and [r["score"] for r in rows] == [61.5, 28.2, 10.8, -2.6, -6.2]
     old = PokemonAgent(None, version="mpath", log_dir=None, capture_dir="", log=lambda *_: None, params=tuning.merged({**FAST, **MIX}))
     # row 1 trails by 33.3: the old margin (15% of 61.5 = 9.2) sent it back to row 0; 50 points lets it stand
     meta: dict = {}
@@ -451,7 +451,7 @@ def test_rows_only_has_no_read_bypass(t6_rules):
 def test_answer_rules_v2_leaves_the_scorer_path_alone():
     """With reply_mixture 0 the key changes nothing: an override is scored and judged by the E2 rules as before."""
     agent, sheet, template, choice = _position("bcbaabe2", 0, 13, {"reply_mixture": 0.0, "answer_rules_v2": 1.0})
-    assert not agent._rows_only() and not sheet.reply
+    assert not agent._rows_only(sheet) and not agent._answer_rules_v2() and not sheet.reply
     rows = sheet.candidates
     meta: dict = {}
     same = {"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]}
@@ -460,7 +460,56 @@ def test_answer_rules_v2_leaves_the_scorer_path_alone():
     weak = {"slot_0": {"option": _index(template, 0, "flashcannon"), "target": 2}, "slot_1": {"option": _index(template, 1, "snarl"), "target": 0}}
     meta = {}
     agent._resolve_turn_answer(_answer(0, override=weak, prediction=("protect", "switch")), sheet, choice, TOP, meta)
-    assert meta["resolution"].startswith("override rejected: value") and "override_ignored" not in meta
+    assert meta["resolution"].startswith("override rejected: value") and "override_ignored" not in meta and "rules" not in meta
+
+
+def _raising(*args, **kwargs):
+    raise KeyError("injected mixture bug")
+
+
+def test_rows_only_needs_rows_the_mixture_priced_else_the_e2_rules_decide_that_turn(monkeypatch):
+    """answer_rules_v2 on the mixture applies its rows-only rules only to rows the mixture priced (sheet.reply set). On a
+    turn it did not price (here it raised and the scorer's rows play; a replacement or a position it cannot read is the
+    same) the rows are the scorer's, so the E2 rules decide (model audit R7), logged as such. bcbaabe2 T13."""
+    from agent.pokemon import replies
+
+    agent, sheet, template, choice = _position("bcbaabe2", 0, 13, RULES)
+    assert agent._answer_rules_v2() and sheet.reply and agent._rows_only(sheet)
+    weak = {"slot_0": {"option": _index(template, 0, "flashcannon"), "target": 2}, "slot_1": {"option": _index(template, 1, "snarl"), "target": 0}}
+    meta: dict = {}
+    agent._resolve_turn_answer(_answer(0, override=weak, prediction=("protect", "switch")), sheet, choice, TOP, meta)
+    assert meta["resolution"].startswith("override ignored") and "rules" not in meta
+    monkeypatch.setattr(replies, "evaluate", _raising)
+    agent, sheet, template, choice = _position("bcbaabe2", 0, 13, RULES)
+    assert agent._answer_rules_v2() and not sheet.reply and not agent._rows_only(sheet)
+    assert any("reply mixture failed this turn" in n for n in sheet.notes)
+    rows = sheet.candidates
+    meta = {}
+    agent._resolve_turn_answer(_answer(1, override={"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]}), sheet, choice, TOP, meta)
+    assert meta["resolution"] == "override accepted (same as a row)" and meta["rules"].startswith("E2: the reply mixture did not price")
+    meta = {}
+    agent._resolve_turn_answer(_answer(0, override=weak, prediction=("protect", "switch")), sheet, choice, TOP, meta)
+    assert meta["resolution"].startswith("override rejected: value") and "override_ignored" not in meta and meta["rules"]
+
+
+def test_a_turn_the_mixture_did_not_price_says_the_scorers_rule_in_its_answer_format(monkeypatch):
+    """The system prompt (one text per match, cached) keeps the rows-only bullets; that turn's answer format and
+    instructions give the scorer's rule instead, and name the reason (no reply_table)."""
+    from agent.pokemon import replies
+    from agent.pokemon.prompts import system_prompt
+
+    monkeypatch.setattr(replies, "evaluate", _raising)
+    recorder, decision = _ask_at("bcbaabe2", 0, 13, RULES, _answer(0))
+    messages = recorder.calls[0]
+    assert messages[0] == {"role": "system", "content": system_prompt(tuning.merged(RULES))}
+    payload = json.loads(messages[-1]["content"])
+    assert "reply_table" not in payload["turn_sheet"] and payload["instructions"] == INSTRUCTIONS_81C4591
+    assert payload["answer_format"].startswith("Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. "
+                                               "This turn's rows come from the code's scorer, not the reply mixture (there is no reply_table)")
+    tail = ANSWER_FORMAT_81C4591[ANSWER_FORMAT_81C4591.index("set override.use=true"):]  # the scorer's own override rule, verbatim
+    assert payload["answer_format"].endswith("so the scorer's rule applies this turn, not rows only: to propose a joint action that is "
+                                             "not a row, " + tail)
+    assert decision.action["type"] == "doubles_turn"
 
 
 # -- the prompt and the payload say the rule in force; the defaults are byte for byte the Oct 10 deploy's ----------------

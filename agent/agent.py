@@ -690,11 +690,11 @@ class PokemonAgent:
                       "opponent": self.memory.known_sets("opponent", status=roster["theirs"]["status"])}
         evidence = self.memory.opponent_evidence()
         klass = evidence["class"]
-        rows_only = self._rows_only()
+        rows_only = self._rows_only(sheet)
         payload = {
             "decision": "doubles_turn",
             **choice.prompt,
-            "answer_format": _ANSWER_FORMAT_ROWS_ONLY if rows_only else (
+            "answer_format": _ANSWER_FORMAT_ROWS_ONLY if rows_only else _ANSWER_FORMAT_SCORER_TURN if self._answer_rules_v2() else (
                 "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. To propose a joint "
                 "action that is not a row, set override.use=true and give both slots as {option: <index from that slot's "
                 "options>, target: <integer>}; the code scores it against the rows before it may play. If the chosen option's "
@@ -729,10 +729,16 @@ class PokemonAgent:
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 
-    def _rows_only(self) -> bool:
-        """answer_rules_v2 on the reply mixture (model audit R1): the model chooses among the mixture's priced rows.
-        Off (the default), and on the scorer path at any setting, the E2 rules below apply unchanged."""
+    def _answer_rules_v2(self) -> bool:
+        """answer_rules_v2 is on with the reply mixture (model audit R1): the configuration whose prompt says rows only."""
         return float(self.params.get("answer_rules_v2", 0.0) or 0.0) > 0 and float(self.params.get("reply_mixture", 0.0) or 0.0) > 0
+
+    def _rows_only(self, sheet: Any) -> bool:
+        """The rows-only rules decide this turn: answer_rules_v2 on the reply mixture, and the mixture priced this turn's
+        rows (``sheet.reply`` is set). Off (the default), on the scorer path at any setting, and on a turn the mixture did
+        not price (a replacement, a position it cannot read, a mixture failure: the rows are the scorer's), the E2 rules
+        below apply unchanged (model audit R7: on the scorer's rows off-menu plays beat row 1 out of sample)."""
+        return self._answer_rules_v2() and bool(getattr(sheet, "reply", None))
 
     def _resolve_rows_only(self, answer: dict, sheet: Any, base: Choice, meta: dict) -> Any:
         """Model audit R1, under answer_rules_v2 with the mixture. A proposed joint action is not played while rows exist:
@@ -789,14 +795,16 @@ class PokemonAgent:
         scored with the same scorer as the rows (``override_value``), and rejected when its value trails the best
         row by more than ``override_margin`` of the top value, unless the model's opponent prediction matches the
         code's top column: then the read is the reason and it stands. A rejected override plays the chosen row.
-        With answer_rules_v2 on the mixture, ``_resolve_rows_only`` decides instead."""
-        if self._rows_only():
+        With answer_rules_v2 on the mixture, ``_resolve_rows_only`` decides instead on the turns the mixture priced."""
+        if self._rows_only(sheet):
             return self._resolve_rows_only(answer, sheet, base, meta)
         rows = list(sheet.candidates)
         row = answer.get("row")
         row_ok = isinstance(row, int) and not isinstance(row, bool) and 0 <= row < len(rows)
         override = answer.get("override") if isinstance(answer.get("override"), dict) else {}
         meta.clear()
+        if self._answer_rules_v2():
+            meta["rules"] = "E2: the reply mixture did not price this turn's rows"  # answer_rules_v2 on, a scorer turn (R7)
         if row_ok:
             meta.update({"row": row, "row_name": rows[row].get("name"), "row_score": rows[row].get("score")})
         if override.get("use"):
@@ -1347,6 +1355,15 @@ _ANSWER_FORMAT_ROWS_ONLY = (
     "candidate_turns is empty, set override.use=true and give both slots as {option: <index from that slot's options>, "
     "target: <integer>}: if the chosen option's targets list is non-empty, target must be one of those integers; otherwise "
     "send target 0."
+)
+# answer_rules_v2 on the mixture, on a turn the mixture did not price (a replacement, a mixture failure): the scorer's rows,
+# so its E2 rule applies, and this turn's answer format says so against the system prompt's rows-only bullets.
+_ANSWER_FORMAT_SCORER_TURN = (
+    "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. This turn's rows come from "
+    "the code's scorer, not the reply mixture (there is no reply_table), so the scorer's rule applies this turn, not rows "
+    "only: to propose a joint action that is not a row, set override.use=true and give both slots as {option: <index from "
+    "that slot's options>, target: <integer>}; the code scores it against the rows before it may play. If the chosen "
+    "option's targets list is non-empty, target must be one of those integers; otherwise send target 0."
 )
 _TEAM_ENTRY_KEYS = ("species", "current_hp", "max_hp", "current_hp_fraction", "status", "ability", "item", "boosts", "fainted", "active",
                     "revealed_moves", "moves", "is_terastallized")
