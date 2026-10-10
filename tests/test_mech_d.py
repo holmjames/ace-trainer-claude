@@ -757,6 +757,37 @@ def test_their_priority_attack_is_blocked_per_target():
         assert "blocks it" in incineroar["note"] and not sheet.flinch_risk, (mine, incineroar["note"])
 
 
+def test_fresh_fake_out_note_needs_a_slot_it_can_flinch():
+    """FRESH tells the model to expect a flinch on one of our slots, so it needs a slot Fake Out can flinch. In Psychic
+    Terrain beside our grounded Archaludon (or Indeedee-F) the other slot is the Air Balloon Gholdengo, a Ghost type:
+    no slot can flinch, so the note says why instead of FRESH, and no flinch risk or FAKE OUT warning is priced. The
+    same with no terrain when each of ours is a Ghost type or has Inner Focus."""
+    fake_out = {**data.move_info("fakeout"), "id": "fakeout"}
+
+    def hit_and_calc(sheet, slot):
+        incineroar = next(m for m in sheet.field.actives if m.side == "theirs" and m.species == "Incineroar")
+        target = next(m for m in sheet.field.actives if m.side == "mine" and m.position == slot)
+        shown = threat_hit(sheet, "Incineroar", "fakeout", slot)["damage_pct_of_current_hp"]
+        return shown, list(battle.damage_percent(incineroar, fake_out, target, field=sheet.field))
+
+    terrain = {"fields": {"PSYCHIC_TERRAIN": 3}, "turn": 1}
+    for mine, opp in ((["Archaludon", "Gholdengo"], ["Indeedee-F", "Incineroar"]), (["Indeedee-F", "Gholdengo"], ["Incineroar", "Kingambit"])):
+        sheet, _ = build(mine, opp, obs_extra=terrain)
+        note = next(t for t in sheet.threats if t["species"] == "Incineroar")["note"]
+        assert note == (f"has Fake Out, but it cannot flinch any of ours this turn: Psychic Terrain shields our grounded {mine[0]}; "
+                        "Gholdengo is a Ghost type (Fake Out cannot touch it)."), note
+        shown, calc = hit_and_calc(sheet, 1)
+        assert shown == calc == [0.0, 0.0], (shown, calc)
+        assert sheet.flinch_risk == {} and not [w for w in sheet.warnings if w.startswith("FAKE OUT")], sheet.warnings
+    sheet, _ = build(["Lucario", "Gholdengo"], ["Incineroar", "Kingambit"], obs_extra={"turn": 1})
+    note = next(t for t in sheet.threats if t["species"] == "Incineroar")["note"]
+    assert note == ("has Fake Out, but it cannot flinch any of ours this turn: Lucario's Inner Focus stops the flinch; "
+                    "Gholdengo is a Ghost type (Fake Out cannot touch it)."), note
+    shown, calc = hit_and_calc(sheet, 0)
+    assert shown == calc and calc[0] > 0, (shown, calc)  # Inner Focus stops the flinch, not the damage
+    assert sheet.flinch_risk == {} and not [w for w in sheet.warnings if w.startswith("FAKE OUT")], sheet.warnings
+
+
 def test_redirect_ignored_and_blocked_effects():
     rillaboom, hatterene = catalog_mon("Rillaboom", side="theirs", position=1), catalog_mon("Hatterene", side="theirs", position=2)
     gholdengo, scream_tail = catalog_mon("Gholdengo", side="theirs", position=1), catalog_mon("Scream Tail", side="theirs", position=2)

@@ -1063,14 +1063,19 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             threat["protect"] = ("can Protect this turn" if not streak else
                                  f"Protected last turn: another works only 1 in {3 ** streak} (good turn to attack it)")
         if "fakeout" in threat["known_moves"] and not locked:
-            open_slots = [n for n in sorted(ours) if n not in shielded]
+            # FRESH (read as "expect a flinch") only with a slot of ours it can flinch: not shielded, and not a Ghost type,
+            # Inner Focus / Shield Dust or Covert Cloak (_flinchable, the rule _flinch_risk prices).
+            open_slots = [n for n in sorted(ours) if n not in shielded and _flinchable(ours[n], ours, fs)]
             if opp_fresh and (open_slots or not ours):
                 threat["note"] = "FRESH: its Fake Out works THIS turn (priority +3): expect a flinch on one of our slots, so a setup move (Trick Room/Tailwind) from the slot it targets fails."
                 if shielded and open_slots:
                     threat["note"] += (f" Only into slot {open_slots[0]} ({ours[open_slots[0]].species}): Psychic Terrain shields our "
                                        f"grounded {', '.join(ours[n].species for n in sorted(shielded))}.")
-            elif opp_fresh:
+            elif opp_fresh and all(n in shielded for n in ours):
                 threat["note"] = "has Fake Out but our Armor Tail / Psychic Terrain blocks it."
+            elif opp_fresh:
+                threat["note"] = ("has Fake Out, but it cannot flinch any of ours this turn: "
+                                  + "; ".join(_no_flinch_reason(ours[n], fs) for n in sorted(ours)) + ".")
             else:
                 threat["note"] = "has Fake Out but is past its first turn out: Fake Out fails now."
         sheet.threats.append(threat)
@@ -1465,6 +1470,19 @@ def _flinchable(me: "Mon", ours: dict[int, "Mon"], fs: "FieldState") -> bool:
     if fs.terrain == "psychic" and me.grounded:
         return False
     return not any(data.to_id(m.ability) in ("armortail", "dazzling", "queenlymajesty") for m in ours.values())
+
+
+def _no_flinch_reason(me: "Mon", fs: "FieldState") -> str:
+    """Why a Fake Out cannot make this Pokémon of ours flinch (a case _flinchable rules out), for the threat note."""
+    if fs.terrain == "psychic" and me.grounded:
+        return f"Psychic Terrain shields our grounded {me.species}"
+    if "ghost" in me.types:
+        return f"{me.species} is a Ghost type (Fake Out cannot touch it)"
+    if data.to_id(me.ability) in ("innerfocus", "shielddust"):
+        return f"{me.species}'s {me.ability} stops the flinch"
+    if data.to_id(me.item) == "covertcloak":
+        return f"{me.species}'s Covert Cloak stops the flinch"
+    return f"our Armor Tail / Dazzling / Queenly Majesty shields {me.species}"
 
 
 def _flinch_risk(sheet: "TurnSheet", ours: dict[int, "Mon"], theirs: dict[int, "Mon"], fs: "FieldState",
