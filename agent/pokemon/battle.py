@@ -3652,10 +3652,17 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
     candidates.sort(key=lambda c: -c["score"])
     if P.get("reply_mixture", 0) and not forced and memory is not None:
         # Workstream A: value every row against the opponent's plausible replies (agent/pokemon/replies.py).
-        from . import replies  # local import: replies imports this module
+        try:
+            from . import replies  # local import: replies imports this module
 
-        ranked = replies.evaluate(sheet, memory, None, slots=slots, ours=ours, theirs=theirs, params=P, candidates=candidates,
-                                  obs={"turn": sheet.turn})
+            ranked = replies.evaluate(sheet, memory, None, slots=slots, ours=ours, theirs=theirs, params=P, candidates=candidates,
+                                      obs={"turn": sheet.turn})
+        except Exception as exc:  # noqa: BLE001 — a mixture bug costs the mixture for this turn, never the match (readiness 2B.1)
+            # Uncontained, the exception reached the agent's guard and every later turn of the match played the smoke
+            # agent's move. The scorer's own ranking and cut below play instead; the table it may have filled is reset.
+            ranked = []
+            sheet.reply = {}
+            sheet.notes.append(f"The reply mixture failed this turn ({type(exc).__name__}: {str(exc)[:80]}); the rows are the scorer's.")
         if ranked:
             candidates = ranked
             # the mixture's rows carry their worst case and best reply: the model sees five (the sixth was within the override
