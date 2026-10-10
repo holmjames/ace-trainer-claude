@@ -7,7 +7,8 @@ the user message: the roster, the turn sheet with its numbered rows, the code's 
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+import sys
+from typing import Any, Callable, Mapping
 
 SYSTEM_PROMPT = """You are playing a Pokémon VGC doubles battle (4v4, level 50, no Terastallization) for a tournament agent.
 
@@ -61,7 +62,8 @@ Answer only in the required JSON."""
 
 # -- the model-path variants (lane M1) ----------------------------------------------------------------------------------
 # Each is off by default, and system_prompt() of the defaults is SYSTEM_PROMPT byte for byte. The text depends only on
-# the agent's params, so it is identical on every call of a match (the API caches it).
+# the agent's params, so it is identical on every call of a match (the API caches it). Every variant is built once, at
+# import (VARIANTS): an anchor that no longer matches SYSTEM_PROMPT fails the import and every test, never a decision.
 
 _ROW_BULLETS = (
     "- row: the number of the candidate_turns row you choose. Pick a row unless you have a concrete reason the sheet does not show.\n"
@@ -141,24 +143,60 @@ def _swap(text: str, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
-def system_prompt(params: Mapping[str, Any] | None = None) -> str:
-    """The battle system prompt for these tuning params. ``answer_rules_v2`` with ``reply_mixture``: the row and override
-    bullets of model audit R1 (rows only; the lower-row margin is ``row_margin_points``). ``prompt_v2``: R2's Protect
+_MARGIN = "{margin}"  # the rows-only bullets' placeholder, filled with row_margin_points per call (str.replace cannot raise)
+
+
+def build_variant(base: str, *, rows_only: bool = False, v2: bool = False, kb: bool = False) -> str:
+    """``base`` (SYSTEM_PROMPT) with the variants switched on. ``rows_only`` (answer_rules_v2 with reply_mixture): the row
+    and override bullets of model audit R1, the lower-row margin left as ``{margin}``. ``v2`` (prompt_v2): R2's Protect
     procedure line and lessons from live games, the search bot's doubles no longer a forecast for one slot, R5's
-    opponent_prediction vocabulary (with it the sheet's DOUBLE-TARGET warnings end neutrally, battle.py). ``prompt_kb``:
-    R4's battle reference (KNOWLEDGE_BASE) before the last line."""
-    text = SYSTEM_PROMPT
-    if _on(params, "answer_rules_v2") and _on(params, "reply_mixture"):
-        margin = float((params or {}).get("row_margin_points", 50.0))
-        text = _swap(text, _ROW_BULLETS, _ROW_BULLETS_ROWS_ONLY.format(margin=f"{margin:g}"))
-    if _on(params, "prompt_v2"):
+    opponent_prediction vocabulary (with it the sheet's DOUBLE-TARGET warnings end neutrally, battle.py). ``kb``
+    (prompt_kb): R4's battle reference (KNOWLEDGE_BASE) before the last line. Raises ValueError when an anchor is not
+    found exactly once."""
+    text = base
+    if rows_only:
+        text = _swap(text, _ROW_BULLETS, _ROW_BULLETS_ROWS_ONLY)
+    if v2:
         text = _swap(text, _PROTECT_LINE, _PROTECT_LINE_V2)
         text = _swap(text, _DOUBLES_CLAUSE, _DOUBLES_CLAUSE_V2)
         text = _swap(text, _LESSONS_HEADER, _LESSONS_HEADER_V2)
         text = _swap(text, _PREDICTION_BULLET, _PREDICTION_BULLET_V2)
-    if _on(params, "prompt_kb"):
+    if kb:
         text = _swap(text, _LAST_LINE, "\n\n" + KNOWLEDGE_BASE + _LAST_LINE)
     return text
+
+
+def build_variants(base: str) -> dict[tuple[bool, bool, bool], str]:
+    """Every combination of the three variants, keyed (rows_only, v2, kb)."""
+    return {(r, v, k): build_variant(base, rows_only=r, v2=v, kb=k) for r in (False, True) for v in (False, True) for k in (False, True)}
+
+
+VARIANTS = build_variants(SYSTEM_PROMPT)  # at import: a broken anchor raises here
+
+
+def _warn(log: Callable[[str], Any] | None, line: str) -> None:
+    try:
+        if log is not None:
+            log(line)
+        else:
+            print(line, file=sys.stderr)
+    except Exception:  # noqa: BLE001 — a closed console cannot cost a decision
+        pass
+
+
+def system_prompt(params: Mapping[str, Any] | None = None, *, log: Callable[[str], Any] | None = None) -> str:
+    """The battle system prompt for these tuning params, read from VARIANTS (built at import; see ``build_variant``).
+    Never raises: should anything fail here at decision time, the deploy's SYSTEM_PROMPT is sent and ``log`` (stderr
+    by default) gets one line."""
+    try:
+        rows_only = _on(params, "answer_rules_v2") and _on(params, "reply_mixture")
+        text = VARIANTS[(rows_only, _on(params, "prompt_v2"), _on(params, "prompt_kb"))]
+        if rows_only:
+            text = text.replace(_MARGIN, f"{float((params or {}).get('row_margin_points', 50.0)):g}")
+        return text
+    except Exception as exc:  # noqa: BLE001 — a prompt variant must never cost a decision
+        _warn(log, f"[prompts] system prompt variant failed ({type(exc).__name__}: {str(exc)[:120]}); sending SYSTEM_PROMPT")
+        return SYSTEM_PROMPT
 
 
 KNOWN_SETS_PREAMBLE = "known_sets for this match (identical every turn; the opponent's unrevealed moves and items are real):\n"

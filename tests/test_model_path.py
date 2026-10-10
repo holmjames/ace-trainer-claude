@@ -797,6 +797,43 @@ def test_the_arms_prompts_are_identical_on_every_call_and_the_defaults_stay_the_
     assert KNOWLEDGE_BASE in text and "Lessons from live games:" in text and "This build plays only listed rows" in text
 
 
+def test_every_prompt_variant_is_built_at_import_and_a_broken_anchor_fails_the_import():
+    """The eight variants (rows only x prompt_v2 x prompt_kb) exist from import on; an anchor that stops matching
+    SYSTEM_PROMPT raises while the module loads (here: SYSTEM_PROMPT's class line edited, the prompt_v2 anchor left)."""
+    import importlib.util
+
+    from agent.pokemon import prompts
+
+    assert set(prompts.VARIANTS) == {(r, v, k) for r in (False, True) for v in (False, True) for k in (False, True)}
+    assert prompts.VARIANTS[(False, False, False)] is prompts.SYSTEM_PROMPT
+    assert len({text for key, text in prompts.VARIANTS.items()}) == 8
+    for anchor in (prompts._ROW_BULLETS, prompts._PROTECT_LINE, prompts._DOUBLES_CLAUSE, prompts._LESSONS_HEADER,
+                   prompts._PREDICTION_BULLET, prompts._LAST_LINE):
+        with pytest.raises(ValueError, match="anchor not found exactly once"):
+            prompts.build_variants(prompts.SYSTEM_PROMPT.replace(anchor, "", 1))
+    source = Path(prompts.__file__).read_text(encoding="utf-8")
+    assert source.count(prompts._DOUBLES_CLAUSE) == 2  # once in SYSTEM_PROMPT, once as the anchor
+    spec = importlib.util.spec_from_loader("prompts_broken", loader=None)
+    broken = importlib.util.module_from_spec(spec)
+    with pytest.raises(ValueError, match="anchor not found exactly once"):
+        exec(compile(source.replace(prompts._DOUBLES_CLAUSE, "it doubles a lot;", 1), "prompts_broken.py", "exec"), broken.__dict__)
+
+
+def test_system_prompt_never_raises_at_decision_time_it_sends_the_deploys_prompt_and_says_so(monkeypatch):
+    from agent.pokemon import prompts
+
+    lines: list[str] = []
+    assert prompts.system_prompt({**tuning.DEFAULTS, **RULES, "row_margin_points": "fifty"}, log=lines.append) is prompts.SYSTEM_PROMPT
+    assert lines and lines[0].startswith("[prompts] system prompt variant failed (ValueError")
+    monkeypatch.setattr(prompts, "VARIANTS", {})  # whatever goes wrong, a decision is never lost to it
+    lines.clear()
+    assert prompts.system_prompt(tuning.merged({"prompt_v2": 1, "prompt_kb": 1}), log=lines.append) is prompts.SYSTEM_PROMPT
+    assert len(lines) == 1 and "KeyError" in lines[0]
+    assert prompts.system_prompt(tuning.merged({"prompt_v2": 1}), log=_raising) is prompts.SYSTEM_PROMPT  # nor does a broken log
+    recorder, decision = _ask_at("bcbaabe2", 0, 13, {"prompt_v2": 1.0, "prompt_kb": 1.0}, _answer(0))
+    assert recorder.calls[0][0] == {"role": "system", "content": prompts.SYSTEM_PROMPT} and decision.action["type"] == "doubles_turn"
+
+
 # -- 6. the live-position harness (scripts/live_positions.py): no model call unless asked, on a budget ---------------------
 
 
