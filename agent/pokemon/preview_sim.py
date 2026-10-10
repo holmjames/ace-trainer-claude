@@ -161,8 +161,8 @@ _CALC = Calc()
 
 def reset_match_state() -> None:
     """A new match starts (agent/pokemon/match_state.py): the module memo starts cold, as in the fresh process the
-    runtime gives each match. Its values are pure; a warm memo only lets the deadline-bound search run more
-    rollouts."""
+    runtime gives each match. Its values are pure, so no decision reads anything else from it; a warm memo only runs
+    the rollouts faster, which reaches a decision only through the wall clock (match_state's docstring)."""
     _CALC.clear()
 
 

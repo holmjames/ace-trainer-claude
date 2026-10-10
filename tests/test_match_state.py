@@ -1,4 +1,5 @@
-"""Each match decides as a freshly started process would, however many matches the process has played before it.
+"""Each match decides as a freshly started process would, however many matches the process has played before it,
+wherever no decision reads the wall clock (agent/pokemon/match_state.py says which two do).
 
 The live runtime plays every match in its own spawned worker, so every module cache is empty when a match starts
 there. A long-lived process (the simulator's arms, scripts/live_scenarios.py, the replay tools, this suite) plays many
@@ -12,12 +13,14 @@ same process could read:
   directions differ (Grimmsnarl / Sylveon at 80 Speed: -0.18 one way, -0.57 the other), so an earlier match's
   direction changed a later match's draft and Team Preview values (93a98b6f after 6ce0b81e); draft._BOARDS and
   draft._SUPPORT_PAIRS are built from those races;
-- preview_sim._CALC: pure values, but a warm memo lets the deadline-bound deep Team Preview run more rollouts than the
-  fresh process the runtime gives the match.
+- preview_sim._CALC: pure values; a warm memo only runs the deep Team Preview's rollouts faster than in the fresh
+  process the runtime gives the match, which reaches a decision only through the wall clock.
 
 agent/pokemon/match_state.py empties _DUELS, _BOARDS, _SUPPORT_PAIRS and _CALC where a match's memory is created
 (PokemonAgent); the caches that are pure functions of their keys stay. Every test here fails on 81c4591 except two guards: a match starting while
-another is live leaves that match's seed alone, and the caches kept across matches come out of a match unchanged.
+another is live leaves that match's seed alone, and the caches kept across matches come out of a match unchanged. The
+last two tests mark where the claim stops: on a frozen clock the deep Team Preview of a long-lived process is a fresh
+process's; on the real clock its search is sized by the wall time v2 took, which a warm process shortens.
 """
 
 from __future__ import annotations
@@ -34,8 +37,8 @@ from altruagent import DecisionContext
 from altruagent.models import GameState
 
 from agent.agent import PokemonAgent
-from agent.pokemon import data, draft, matchup, preview_sim, tuning
-from agent.pokemon.memory import MatchMemory
+from agent.pokemon import data, draft, lineup, matchup, preview_sim, tuning
+from agent.pokemon.memory import MatchMemory, species_key
 from test_live_semantics import LIVE, _sequence
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -65,30 +68,45 @@ def _untimed(value):
     return value
 
 
-def replay_match(session8: str, seat: int, log_dir: str) -> list[dict]:
+def replay_match(session8: str, seat: int, log_dir: str, *, sim_budget_s: float = 0.0,
+                 through_preview: bool = False) -> list[dict]:
     """Every decision of one captured live match, played through a brand-new agent (the runtime's create_agent(), code
-    only, the deep Team Preview off), as the decision log records it."""
+    only), as the decision log records it. The deep Team Preview is off unless ``sim_budget_s`` > 0, and then it runs
+    on a frozen clock: no wall time passes for it, so v2 leaves it the whole budget and its deadline never stops the
+    search, on any machine and in any process (the clock-independent case of agent/pokemon/match_state.py).
+    ``through_preview`` stops before the battle."""
     folder = next(p for p in LIVE.iterdir() if p.is_dir() and p.name.startswith(session8))
-    agent = _agent(version="match-state", log_dir=log_dir, params=tuning.merged({"lineup_sim_budget_s": 0.0}))
+    agent = _agent(version="match-state", log_dir=log_dir, params=tuning.merged({"lineup_sim_budget_s": sim_budget_s}))
     agent.memory.tiebreak_seed = SEED
-    for path in _sequence(folder, seat):
-        raw = json.loads(path.read_text())
-        state = GameState.from_mcp_state(raw)
-        if not state.legal_actions:
-            continue
-        agent.choose_action(state, DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
-                                                   agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=seat))
+    clocks = (lineup.time, preview_sim.Search.run.__kwdefaults__["now"])
+    if sim_budget_s > 0:
+        lineup.time = SimpleNamespace(monotonic=lambda: 0.0)
+        preview_sim.Search.run.__kwdefaults__["now"] = lambda: 0.0
+    try:
+        for path in _sequence(folder, seat):
+            if through_preview and path.name.startswith("moving-"):
+                break
+            raw = json.loads(path.read_text())
+            state = GameState.from_mcp_state(raw)
+            if not state.legal_actions:
+                continue
+            agent.choose_action(state, DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
+                                                       agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=seat))
+    finally:
+        lineup.time, preview_sim.Search.run.__kwdefaults__["now"] = clocks
     rows = [json.loads(line) for f in sorted(Path(log_dir).glob("*.jsonl")) for line in f.read_text().splitlines() if line.strip()]
     return [{"kind": r["kind"], **{k: _untimed(r.get(k)) for k in KEEP[r["kind"]]}} for r in rows if r.get("kind") in KEEP]
 
 
-def _new_process(matches: list[tuple[str, int]], log_root: Path) -> list[list[dict]]:
-    """``replay_match`` for each of ``matches``, one after another, in ONE new Python process. Several matches: a
-    long-lived process meeting them in order; one match: the runtime's spawn-per-match worker."""
+def _new_process(matches: list[tuple[str, int]], log_root: Path, **replay) -> list[list[dict]]:
+    """``replay_match`` (with the ``replay`` options) for each of ``matches``, one after another, in ONE new Python
+    process. Several matches: a long-lived process meeting them in order; one match: the runtime's spawn-per-match
+    worker."""
     code = ("import json, sys; sys.path[:0] = sys.argv[1:3]; import agent, test_match_state as t; "
-            "games = [(a.split(':')[0], int(a.split(':')[1])) for a in sys.argv[4:]]; "
-            "print(json.dumps({'agent': agent.__file__, 'matches': [t.replay_match(s, seat, f'{sys.argv[3]}/{s}-{seat}') for s, seat in games]}))")
-    proc = subprocess.run([sys.executable, "-c", code, str(ROOT), str(ROOT / "tests"), str(log_root), *[f"{s}:{seat}" for s, seat in matches]],
+            "kw = json.loads(sys.argv[4]); games = [(a.split(':')[0], int(a.split(':')[1])) for a in sys.argv[5:]]; "
+            "print(json.dumps({'agent': agent.__file__, 'matches': [t.replay_match(s, seat, f'{sys.argv[3]}/{s}-{seat}', **kw) for s, seat in games]}))")
+    proc = subprocess.run([sys.executable, "-c", code, str(ROOT), str(ROOT / "tests"), str(log_root), json.dumps(replay),
+                           *[f"{s}:{seat}" for s, seat in matches]],
                           cwd=ROOT, capture_output=True, text=True, timeout=600)
     assert proc.returncode == 0, proc.stderr[-3000:]
     out = json.loads(proc.stdout.strip().splitlines()[-1])
@@ -167,7 +185,8 @@ def test_an_earlier_match_never_decides_which_way_a_speed_tied_race_was_cached()
 
 
 def test_the_preview_calculator_starts_every_match_as_cold_as_a_fresh_process():
-    """Timing only (its values are pure): a warm memo lets the deadline-bound deep Team Preview finish more rollouts."""
+    """Timing only (its values are pure): a warm memo runs the deep Team Preview's rollouts faster, which matters only
+    on the real clock (its deadline)."""
     for species in ("Grimmsnarl", "Sylveon"):
         preview_sim._CALC.info(matchup.unit(_card(species)))
     preview_sim._CALC.misses += 1
@@ -191,7 +210,7 @@ def test_a_new_match_empties_the_per_match_caches_and_keeps_the_pure_ones():
     kept = {"units": dict(matchup._UNITS), "openings": dict(matchup._OPENINGS), "resists": dict(draft._SUPPORT_RESIST)}
     _agent()  # the next match starts
     assert not (draft._BOARDS or draft._SUPPORT_PAIRS or matchup._DUELS or preview_sim._CALC.infos)
-    assert all(matchup._UNITS.get(k) is v for k, v in kept["units"].items())  # pure, kept: they only save time
+    assert all(matchup._UNITS.get(k) is v for k, v in kept["units"].items())  # pure, kept: they change no value, only speed
     assert all(matchup._OPENINGS.get(k) is v for k, v in kept["openings"].items())
     assert all(draft._SUPPORT_RESIST.get(k) is v for k, v in kept["resists"].items())
 
@@ -232,3 +251,65 @@ def test_the_caches_kept_across_matches_come_out_of_a_match_unchanged(tmp_path):
         changed = [k for k, v in entries.items() if k in after[name] and after[name][k] != v]
         assert not changed, f"{name}: {len(changed)} cached entries changed during a match, e.g. {str(changed[0])[:120]}"
     assert data._catalog() == catalog
+
+
+# -- the wall clock: where "as a fresh process" holds -----------------------------------------------------------------
+
+
+def test_with_a_frozen_clock_the_deep_preview_of_a_long_lived_process_is_a_fresh_processs(tmp_path):
+    """The deep Team Preview on (a small budget, so the search stays short), on a clock that stands still: the two live
+    matches' drafts and Team Previews in one process, against each in a new process, are the same (candidates, the
+    simulated margins in their notes, the table). On 81c4591 the second match's picks 4-5 and its Team Preview
+    differed."""
+    replay = {"sim_budget_s": 1.0, "through_preview": True}
+    matches = (FIRST, SECOND)
+    long_lived = _new_process(list(matches), tmp_path / "one-process", **replay)
+    fresh = [_new_process([match], tmp_path / f"fresh-{match[0]}", **replay)[0] for match in matches]
+    for (session8, seat), mine, theirs in zip(matches, long_lived, fresh):
+        previews = [r for r in mine if r["kind"] == "lineup"]
+        assert previews and any(n.startswith("sim: lead") for r in previews for c in r["candidates"] or [] for n in c.get("notes") or []), \
+            f"{session8}: the deep preview did not lead"
+        differ = [f"{a['kind']} #{i}: {[k for k in a if a[k] != b.get(k)]}" for i, (a, b) in enumerate(zip(mine, theirs))
+                  if _canon(a) != _canon(b)]
+        assert len(mine) == len(theirs) and not differ, f"{session8} seat {seat}: {differ[:6]}"
+
+
+def test_on_a_real_clock_the_deep_preview_is_sized_by_the_wall_time_v2_used(monkeypatch):
+    """Why the fresh-process claim (agent/pokemon/match_state.py) covers only decisions that do not read the wall clock.
+    The deep Team Preview is handed the budget v2's shortlist left on the wall clock (lineup.shortlist_v2) and
+    preview_sim.Search.schedule is a step function of that budget, so the same cards and seed are searched on another
+    schedule when v2 takes 40 ms less, which is what the caches a long-lived process keeps (Units, openings) save it.
+    If this stops being true (say the schedule is sized from the nominal budget), widen the claim in that docstring."""
+    from agent.pokemon import match_state  # noqa: PLC0415 — new on this branch; the tests above still run on 81c4591
+
+    mine = ["Tornadus", "Garchomp", "Great Tusk", "Hatterene", "Ursaluna", "Indeedee-F"]
+    theirs = ["Incineroar", "Iron Hands", "Whimsicott", "Archaludon", "Sylveon", "Amoonguss"]
+    my_cards, opp_cards = ({species_key(s): _card(s) for s in six} for six in (mine, theirs))
+    roster = [data.to_id(s) for s in mine]
+    budget = 20.0
+    handed: list[tuple] = []
+    real_run = preview_sim.Search.run
+
+    def run(self, budget_s, **kw):  # record what the search was handed, then play one rollout (only the size matters)
+        handed.append((budget_s, self.schedule(budget_s), self))
+        return real_run(self, budget_s, **{**kw, "max_rollouts": 1})
+
+    monkeypatch.setattr(preview_sim.Search, "run", run)
+
+    def preview(v2_seconds: float) -> tuple:
+        ticks = iter((100.0, 100.0 + v2_seconds))  # shortlist_v2 reads the clock at its start and when the search starts
+        monkeypatch.setattr(lineup, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
+        lineup.shortlist(my_cards, opp_cards, roster, params=tuning.merged(), sim_budget_s=budget)
+        return handed[-1]
+
+    left, _, search = preview(0.5)
+    assert left == budget - 0.5 - lineup.SIM_RESERVE_S  # the wall time v2 used comes off the search's budget
+    step = next(b / 1000 for b in range(19799, 17000, -1) if search.schedule(b / 1000) != search.schedule((b + 1) / 1000))
+    fresh_v2 = budget - lineup.SIM_RESERVE_S - (step - 0.02)  # a fresh process's v2 time, 20 ms short of a step
+    fresh = preview(fresh_v2)
+    warm = preview(fresh_v2 - 0.04)  # a long-lived process's v2: 40 ms faster
+    assert len(fresh[2].plans) == len(warm[2].plans) and fresh[2].seed == warm[2].seed  # the same search otherwise
+    assert fresh[1] != warm[1], (fresh[:2], warm[:2])  # another schedule: another search, maybe another lineup
+    assert preview(fresh_v2)[1] == fresh[1]  # the same wall time, the same schedule (the frozen-clock case)
+    doc = " ".join((match_state.__doc__ or "").split())
+    assert "wall clock" in doc and "Search.schedule" in doc, "match_state's docstring must scope its claim to the clock"

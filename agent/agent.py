@@ -412,7 +412,7 @@ class PokemonAgent:
         self._log_dir = log_dir
         self._capture_dir = capture_dir if capture_dir is not None else os.environ.get("AGENT_CAPTURE_DIR")
         self._print = log if log is not None else _stderr
-        match_state.new_match()  # a long-lived process plays this match as the runtime's fresh worker would
+        match_state.new_match()  # this match starts from the caches the runtime's fresh worker starts from
         self.memory = MatchMemory()
         self.decision_log: DecisionLog | None = None
         self._all_failed = 0  # decisions on which every model failed (the ALL MODELS FAILED banner)
