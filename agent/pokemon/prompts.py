@@ -115,7 +115,8 @@ _PREDICTION_BULLET_V2 = (
 # against the repo's mechanics (data/moves.json priorities, data.POWDER_MOVES, battle.py's Multiscale / Stamina /
 # Glaive Rush / grounded rules, preview_sim's screen turns): the audit's "for five turns" is eight from a Light Clay
 # holder (two of the catalog's three screen setters hold one), and Prankster screens beat only our attacks without
-# priority. No opponent or player is named; item 10 is a rate over all reviewed games.
+# priority. No opponent or player is named, and nothing learned from reviewed matches: the audit's tenth item, a base
+# rate from the live games, is left out (the M1 review; prompt_v2's DOUBLE-TARGET line already says it).
 KNOWLEDGE_BASE = """Battle reference (level 50 doubles, no Terastallization). Facts the turn sheet does not spell out:
 1. Fake Out (+3 priority) works only on the user's first turn on the field and flinches one target. Ghost types are immune. Inner Focus, Shield Dust and Covert Cloak stop the flinch. Psychic Terrain blocks it into a grounded target. A FRESH Fake Out user tends to aim at the slot whose action matters most: do not make that slot carry the turn's key KO.
 2. Priority that KOs removes the attacker before it moves: Extreme Speed (+2), Sucker Punch (+1; fails if the target is not attacking or has already moved), Ice Shard and Aqua Jet (+1), Grassy Glide (+1 in Grassy Terrain). A priority hit that does not KO stops nothing.
@@ -125,8 +126,7 @@ KNOWLEDGE_BASE = """Battle reference (level 50 doubles, no Terastallization). Fa
 6. A sleeping Pokémon cannot be put to sleep again. While their sleep user is active, keeping the sleeper in leaves the sleep move one target; switching it out hands the sleep move a fresh one. Grass types, Overcoat and Safety Goggles ignore Spore and Rage Powder.
 7. Multiscale halves damage at full HP; any chip removes it. Stamina raises Defense one stage per hit taken, and every hit of a multi-hit move counts.
 8. After Glaive Rush, until its next turn, the user takes double damage and every move hits it.
-9. Intimidate lowers both foes' Attack one stage on entry. Reflect and Light Screen cut that category's damage to about two thirds in doubles, for five turns (eight from a Light Clay holder); Prankster sets them before your attacks that lack priority.
-10. In reviewed games, a slot left in under LETHAL with no escape fell 4 times in 5; under DOUBLE-TARGET alone, 1 time in 28. A LETHAL threat went into the warned slot about half the time."""
+9. Intimidate lowers both foes' Attack one stage on entry. Reflect and Light Screen cut that category's damage to about two thirds in doubles, for five turns (eight from a Light Clay holder); Prankster sets them before your attacks that lack priority."""
 _LAST_LINE = "\n\nAnswer only in the required JSON."
 
 

@@ -20,6 +20,7 @@ fake or absent. No test calls a model.
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from pathlib import Path
 
@@ -793,14 +794,16 @@ def test_prompt_v2_ends_the_sheets_double_target_warnings_neutrally_and_changes_
     assert {k: v for k, v in on.items() if k != "WARNINGS"} == {k: v for k, v in off.items() if k != "WARNINGS"}
 
 
-def test_prompt_kb_is_the_audits_ten_facts_checked_against_the_mechanics_data():
+def test_prompt_kb_is_the_audits_mechanics_facts_checked_against_the_mechanics_data():
     from agent.pokemon import data, preview_sim
     from agent.pokemon.prompts import KNOWLEDGE_BASE, SYSTEM_PROMPT, system_prompt
 
     text = system_prompt(tuning.merged({"prompt_kb": 1}))
     assert text.endswith("\n\n" + KNOWLEDGE_BASE + "\n\nAnswer only in the required JSON.")
     assert text.replace("\n\n" + KNOWLEDGE_BASE, "") == SYSTEM_PROMPT  # nothing else moves
-    assert len(KNOWLEDGE_BASE.split()) < 450 and [line[:3] for line in KNOWLEDGE_BASE.splitlines()[1:]] == [f"{i}. " for i in range(1, 10)] + ["10."]
+    assert len(KNOWLEDGE_BASE.split()) < 400 and [line[:3] for line in KNOWLEDGE_BASE.splitlines()[1:]] == [f"{i}. " for i in range(1, 10)]
+    # general mechanics only: the audit's tenth item, a base rate learned from reviewed matches, is out (the M1 review)
+    assert not re.search(r"reviewed|in \d+|times in|LETHAL|DOUBLE-TARGET", KNOWLEDGE_BASE)
     # the facts against the repo's mechanics data
     priority = {m: (data.move_info(m) or {}).get("priority") for m in ("fakeout", "extremespeed", "suckerpunch", "iceshard", "aquajet")}
     assert priority == {"fakeout": 3, "extremespeed": 2, "suckerpunch": 1, "iceshard": 1, "aquajet": 1}
@@ -811,8 +814,6 @@ def test_prompt_kb_is_the_audits_ten_facts_checked_against_the_mechanics_data():
     by_id, _ = data._catalog()
     assert any(c.get("item") == "Light Clay" and {"Reflect", "Light Screen"} & set(c.get("moves") or []) for c in by_id.values())
     # general mechanics and behaviour only: no opponent, player or class is named
-    import re
-
     assert not re.findall(r"\b(search\w*|bots?|llm|entrants?|players?|opponent_model)\b", KNOWLEDGE_BASE.lower())
 
 
