@@ -407,8 +407,23 @@ _BOARDS: dict[tuple, object] = {}  # (card fingerprints, knobs) -> matchup.Board
 # at the match's first decision, never from public state. The seed is written into the decision notes (so the
 # decision log carries it and a post-mortem can replay the choice); it is kept on the match memory and, for Team
 # Preview, found again through the match's card dict.
+#
+# The registry answers only for the very dict that registered: each entry holds its dict (so no other dict can be
+# given that address while the entry lives) and a lookup checks identity. When it held only the number, a later match
+# in the same long-lived process whose card dict took a freed dict's address inherited the earlier match's seed (4 and
+# 6 matches of 30 in a tight loop, Oct 10 state audit). The live runtime starts a new process per match, where the
+# registry is empty either way.
 
-_SEEDS: dict[int, int] = {}  # id(memory.my_cards) -> this match's seed
+_SEEDS: dict[int, tuple[dict, int]] = {}  # id(memory.my_cards) -> (that dict, this match's seed)
+
+
+def _registered(my_cards: dict) -> int | None:
+    """The seed registered for this card dict itself, else None (an entry for another dict at a recycled address
+    never answers)."""
+    entry = _SEEDS.get(id(my_cards))
+    if isinstance(entry, tuple) and len(entry) == 2 and entry[0] is my_cards:
+        return entry[1]
+    return None
 
 
 def tiebreak_seed(my_cards: dict, memory: MatchMemory | None = None) -> int:
@@ -416,12 +431,12 @@ def tiebreak_seed(my_cards: dict, memory: MatchMemory | None = None) -> int:
     key = id(my_cards)
     seed = getattr(memory, "tiebreak_seed", None) if memory is not None else None
     if seed is None:
-        seed = _SEEDS.get(key)
+        seed = _registered(my_cards)
     if seed is None:
         seed = secrets.randbits(64)
     if len(_SEEDS) > 256:
         _SEEDS.clear()
-    _SEEDS[key] = seed
+    _SEEDS[key] = (my_cards, seed)
     if memory is not None and getattr(memory, "tiebreak_seed", None) != seed:
         try:
             memory.tiebreak_seed = seed
@@ -433,7 +448,7 @@ def tiebreak_seed(my_cards: dict, memory: MatchMemory | None = None) -> int:
 def known_seed(my_cards: dict) -> int | None:
     """The match's seed if a draft decision registered one for these cards, else None (a Team Preview outside a
     match, as in the simulator's lineup replays, stays deterministic)."""
-    return _SEEDS.get(id(my_cards))
+    return _registered(my_cards)
 
 
 def tiebreak(values: list[float], eps: float, seed: int | None, context: str) -> int:
@@ -851,6 +866,14 @@ def _board_for(cards: list[dict], card_weight: float = 1.0, tier_adjust: float =
 SUPPORT_ATTACK_FREE = frozenset({"bodypress", "foulplay"})  # Defense / the target's Attack: Intimidate does not weaken them
 _SUPPORT_PAIRS: dict[tuple[str, str], tuple[bool, dict | None]] = {}  # (Y key, X key) -> (Intimidate blunts, Y's attack)
 _SUPPORT_RESIST: dict[tuple[str, str, str], bool] = {}  # (Y key, move id, P key) -> P resists or is immune to it
+
+
+def reset_match_state() -> None:
+    """A new match starts (agent/pokemon/match_state.py): forget the last match's Boards and the support facts read
+    off their races, which follow the direction a speed-tied race was first computed in. _SUPPORT_RESIST is a pure
+    function of its key and stays; the tie-break seed registry answers only for its own match's cards."""
+    _BOARDS.clear()
+    _SUPPORT_PAIRS.clear()
 
 
 def _hits_to_ko(hit: float) -> int:

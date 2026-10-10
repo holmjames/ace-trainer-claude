@@ -570,6 +570,13 @@ def duel(a: Unit, b: Unit) -> Duel:
     return result
 
 
+def reset_match_state() -> None:
+    """A new match starts (agent/pokemon/match_state.py): forget the races. On an exact speed tie ``_Race.run`` resolves
+    slot 0 first, so duel(a, b) and duel(b, a).flipped() differ and the cache keeps whichever direction came first;
+    emptied here, a match's races follow its own order of computation, as in the fresh process the runtime gives it."""
+    _DUELS.clear()
+
+
 def beats(a: Unit, b: Unit, threshold: float = 0.2) -> bool:
     """``a`` wins the 1-on-1 race against ``b`` with a real cushion (the 'beats X' a counter-picker reasons with)."""
     return duel(a, b).margin >= threshold
