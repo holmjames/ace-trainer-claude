@@ -2,7 +2,8 @@
 
 1. A reply-mixture exception costs the mixture for that turn, never the match: the scorer's rows play (readiness 2B.1).
 2. Our last Pokémon's Protect with nothing to wait for earns no override credit and never plays over a row (model
-   audit R1/R7; d9405f02 T7 and T9).
+   audit R1/R7; d9405f02 T8-T10). "Nothing to wait for" also checks what the sheet's stall reasons miss (a fresh Fake
+   Out, Black Sludge, a Wish, Leech Seed, Yawn, a Guts holder's orb): d9405f02 T7's fresh Fake Out keeps it allowed.
 3. answer_rules_v2 (off by default): on the reply mixture the model chooses rows only; a lower row stands within
    max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1).
 4. recheck_v2 (off by default): no DOUBLE-TARGET triggers; LETHAL / EXPOSED fire only where row 0 covers that slot;
@@ -28,10 +29,10 @@ from altruagent import DecisionContext
 from altruagent.models import GameState
 from examples.llm.base import Choice, InvalidChoice
 
-from agent.agent import PokemonAgent, override_value
+from agent.agent import PokemonAgent, _waits_out, override_value
 from agent.pokemon import battle as battle_rules
 from agent.pokemon import tuning
-from agent.pokemon.memory import observation_dict
+from agent.pokemon.memory import MatchMemory, observation_dict
 from test_live_semantics import LIVE, _sequence
 
 FAST = {"lineup_sim_budget_s": 0.0}  # Team Preview's 20 s search is not what these tests are about
@@ -157,32 +158,165 @@ def _template_of(played: list, row: dict) -> dict:
 # -- 2. our last Pokémon's Protect with nothing to wait for (model audit R1 / R7) ------------------------------------------
 
 
+LONE_PROTECT_PREDICTION = {"top_column": {1: "attack", 2: "attack"}}
+
+
+def _lone_protect(template: dict) -> dict:
+    return {"slot_0": {"option": 0, "target": 0}, "slot_1": {"option": _index(template, 1, "protect"), "target": 0}}
+
+
 @pytest.mark.parametrize("mixture", [0.0, 1.0])
-@pytest.mark.parametrize("turn", [7, 9])
+@pytest.mark.parametrize("turn", [8, 9, 10])
 def test_a_lone_protect_with_nothing_to_wait_for_earns_nothing_and_never_plays_d9405f02(turn, mixture):
-    """d9405f02 T7 and T9: Cresselia, our last Pokémon, under LETHAL Shadow Ball, nothing runs out. The live answer
-    Protected (robust worse). The menu lists only the attack; the Protect override was credited 45 and accepted on both
-    builds. Now it earns no credit, and since 0 still clears a 0.15 margin under a best row of 0.0 (scorer) or below 0
-    (mixture), it is refused outright, read or no read: the attack row plays."""
+    """d9405f02 T8-T10: Cresselia, our last Pokémon, under LETHAL Shadow Ball, nothing runs out, and none of the reasons
+    the sheet's stall list misses applies (Iron Hands' Fake Out is spent, Sitrus Berry, Levitate, no Wish, Leech Seed or
+    Yawn). The live answer Protected (T9 robust worse). The menu lists only the attack; the Protect override was credited
+    45 and accepted on both builds. Now it earns no credit, and since 0 still clears a 0.15 margin under a best row of
+    0.0 (scorer) or below 0 (mixture), it is refused outright, read or no read: the attack row plays."""
     agent, sheet, template, choice = _position("d9405f02", 0, turn, {"reply_mixture": mixture, "reply_seed": 7.0})
     assert sheet.alone and not sheet.stall_reasons and any(w.startswith("LETHAL") and "slot 1 (cresselia)" in w for w in sheet.warnings)
-    protect = {"slot_0": {"option": 0, "target": 0}, "slot_1": {"option": _index(template, 1, "protect"), "target": 0}}
+    assert _waits_out(sheet, agent.memory) == [] and not sheet.flinch_risk
+    protect = _lone_protect(template)
     payload = choice.build(protect)
-    assert override_value(payload, sheet, agent.params) == 0.0
-    prediction = {"top_column": {1: "attack", 2: "attack"}}
+    assert override_value(payload, sheet, agent.params, memory=agent.memory) == 0.0
     for read in (None, ("attack", "attack")):  # no read (the live answer's format) and a read matching the code's column
         meta: dict = {}
-        value = agent._resolve_turn_answer(_answer(0, override=protect, prediction=read), sheet, choice, prediction, meta)
+        value = agent._resolve_turn_answer(_answer(0, override=protect, prediction=read), sheet, choice, LONE_PROTECT_PREDICTION, meta)
         assert meta["resolution"].startswith("override rejected: our last Pokémon's Protect has nothing to wait for"), meta
         assert value["slot_1"]["type"] == "move" and value["slot_1"]["move_id"] != "protect", value
         top = sheet.candidates[0]
-        assert value == choice.build({"slot_0": top["slot_0"], "slot_1": top["slot_1"]})
+        assert value == choice.build({"slot_0": top["slot_0"], "slot_1": top["slot_1"]}) and "lone_protect_waits" not in meta
     # with a row number that is not a row, the rejection is an invalid answer (retried), never the Protect
     with pytest.raises(InvalidChoice):
-        agent._resolve_turn_answer(_answer(5, override=protect), sheet, choice, prediction, {})
+        agent._resolve_turn_answer(_answer(5, override=protect), sheet, choice, LONE_PROTECT_PREDICTION, {})
     # a stall reason gives the Protect its credit back (the fix is that narrow)
     sheet.stall_reasons = ["their Tailwind runs out (then we move first)"]
-    assert override_value(payload, sheet, agent.params) == agent.params["protect_bonus_guaranteed"]
+    assert override_value(payload, sheet, agent.params, memory=agent.memory) == agent.params["protect_bonus_guaranteed"]
+
+
+@pytest.mark.parametrize("mixture", [0.0, 1.0])
+def test_d9405f02_t7s_lone_protect_waits_out_a_fresh_fake_out_and_stays_allowed(mixture):
+    """d9405f02 T7: Iron Hands has just come in, and its Fake Out (+3) flinches Cresselia 90% of the time (the sheet's
+    FAKE OUT warning). A Protect blocks it, and from T8 on that Fake Out fails (live it did, twice): this Protect waits
+    something out, so the rule does not refuse it. The sheet's stall reasons stay empty (battle._endgame is unchanged);
+    the reason is logged, and the margin judges the Protect as on 81c4591: credited 45 under LETHAL, it is accepted.
+    (Cresselia's T6 Protect had worked, so this one worked 1 time in 3; live it failed.)"""
+    agent, sheet, template, choice = _position("d9405f02", 0, 7, {"reply_mixture": mixture, "reply_seed": 7.0})
+    assert sheet.alone and not sheet.stall_reasons and sheet.flinch_risk == {1: 0.9}
+    assert any(w.startswith("FAKE OUT: ironhands can Fake Out this turn") for w in sheet.warnings)
+    waits = _waits_out(sheet, agent.memory)
+    assert waits == ["a fresh Fake Out can flinch our cresselia this turn (90%): Protect blocks it, and from next turn it fails"]
+    protect = _lone_protect(template)
+    payload = choice.build(protect)
+    assert override_value(payload, sheet, agent.params, memory=agent.memory) == agent.params["protect_bonus_guaranteed"]
+    meta: dict = {}
+    value = agent._resolve_turn_answer(_answer(0, override=protect), sheet, choice, LONE_PROTECT_PREDICTION, meta)
+    assert value == payload and meta["resolution"] == "override accepted" and meta["lone_protect_waits"] == waits
+    assert agent.memory.protect_streak("cresselia", 1) == 1
+
+
+def _observed(lines: list[str]) -> MatchMemory:
+    """A memory that has read this protocol log (we are p1)."""
+    memory = MatchMemory()
+    memory.observe_protocol({"protocol_log": ["|player|p1|us", "|player|p2|them"] + lines, "team": {"p1: Wo-Chien": {}}})
+    return memory
+
+
+def test_the_memory_tracks_leech_seed_yawn_and_wish_from_the_protocol_log():
+    turn1 = ["|switch|p1a: Wo-Chien|Wo-Chien, L50|100/100", "|switch|p1b: Scream Tail|Scream Tail, L50|100/100",
+             "|switch|p2a: Gholdengo|Gholdengo, L50|100/100", "|switch|p2b: Incineroar|Incineroar, L50, M|100/100", "|turn|1",
+             "|move|p1a: Wo-Chien|Leech Seed|p2a: Gholdengo", "|-start|p2a: Gholdengo|move: Leech Seed",
+             "|move|p1b: Scream Tail|Wish|p1b: Scream Tail", "|move|p2b: Incineroar|Leech Seed|p1a: Wo-Chien", "|-immune|p1a: Wo-Chien",
+             "|turn|2"]
+    memory = _observed(turn1)
+    assert memory.seeded == {"theirs:gholdengo": "mine:a"} and memory.wishes == {"mine:b": 1} and memory.drowsy == {}
+    turn2 = ["|switch|p1b: Torkoal|Torkoal, L50|100/100", "|switch|p2a: Iron Hands|Iron Hands, L50|100/100",
+             "|move|p1b: Torkoal|Yawn|p2b: Incineroar", "|-start|p2b: Incineroar|move: Yawn|[of] p1b: Torkoal",
+             "|move|p1a: Wo-Chien|Leech Seed|p2a: Iron Hands", "|-start|p2a: Iron Hands|move: Leech Seed", "|turn|3"]
+    memory = _observed(turn1 + turn2)
+    # Gholdengo left the field (its seed with it); the Wish stays with its position; Yawn makes Incineroar drowsy
+    assert memory.seeded == {"theirs:ironhands": "mine:a"} and memory.wishes == {"mine:b": 1}
+    assert memory.drowsy == {"theirs:incineroar": 2} and memory.log_turn == 3
+    turn3 = ["|move|p2a: Iron Hands|Drain Punch|p1a: Wo-Chien", "|-end|p2b: Incineroar|move: Yawn|[silent]",
+             "|-status|p2b: Incineroar|slp|[from] move: Yawn", "|-damage|p2a: Iron Hands|0 fnt", "|faint|p2a: Iron Hands", "|turn|4"]
+    memory = _observed(turn1 + turn2 + turn3)
+    assert memory.seeded == {} and memory.drowsy == {}
+
+
+def _mon(species: str, side: str, position: int, types: list[str], *, item=None, ability=None, status=None):
+    return battle_rules.Mon(species=species, side=side, position=position, types=types, stats={"spe": 100}, hp_fraction=0.5,
+                            status=status, item=item, ability=ability, boosts={}, moves=[])
+
+
+def _alone(me, *foes, turn: int = 6, terrain: str | None = None, flinch: dict | None = None):
+    sheet = battle_rules.TurnSheet()
+    sheet.alone, sheet.turn, sheet.flinch_risk = True, turn, dict(flinch or {})
+    sheet.field = battle_rules.FieldState(actives=[me, *foes], terrain=terrain)
+    return sheet
+
+
+def test_waits_out_names_each_reason_the_stall_list_misses_and_nothing_else():
+    foe = _mon("Gholdengo", "theirs", 1, ["steel", "ghost"], item="Air Balloon")
+    plain = _mon("Cresselia", "mine", 1, ["psychic"], item="Sitrus Berry", ability="Levitate")
+    assert _waits_out(_alone(plain, foe)) == [] and _waits_out(_alone(plain, foe), MatchMemory()) == []
+    sheet = _alone(plain, foe)
+    sheet.alone = False
+    assert _waits_out(sheet, MatchMemory()) == []  # only our last Pokémon, alone
+    # the sheet: a fresh Fake Out, Black Sludge on a Poison type, a Guts holder's unactivated orb
+    assert _waits_out(_alone(plain, foe, flinch={1: 0.9}))[0].startswith("a fresh Fake Out can flinch our Cresselia this turn (90%)")
+    assert _waits_out(_alone(_mon("Toxapex", "mine", 0, ["poison", "water"], item="Black Sludge"), foe)) == ["our Toxapex heals a little (Black Sludge)"]
+    assert _waits_out(_alone(_mon("Arcanine", "mine", 0, ["fire"], item="Black Sludge"), foe)) == []  # it hurts a non-Poison holder
+    guts = _mon("Ursaluna", "mine", 0, ["ground", "normal"], item="Flame Orb", ability="Guts")
+    assert _waits_out(_alone(guts, foe)) == ["our Ursaluna's Flame Orb activates at the end of this turn (Guts boosts its Attack from then on)"]
+    for spent in (_mon("Ursaluna", "mine", 0, ["ground", "normal"], item="Flame Orb", ability="Guts", status="brn"),
+                  _mon("Ursaluna", "mine", 0, ["ground", "normal"], item=None, ability="Guts"),
+                  _mon("Ursaluna", "mine", 0, ["ground", "normal"], item="Flame Orb", ability="Bulletproof")):
+        assert _waits_out(_alone(spent, foe)) == []
+    # the memory: our Wish from last turn at this position, our Leech Seed draining into it, a foe drowsy since last turn
+    memory = MatchMemory()
+    memory.log_turn = 6
+    memory.wishes = {"mine:b": 5}
+    assert _waits_out(_alone(plain, foe), memory) == ["our Wish from last turn heals Cresselia at the end of this turn"]
+    memory.wishes = {"mine:b": 4, "mine:a": 5}  # two turns ago (it landed already), or the other position
+    assert _waits_out(_alone(plain, foe), memory) == []
+    memory.wishes, memory.seeded = {}, {"theirs:gholdengo": "mine:b"}
+    assert _waits_out(_alone(plain, foe), memory) == ["Leech Seed drains their Gholdengo into our Cresselia every turn"]
+    memory.seeded = {"theirs:gholdengo": "mine:a"}  # the seeder's position is empty now: the seed drains nothing
+    assert _waits_out(_alone(plain, foe), memory) == []
+    memory.seeded, memory.drowsy = {}, {"theirs:gholdengo": 5}
+    assert _waits_out(_alone(plain, foe), memory) == ["their Gholdengo falls asleep at the end of this turn (Yawn)"]
+    grounded = _mon("Iron Hands", "theirs", 2, ["fighting", "electric"])
+    memory.drowsy = {"theirs:ironhands": 5}
+    assert _waits_out(_alone(plain, grounded, terrain="electric"), memory) == []  # Electric Terrain keeps it awake
+    assert _waits_out(_alone(plain, _mon("Iron Hands", "theirs", 2, ["fighting", "electric"], status="par")), memory) == []
+    memory.drowsy = {"theirs:gholdengo": 4}  # stale: that Yawn resolved at the end of last turn
+    assert _waits_out(_alone(plain, foe), memory) == []
+
+
+def test_each_reason_to_wait_lets_a_lone_protect_be_judged_by_the_margin_d9405f02_t9():
+    """At T9 the lone Protect is refused; give the position one reason to wait at a time and the margin judges it again
+    (credited 45 under LETHAL: accepted). Remove it and the refusal is back."""
+    agent, sheet, template, choice = _position("d9405f02", 0, 9)
+    protect = _lone_protect(template)
+    me = next(m for m in sheet.field.actives if m.side == "mine")
+    assert agent.memory.log_turn == 9 and me.position == 1
+
+    def resolution() -> dict:
+        meta: dict = {}
+        agent._resolve_turn_answer(_answer(0, override=protect), sheet, choice, LONE_PROTECT_PREDICTION, meta)
+        return meta
+
+    assert resolution()["resolution"].startswith("override rejected: our last Pokémon's Protect has nothing to wait for")
+    for name, value in (("wishes", {"mine:b": 8}), ("seeded", {"theirs:gholdengo": "mine:b"}), ("drowsy", {"theirs:ironhands": 8})):
+        setattr(agent.memory, name, value)
+        meta = resolution()
+        assert meta["resolution"] == "override accepted" and len(meta["lone_protect_waits"]) == 1, (name, meta)
+        setattr(agent.memory, name, {})
+    me.item, me.types = "Black Sludge", ["poison"]
+    meta = resolution()
+    assert meta["resolution"] == "override accepted" and meta["lone_protect_waits"] == ["our cresselia heals a little (Black Sludge)"]
+    me.item, me.types = "Sitrus Berry", ["psychic"]
+    assert resolution()["resolution"].startswith("override rejected: our last Pokémon's Protect has nothing to wait for")
 
 
 # -- 3. answer_rules_v2: on the mixture the model chooses rows only (model audit R1) ----------------------------------------

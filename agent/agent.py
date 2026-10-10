@@ -802,7 +802,7 @@ class PokemonAgent:
         if override.get("use"):
             proposed = base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})  # InvalidChoice if illegal
             best = float(rows[0].get("score") or 0.0) if rows else 0.0
-            value = override_value(proposed, sheet, self.params)
+            value = override_value(proposed, sheet, self.params, memory=self.memory)
             same = next((r for r in rows if r.get("slot_0") == override.get("slot_0") and r.get("slot_1") == override.get("slot_1")), None)
             if same is not None:
                 value = float(same.get("score") or value)
@@ -812,8 +812,13 @@ class PokemonAgent:
                          "best_row_score": best, "margin": round(margin, 1), "prediction_matches_code": matches})
             # Safety: a Protect from our last Pokémon with nothing to wait for only delays the same position (the prompt
             # forbids it, both menus drop it). override_value credits it nothing, but nothing still passes the margin when
-            # row 0 is worth 0 or less (d9405f02 T7 and T9: 0 against 0.0 - 0.15), so it never plays over a row, read or not.
-            lone = bool(rows) and _protects_alone(proposed, sheet)
+            # row 0 is worth 0 or less (d9405f02 T9: 0 against 0.0 - 0.15), so it never plays over a row, read or not.
+            # Something to wait for that the sheet's stall reasons miss (_waits_out: d9405f02 T7's fresh Fake Out) lets
+            # the margin judge it as before, and is logged.
+            waits = _waits_out(sheet, self.memory) if rows and _protects(proposed) and not getattr(sheet, "stall_reasons", None) else []
+            if waits:
+                meta["lone_protect_waits"] = waits
+            lone = bool(rows) and _protects_alone(proposed, sheet, self.memory)
             if (not rows or value >= best - margin or matches) and not lone:
                 meta["resolution"] = "override accepted" + (" (same as a row)" if same is not None else "") \
                     + (" on the opponent read" if rows and value < best - margin else "") + ("" if rows else " (no rows)")
@@ -1218,14 +1223,14 @@ def minimal_legal_payload(state: GameState) -> Any:
     return first
 
 
-def override_value(payload: dict, sheet: Any, params: dict | None = None) -> float:
+def override_value(payload: dict, sheet: Any, params: dict | None = None, *, memory: Any = None) -> float:
     """The value of a proposed joint action on the rows' scale: the per-slot row values the sheet's scorer uses
     (``battle._expected`` for a damaging move into its target, capped at what each foe has left, one KO bonus per foe;
     the Protect bonus for a slot under a LETHAL/HIGH RISK warning; a switch-in's preview score). The same arithmetic
     as the candidate generators for an attack row; a listed row keeps its own score. Replaced by the reply table's
-    cell values once the core lane's mixture is on. A Protect from our last Pokémon with nothing to wait for earns
-    nothing: it only delays the same position (the prompt forbids it and both menus drop such rows; model audit R1/R7,
-    d9405f02 T7 and T9 passed the check at 45)."""
+    cell values once the core lane's mixture is on. A Protect from our last Pokémon with nothing to wait for (no stall
+    reason on the sheet and none of ``_waits_out``'s, which reads ``memory``) earns nothing: it only delays the same
+    position (the prompt forbids it and both menus drop such rows; model audit R1/R7, d9405f02 T9 passed at 45)."""
     P = params or DEFAULTS
     by_slot = {e.get("slot"): e for e in getattr(sheet, "our_options", None) or []}
     warnings = [str(w) for w in getattr(sheet, "warnings", None) or []]
@@ -1242,7 +1247,7 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None) -> flo
             continue
         move = _move_key(choice.get("move_id"))
         if move in _PROTECT_MOVES:
-            if _alone_with_nothing_to_wait_for(sheet):
+            if _alone_with_nothing_to_wait_for(sheet, memory):
                 continue
             threatened = any(f"slot {number} (" in w and (w.startswith("LETHAL") or w.startswith("HIGH RISK")) for w in warnings)
             extra += float(P.get("protect_bonus_guaranteed", 45.0)) if threatened else 0.0
@@ -1265,17 +1270,73 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None) -> flo
     return total
 
 
-def _alone_with_nothing_to_wait_for(sheet: Any) -> bool:
-    """Our last Pokémon stands alone and nothing a Protect could wait out is listed (battle._endgame's stall reasons)."""
-    return bool(getattr(sheet, "alone", False)) and not getattr(sheet, "stall_reasons", None)
+def _alone_with_nothing_to_wait_for(sheet: Any, memory: Any = None) -> bool:
+    """Our last Pokémon stands alone and nothing a Protect could wait out is listed: neither battle._endgame's stall
+    reasons nor ``_waits_out``'s."""
+    return bool(getattr(sheet, "alone", False)) and not getattr(sheet, "stall_reasons", None) and not _waits_out(sheet, memory)
 
 
-def _protects_alone(payload: Any, sheet: Any) -> bool:
+def _protects(payload: Any) -> bool:
+    """A payload in which a slot uses a Protect-like move."""
+    return isinstance(payload, dict) and any(
+        (payload.get(f"slot_{n}") or {}).get("type") == "move" and _move_key((payload.get(f"slot_{n}") or {}).get("move_id")) in _PROTECT_MOVES
+        for n in (0, 1))
+
+
+def _protects_alone(payload: Any, sheet: Any, memory: Any = None) -> bool:
     """A payload in which our last Pokémon, alone with nothing to wait for, Protects."""
-    if not isinstance(payload, dict) or not _alone_with_nothing_to_wait_for(sheet):
-        return False
-    return any((payload.get(f"slot_{n}") or {}).get("type") == "move" and _move_key((payload.get(f"slot_{n}") or {}).get("move_id")) in _PROTECT_MOVES
-               for n in (0, 1))
+    return _protects(payload) and _alone_with_nothing_to_wait_for(sheet, memory)
+
+
+def _waits_out(sheet: Any, memory: Any = None) -> list[str]:
+    """What a Protect from our last Pokémon, alone on the field, waits out beyond battle._endgame's stall reasons (which
+    list their Tailwind / Trick Room / screens running out, their burn, poison and sand damage, our Leftovers and Grassy
+    Terrain): each changes the position a turn later, so that Protect does more than delay (the M1 review). From the
+    sheet: a FRESH opposing Fake Out that can flinch it (Protect blocks it, and from the next turn it fails: the sheet's
+    flinch_risk, which already leaves out Ghost types, Inner Focus, Covert Cloak and Psychic Terrain); our Black Sludge on
+    a Poison type (it heals like Leftovers); an unactivated Flame Orb or Toxic Orb on our Guts holder (the status, and
+    Guts' boost, start at the end of this turn). From the memory (the protocol log): our Wish from last turn at its
+    position (it lands at the end of this turn); a foe whose Leech Seed drains into its position; a foe Yawn made
+    drowsy last turn (it falls asleep at the end of this turn, unless a status or Electric / Misty Terrain stops it).
+    Empty unless our last Pokémon stands alone; the sheet itself is never changed."""
+    if not getattr(sheet, "alone", False):
+        return []
+    fs = getattr(sheet, "field", None)
+    actives = list(getattr(fs, "actives", None) or [])
+    me = next((m for m in actives if getattr(m, "side", None) == "mine"), None)
+    if me is None:
+        return []
+    out: list[str] = []
+    risk = float((getattr(sheet, "flinch_risk", None) or {}).get(me.position, 0.0) or 0.0)
+    if risk > 0:
+        out.append(f"a fresh Fake Out can flinch our {me.species} this turn ({round(risk * 100)}%): Protect blocks it, and from "
+                   "next turn it fails")
+    item, ability = data.to_id(me.item), data.to_id(me.ability)
+    types = {str(t).lower() for t in me.types or []}
+    if item == "blacksludge" and "poison" in types:
+        out.append(f"our {me.species} heals a little (Black Sludge)")
+    if ability == "guts" and not me.status and (item == "flameorb" and "fire" not in types
+                                                or item == "toxicorb" and not types & {"poison", "steel"}):
+        out.append(f"our {me.species}'s {'Flame Orb' if item == 'flameorb' else 'Toxic Orb'} activates at the end of this turn "
+                   "(Guts boosts its Attack from then on)")
+    if memory is None:
+        return out
+    turn = int(getattr(memory, "log_turn", 0) or 0) or (sheet.turn if isinstance(getattr(sheet, "turn", None), int) else 0)
+    position = "mine:" + ("a" if me.position == 0 else "b")
+    if turn and (getattr(memory, "wishes", None) or {}).get(position) == turn - 1:
+        out.append(f"our Wish from last turn heals {me.species} at the end of this turn")
+    terrain = getattr(fs, "terrain", None)
+    for foe in actives:
+        if getattr(foe, "side", None) != "theirs":
+            continue
+        tag = "theirs:" + species_key(foe.species)
+        if (getattr(memory, "seeded", None) or {}).get(tag) == position:
+            out.append(f"Leech Seed drains their {foe.species} into our {me.species} every turn")
+        started = (getattr(memory, "drowsy", None) or {}).get(tag)
+        if (started is not None and turn and started >= turn - 1 and not foe.status
+                and not (terrain in ("electric", "misty") and foe.grounded)):
+            out.append(f"their {foe.species} falls asleep at the end of this turn (Yawn)")
+    return out
 
 
 MAX_ROWS_SHOWN = 8  # top rows only: the model chooses among the best; the rest is noise and tokens

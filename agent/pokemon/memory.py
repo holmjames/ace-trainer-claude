@@ -368,6 +368,10 @@ class MatchMemory:
     overlord_fallen: dict[str, int] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> fallenN Supreme Overlord announced on entry
     hazards_by_side: dict[str, dict[str, Any]] = field(default_factory=dict)  # "mine"/"theirs" -> entry hazards on that side
     taunted: dict[str, int] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> turn its Taunt started (until -end, switch-out, faint)
+    # What a Protect from our last Pokémon can wait out beyond the sheet's stall reasons (agent._waits_out), from the log:
+    seeded: dict[str, str] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" under Leech Seed -> the seeder's board position ("mine:a"), which the drain heals (until -end, switch-out, faint)
+    drowsy: dict[str, int] = field(default_factory=dict)  # "mine:<species>"/"theirs:<species>" -> turn Yawn made it drowsy: it falls asleep at the end of the next turn (until -end, switch-out, faint)
+    wishes: dict[str, int] = field(default_factory=dict)  # board position ("mine:a"/"theirs:b") -> last turn a Wish was used there: it heals that position at the end of the next turn
     log_turn: int = 0  # the last |turn| marker seen in the protocol log (0: no log)
     _catalog_checked: set[str] = field(default_factory=set)  # species already looked up in the catalog this match
     opp_items_lost: list[str] = field(default_factory=list)  # species_keys of opponents whose item is gone (protocol log -enditem)
@@ -661,6 +665,10 @@ class MatchMemory:
         faints: dict[int, list[str]] = {}
         taunted: dict[str, int] = {}  # "mine:<species>"/"theirs:<species>" under Taunt now
         occupant: dict[str, str] = {}  # board position ("p2a") -> the tag standing there
+        seeded: dict[str, str] = {}  # tag under Leech Seed -> the seeder's board position ("mine:a")
+        drowsy: dict[str, int] = {}  # tag made drowsy by Yawn -> the turn it started
+        wishes: dict[str, int] = {}  # board position ("mine:a") -> the turn a Wish was used from it
+        mover: str | None = None  # board position of the last |move| line: Leech Seed's -start names no source
         fainted_this_turn: dict[str, bool] = {"mine": False, "theirs": False}
         voluntary: list[int] = []
         protect_attempts = repeat_protects = 0
@@ -717,6 +725,8 @@ class MatchMemory:
                 where = actor.split(":")[0].strip()
                 if kind != "replace":
                     taunted.pop(occupant.get(where, ""), None)  # Taunt ends when its holder leaves the field
+                    seeded.pop(occupant.get(where, ""), None)  # so do Leech Seed and Yawn
+                    drowsy.pop(occupant.get(where, ""), None)
                 occupant[where] = tag_side + ":" + species
                 if kind != "replace":  # Illusion breaking is not an entry: the Pokémon has been acting all along
                     unburden.discard(tag_side + ":" + species)  # a new stint: Unburden only counts items lost on the field
@@ -750,6 +760,20 @@ class MatchMemory:
                     taunted[tag] = turn  # "|-start|p2b: Amoonguss|move: Taunt": no status moves for three turns
                 else:
                     taunted.pop(tag, None)
+            if kind == "move" and len(parts) > 3:
+                mover = tag_side + ":" + actor.split(":")[0].strip()[len(side):]  # "p1b: Scream Tail" -> "mine:b"
+                if species_key(parts[3]) == "wish":
+                    wishes[mover] = turn  # "|move|p1b: Scream Tail|Wish|p1b: Scream Tail": heals "mine:b" at the end of next turn
+            if kind in ("-start", "-end") and len(parts) > 3 and species_key(parts[3]) in ("moveleechseed", "leechseed"):
+                if kind == "-start" and mover:
+                    seeded[tag] = mover  # "|-start|p2a: Gholdengo|move: Leech Seed", right after the seeder's |move| line
+                else:
+                    seeded.pop(tag, None)  # "|-end|p2a: X|Leech Seed|[from] move: Rapid Spin"
+            if kind in ("-start", "-end") and len(parts) > 3 and species_key(parts[3]) in ("moveyawn", "yawn"):
+                if kind == "-start":
+                    drowsy[tag] = turn  # "|-start|p2a: Gholdengo|move: Yawn|[of] p1a: Torkoal"
+                else:
+                    drowsy.pop(tag, None)  # "|-end|p2a: Gholdengo|move: Yawn|[silent]": the sleep came (or failed)
             if kind == "-start" and len(parts) > 3:
                 effect = species_key(parts[3])
                 for ability in ("protosynthesis", "quarkdrive"):
@@ -764,6 +788,8 @@ class MatchMemory:
             elif kind == "faint":
                 paradox.pop(tag, None)
                 taunted.pop(tag, None)
+                seeded.pop(tag, None)
+                drowsy.pop(tag, None)
                 unburden.discard(tag)
                 overlord.pop(tag, None)
                 fallen[tag_side] += 1
@@ -812,6 +838,9 @@ class MatchMemory:
         self.their_repeat_protects = repeat_protects
         self.log_turn = turn
         self.taunted = taunted
+        self.seeded = seeded
+        self.drowsy = drowsy
+        self.wishes = wishes
         # Consecutive Protects by each opponent, ending with the turn that just finished (read from the log, not inferred).
         streaks: dict[str, int] = {}
         for species in moves_by_turn["theirs"]:
