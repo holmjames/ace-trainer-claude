@@ -46,13 +46,14 @@ def test_params_change_candidate_ranking(monkeypatch):
 
 
 def test_the_deploy_4_defaults_are_pinned():
-    """Deploy #4 (cand/1010d) turns on recheck_v2 and prompt_v2 (the Oct 10 model-on test on 121 live positions) and
-    draft_support_w 0.25 (pre-registration #2, confirmed on fresh simulated games); the other model-path keys, the
-    reply mixture, the exposure tie-break and the deep Team Preview budget stay as deploy #3 (81c4591) shipped them.
+    """Deploy #4 (cand/1010d) turns on recheck_v2 and prompt_v2 (the Oct 10 model-on test on 121 live positions),
+    prompt_kb (the same test, on top of those two) and draft_support_w 0.25 (pre-registration #2, confirmed on fresh
+    simulated games); answer_rules_v2, the reply mixture, the exposure tie-break and the deep Team Preview budget stay
+    as deploy #3 (81c4591) shipped them.
     Read from the file as shipped too: tests/conftest.py pins lineup_sim_budget_s to 0 outside the preview tests."""
     import importlib.util
 
-    pinned = {"recheck_v2": 1.0, "prompt_v2": 1.0, "draft_support_w": 0.25, "prompt_kb": 0.0, "answer_rules_v2": 0.0,
+    pinned = {"recheck_v2": 1.0, "prompt_v2": 1.0, "draft_support_w": 0.25, "prompt_kb": 1.0, "answer_rules_v2": 0.0,
               "reply_mixture": 0.0, "draft_tiebreak_exposure": 0.0, "lineup_sim_budget_s": 20.0}
     spec = importlib.util.spec_from_file_location("tuning_as_shipped", tuning.__file__)
     shipped = importlib.util.module_from_spec(spec)

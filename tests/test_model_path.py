@@ -12,11 +12,12 @@
    the proposal does not play, the public summary is the played row's why, on the deploy's scorer path as well.
 4. recheck_v2 (on by default from deploy #4): no DOUBLE-TARGET triggers; LETHAL / EXPOSED fire only where row 0 covers
    that slot; the message sends the model back to row 0 (model audit R3, readiness item 10).
-5. prompt_v2 (on by default from deploy #4) and prompt_kb (off by default): the audit's R2 and R5 prompt text (with the
-   sheet's DOUBLE-TARGET warnings ending neutrally) and its R4 knowledge base, general mechanics checked against the
-   mechanics data; every variant is built at import and system_prompt never raises; with every model-path key at 0 the
-   Oct 10 deploy's system prompt and payload texts (answer format, instructions) are sent byte for byte, and deploy #4's
-   defaults send the prompt_v2 prompt (pinned by its sha256) with the same payload texts.
+5. prompt_v2 and prompt_kb (both on by default from deploy #4): the audit's R2 and R5 prompt text (with the sheet's
+   DOUBLE-TARGET warnings ending neutrally) and its R4 knowledge base, general mechanics checked against the mechanics
+   data and pinned as the Oct 10 model-on test sent it; every variant is built at import and system_prompt never
+   raises; with every model-path key at 0 the Oct 10 deploy's system prompt and payload texts (answer format,
+   instructions) are sent byte for byte, and deploy #4's defaults send the prompt_v2 prompt with the knowledge base
+   (pinned by its sha256, as is the prompt_v2 prompt without it) with the same payload texts.
 6. scripts/live_positions.py: the live answers replayed through the agent (code only), a model-on mode that is a dry
    run without --max-calls and never spends more than it (N calls, up to 2N requests with fallbacks); an ignored
    override is recorded with its key and the evaluator's value.
@@ -430,7 +431,7 @@ def test_each_reason_to_wait_lets_a_fresh_lone_protect_be_judged_by_the_margin_d
 
 
 MODEL_PATH_SWITCHES = ("answer_rules_v2", "recheck_v2", "prompt_v2", "prompt_kb")
-DEPLOY4_SWITCHES = {"answer_rules_v2": 0.0, "recheck_v2": 1.0, "prompt_v2": 1.0, "prompt_kb": 0.0}  # deploy #4's defaults
+DEPLOY4_SWITCHES = {"answer_rules_v2": 0.0, "recheck_v2": 1.0, "prompt_v2": 1.0, "prompt_kb": 1.0}  # deploy #4's defaults
 OFF = dict.fromkeys(MODEL_PATH_SWITCHES, 0.0)  # every model-path key at 0, explicitly: the Oct 10 deploy's (81c4591) texts
 
 
@@ -461,7 +462,7 @@ def test_the_lone_protect_refusal_has_no_key_and_the_tuning_comment_says_so_d940
     for named in ("lone Protect", "_protects_alone", "_waits_out", "Lum or Chesto", "public summary", "status order",
                   "rank_candidates"):
         assert named in text, named
-    assert {key: tuning.DEFAULTS[key] for key in MODEL_PATH_SWITCHES} == DEPLOY4_SWITCHES  # recheck_v2 and prompt_v2 on
+    assert {key: tuning.DEFAULTS[key] for key in MODEL_PATH_SWITCHES} == DEPLOY4_SWITCHES  # recheck_v2, prompt_v2, prompt_kb on
     agent, sheet, template, choice = _position("d9405f02", 0, 8, {"reply_mixture": mixture, "reply_seed": 7.0})
     protect = _lone_protect(template)
     payload = choice.build(protect)
@@ -736,7 +737,9 @@ def test_a_turn_the_mixture_did_not_price_says_the_scorers_rule_in_its_answer_fo
 # -- the prompt and the payload say the rule in force; all keys at 0 send the Oct 10 deploy's texts byte for byte -------
 
 SYSTEM_PROMPT_SHA256 = "ac6102af4c7648bc20ccbe6400b69ee875de6586f11cd63c41c5bbea904d4763"  # 81c4591's SYSTEM_PROMPT (8,593 chars)
-SYSTEM_PROMPT_V2_SHA256 = "34872649de6b563562180611e50599ed77bbf760affe4b868f5ef6f0c9a59bb2"  # deploy #4's default: prompt_v2 (9,782 chars)
+SYSTEM_PROMPT_V2_SHA256 = "34872649de6b563562180611e50599ed77bbf760affe4b868f5ef6f0c9a59bb2"  # prompt_v2 alone, prompt_kb 0 (9,782 chars)
+SYSTEM_PROMPT_DEPLOY4_SHA256 = "3798067c29ba195cb57bbdfcf1a960c9fe551577965a620b7326f3de860df7d4"  # deploy #4's default: prompt_v2 + prompt_kb (11,676 chars)
+KNOWLEDGE_BASE_SHA256 = "f8fe6fd8a31d631a2b55f3d36c413635a3cf14c8d2bd4834c50066a9ae9af2f7"  # prompts.KNOWLEDGE_BASE (1,892 chars) as the Oct 10 model-on test sent it (ws/mpath fb02649), byte for byte
 ANSWER_FORMAT_81C4591 = (
     "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. To propose a joint "
     "action that is not a row, set override.use=true and give both slots as {option: <index from that slot's "
@@ -793,11 +796,15 @@ def test_keys_at_0_send_the_oct_10_prompt_and_payload_texts_and_the_defaults_sen
     assert messages[0] == {"role": "system", "content": SYSTEM_PROMPT}
     payload = json.loads(messages[-1]["content"])
     assert payload["answer_format"] == ANSWER_FORMAT_81C4591 and payload["instructions"] == INSTRUCTIONS_81C4591
-    # deploy #4's defaults (prompt_v2 on; recheck_v2 does not touch the texts): the prompt_v2 prompt, pinned, and the
-    # same answer format and instructions
+    # deploy #4's defaults (prompt_v2 and prompt_kb on; recheck_v2 does not touch the texts): the prompt_v2 prompt with the
+    # knowledge base, pinned, and the same answer format and instructions; the prompt_v2 prompt without it stays pinned
     text = system_prompt(dict(tuning.DEFAULTS))
-    assert text is VARIANTS[(False, True, False)] and text == system_prompt(tuning.merged({**OFF, "prompt_v2": 1.0})) != SYSTEM_PROMPT
-    assert hashlib.sha256(text.encode()).hexdigest() == SYSTEM_PROMPT_V2_SHA256 and len(text) == 9782
+    assert text is VARIANTS[(False, True, True)] and text == system_prompt(
+        tuning.merged({**OFF, "prompt_v2": 1.0, "prompt_kb": 1.0})) != SYSTEM_PROMPT
+    assert hashlib.sha256(text.encode()).hexdigest() == SYSTEM_PROMPT_DEPLOY4_SHA256 and len(text) == 11676
+    v2_alone = system_prompt(tuning.merged({**OFF, "prompt_v2": 1.0}))
+    assert v2_alone is VARIANTS[(False, True, False)] and v2_alone == system_prompt(tuning.merged({"prompt_kb": 0.0})) != text
+    assert hashlib.sha256(v2_alone.encode()).hexdigest() == SYSTEM_PROMPT_V2_SHA256 and len(v2_alone) == 9782
     assert system_prompt({**tuning.DEFAULTS, "answer_rules_v2": 1.0}) == text
     recorder, _ = _ask_at("bcbaabe2", 0, 13, {}, _answer(0))
     messages = recorder.calls[0]
@@ -817,7 +824,7 @@ def test_rows_only_prompt_and_payload_say_the_rule_in_force():
     assert "A row whose value trails row 0 by more than 50 points plays row 0 instead." in text
     assert "The code scores it with the same scorer as the rows" not in text
     # only the row and override bullets move: on the Oct 10 deploy's prompt (the other model-path keys at 0, explicitly)
-    # and on deploy #4's default prompt (prompt_v2 on)
+    # and on deploy #4's default prompt (prompt_v2 and prompt_kb on)
     assert without_row_bullets(system_prompt(tuning.merged({**OFF, **RULES}))) == without_row_bullets(SYSTEM_PROMPT)
     assert without_row_bullets(text) == without_row_bullets(system_prompt(tuning.merged(MIX))) != without_row_bullets(SYSTEM_PROMPT)
     assert "by more than 25 points" in system_prompt(tuning.merged({**RULES, "row_margin_points": 25}))
@@ -983,7 +990,7 @@ def test_recheck_v2_still_sends_back_an_attack_that_leaves_row_0s_protect_7ce710
 def test_prompt_v2_makes_double_target_a_risk_leads_with_the_live_lessons_and_defines_the_prediction_words():
     from agent.pokemon.prompts import SYSTEM_PROMPT, system_prompt
 
-    text = system_prompt(tuning.merged({"prompt_v2": 1}))
+    text = system_prompt(tuning.merged({"prompt_v2": 1, "prompt_kb": 0}))  # prompt_v2's own text: the knowledge base off, explicitly
     assert ("The Protect procedure, in this order, for a slot under a LETHAL or EXPOSED warning. DOUBLE-TARGET alone is a risk, "
             "not a forecast (both foes must pick that slot): cover it only when row 0 does.\n1. A priority escape THAT KOS") in text
     assert "for a slot under a LETHAL, EXPOSED or DOUBLE-TARGET warning" not in text
@@ -1010,7 +1017,7 @@ def test_prompt_v2_makes_double_target_a_risk_leads_with_the_live_lessons_and_de
     # the code's prediction gives one kind per slot and no target, so it is not what prices doubles (the M1b review); at
     # prompt_v2 0 the line is the deploy's, with neither clause
     assert "prediction already prices" not in text and "price doubles" not in SYSTEM_PROMPT and "prices doubles" not in SYSTEM_PROMPT
-    assert system_prompt(tuning.merged({"prompt_v2": 0})) == SYSTEM_PROMPT
+    assert system_prompt(tuning.merged({"prompt_v2": 0, "prompt_kb": 0})) == SYSTEM_PROMPT
     from agent.pokemon.opponent import predict
 
     agent, sheet, _, _ = _position("07a3cb1f", 1, 1)
@@ -1033,7 +1040,7 @@ def test_prompt_v2_says_the_search_bot_fakes_out_with_any_fresh_pokemon_as_the_c
     from agent.pokemon.opponent import predict
     from agent.pokemon.prompts import SYSTEM_PROMPT, system_prompt
 
-    text = system_prompt(dict(tuning.DEFAULTS))  # deploy #4's prompt (prompt_v2)
+    text = system_prompt(dict(tuning.DEFAULTS))  # deploy #4's prompt (prompt_v2, prompt_kb)
     search_line = next(line for line in text.splitlines() if line.startswith("- search_bot"))
     assert "turn one only" not in search_line
     assert ("; it uses Fake Out on a Pokémon's first turn out (a threat marked FRESH: a lead on turn one or any later switch-in) "
@@ -1047,7 +1054,7 @@ def test_prompt_v2_says_the_search_bot_fakes_out_with_any_fresh_pokemon_as_the_c
     assert prediction["per_slot"][1]["p"]["fakeout"] == replies.SEEDS["fakeout_first_turn"]
     assert any(w.startswith("FAKE OUT: ironhands can Fake Out this turn") for w in sheet.warnings)
     # prompt_v2 0 keeps the deploy's line (SYSTEM_PROMPT is pinned by its sha256)
-    assert "it Fake Outs on turn one only." in SYSTEM_PROMPT and system_prompt(tuning.merged({"prompt_v2": 0})) == SYSTEM_PROMPT
+    assert "it Fake Outs on turn one only." in SYSTEM_PROMPT and system_prompt(tuning.merged({"prompt_v2": 0, "prompt_kb": 0})) == SYSTEM_PROMPT
 
 
 def test_prompt_v2_ends_the_sheets_double_target_warnings_neutrally_and_changes_nothing_else_07a3cb1f_t1():
@@ -1070,15 +1077,19 @@ def test_prompt_v2_ends_the_sheets_double_target_warnings_neutrally_and_changes_
 
 
 def test_prompt_kb_is_the_audits_mechanics_facts_checked_against_the_mechanics_data():
+    import hashlib
+
     from agent.pokemon import data, preview_sim
     from agent.pokemon.prompts import KNOWLEDGE_BASE, SYSTEM_PROMPT, system_prompt
 
     text = system_prompt(tuning.merged({**OFF, "prompt_kb": 1}))
     assert text.endswith("\n\n" + KNOWLEDGE_BASE + "\n\nAnswer only in the required JSON.")
     assert text.replace("\n\n" + KNOWLEDGE_BASE, "") == SYSTEM_PROMPT  # nothing else moves
-    on_v2 = system_prompt(tuning.merged({"prompt_kb": 1}))  # on deploy #4's prompt (prompt_v2) as well
-    assert on_v2.endswith("\n\n" + KNOWLEDGE_BASE + "\n\nAnswer only in the required JSON.")
-    assert on_v2.replace("\n\n" + KNOWLEDGE_BASE, "") == system_prompt(dict(tuning.DEFAULTS)) != SYSTEM_PROMPT
+    on_v2 = system_prompt(tuning.merged({"prompt_kb": 1}))  # on deploy #4's prompt (prompt_v2) as well: the defaults' prompt
+    assert on_v2 == system_prompt(dict(tuning.DEFAULTS)) and on_v2.endswith("\n\n" + KNOWLEDGE_BASE + "\n\nAnswer only in the required JSON.")
+    assert on_v2.replace("\n\n" + KNOWLEDGE_BASE, "") == system_prompt(tuning.merged({"prompt_kb": 0})) != SYSTEM_PROMPT
+    # the text the Oct 10 model-on test sent (ws/mpath fb02649), byte for byte
+    assert hashlib.sha256(KNOWLEDGE_BASE.encode()).hexdigest() == KNOWLEDGE_BASE_SHA256 and len(KNOWLEDGE_BASE) == 1892
     assert len(KNOWLEDGE_BASE.split()) == 335 and [line[:3] for line in KNOWLEDGE_BASE.splitlines()[1:]] == [f"{i}. " for i in range(1, 10)]
     # general mechanics only: the audit's tenth item, a base rate learned from reviewed matches, is out (the M1 review)
     assert not re.search(r"reviewed|in \d+|times in|LETHAL|DOUBLE-TARGET", KNOWLEDGE_BASE)

@@ -124,8 +124,8 @@ DEFAULTS: dict[str, float] = {
     "sleep_use_prior": 0.6,        # Part 3: chance a sleep user with a target uses its sleep move this turn (aimed 0.8 at the slot that loses most)
     # model layer (ops lane)
     "override_margin": 0.15,       # E2: a free-form override whose value trails the best row by more than this share of the top value is rejected, unless the model's opponent prediction matches the code's top column
-    # model path (lane M1): the model audit's recommendations (Oct 9). Of the four switches below, recheck_v2 and prompt_v2
-    # are on from deploy #4 and answer_rules_v2 and prompt_kb are off; with all four at 0 the system prompt and the payload
+    # model path (lane M1): the model audit's recommendations (Oct 9). Of the four switches below, recheck_v2, prompt_v2
+    # and prompt_kb are on from deploy #4 and answer_rules_v2 is off; with all four at 0 the system prompt and the payload
     # texts are the Oct 10 deploy's (81c4591), byte for byte, but not all of its rules.
     # These apply at any setting, with no key: E2's refusal of our last Pokémon's lone Protect (agent._protects_alone:
     # override_value credits it nothing, and it never plays over a row, read or not; d9405f02 T7-T10 now play row 0 where
@@ -137,7 +137,7 @@ DEFAULTS: dict[str, float] = {
     "row_margin_points": 50.0,     # answer_rules_v2: a lower row stands if its value >= row 0's - max(this, 0.15 x |row 0's value|), else row 0 plays (25 is the audit's cautious alternative)
     "recheck_v2": 1.0,             # on (deploy #4): the lethal recheck drops DOUBLE-TARGET triggers and fires only for a LETHAL/EXPOSED slot that row 0 Protects or switches, and sends the model back to row 0 (model audit R3, readiness item 10). Both paths. Why: the Oct 10 model-on test (121 live positions, fresh Opus 5.5 answers, with prompt_v2): 0 recheck flips vs 43, 27 % fewer calls, p95 8.5 s vs 8.9 s, 0 timeouts vs 1. 0 = the Oct 10 deploy's recheck
     "prompt_v2": 1.0,              # on (deploy #4): the system prompt treats DOUBLE-TARGET as a risk, not a forecast (the sheet's DOUBLE-TARGET warnings end neutrally, the search bot's doubles are no forecast for one slot), leads its lessons with three from live games (model audit R2) and defines opponent_prediction in the code's words (R5). Why: the same test, with recheck_v2: 0 added covers on DOUBLE-TARGET-only slots vs 4, model predictions 112/188 vs 103/188, and a paired-value tie on the 11 positions whose plays differ. 0 = the Oct 10 deploy's prompt (81c4591), byte for byte
-    "prompt_kb": 0.0,              # 1 = the system prompt carries the battle reference (prompts.KNOWLEDGE_BASE: nine facts of general mechanics and rules, 335 words, nothing learned from reviewed games; model audit R4)
+    "prompt_kb": 1.0,              # on (deploy #4): the system prompt carries the battle reference (prompts.KNOWLEDGE_BASE: nine facts of general mechanics and rules, 335 words, nothing learned from reviewed games; model audit R4) before its last line. Why: the Oct 10 model-on test of it on top of recheck_v2 and prompt_v2 (the same live positions, fresh Opus 5.5 answers) changed the play at 5 of 138 decisions for +169 paired value (+171 at one position), with no new failure mode and 0 timeouts. 0 = deploy #4's prompt without it (prompt_v2 alone), byte for byte
 }
 
 
