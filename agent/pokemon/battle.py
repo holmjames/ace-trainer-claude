@@ -683,6 +683,7 @@ class TurnSheet:
     bench_status: dict = field(default_factory=dict)  # our bench species_key -> its status ("slp": a Spore sink if it comes in)
     opp_team: dict = field(default_factory=dict)  # their species_key -> {"hp", "status", "fainted", "active"} from the observation
     turn: int | None = None  # the battle turn of this sheet (the reply mixture's priors depend on it)
+    timers: dict = field(default_factory=dict)  # "trickroom", "tailwind" (ours) -> turns it still covers, this one counted (None: unknown)
     field: "FieldState | None" = None  # keep last: this name shadows dataclasses.field for anything declared after it
 
     def acts(self, slot: int) -> float:
@@ -797,11 +798,13 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
     turn = obs.get("turn")
     sheet.trick_room = "trickroom" in field_text
     if sheet.trick_room:
-        sheet.notes.append("Trick Room is up: slower Pokémon move first." + _left_text(turns_left(obs.get("fields"), "trickroom", turn)))
+        sheet.timers["trickroom"] = turns_left(obs.get("fields"), "trickroom", turn)
+        sheet.notes.append("Trick Room is up: slower Pokémon move first." + _left_text(sheet.timers["trickroom"]))
     my_tailwind = "tailwind" in data.to_id(json.dumps(obs.get("side_conditions"), default=str))
     their_tailwind = "tailwind" in data.to_id(json.dumps(obs.get("opponent_side_conditions"), default=str))
     if my_tailwind:
-        sheet.notes.append("Our Tailwind is up (speed doubled)." + _left_text(turns_left(obs.get("side_conditions"), "tailwind", turn)))
+        sheet.timers["tailwind"] = turns_left(obs.get("side_conditions"), "tailwind", turn)
+        sheet.notes.append("Our Tailwind is up (speed doubled)." + _left_text(sheet.timers["tailwind"]))
     if their_tailwind:
         sheet.notes.append("Opponent's Tailwind is up (their speed doubled)." + _left_text(turns_left(obs.get("opponent_side_conditions"), "tailwind", turn)))
     # Our active Pokémon, one per slot.
@@ -2217,14 +2220,22 @@ def setup_spent(sheet: "TurnSheet", move_id: str, memory: "MatchMemory | None" =
 def setup_backfires(sheet: "TurnSheet", move_id: str, memory: "MatchMemory | None" = None) -> bool:
     """Would our ``move_id`` turn the speed order against us: a Trick Room under our own Tailwind (the room reverses the
     order), or a Tailwind under our own Trick Room (doubled, a slow one of ours stops moving first), when one of our
-    actives would then move after a foe it moves before now (the sheet's speed order). The redirect and Fake Out rows
-    then pair their move with an attack; otherwise the setup stays (it can still help another pairing)."""
+    actives would then move after a foe it moves before now (the sheet's speed order). Never on the last turn of the
+    condition it reverses (``sheet.timers``), the standard hand-offs: a Trick Room set then (-7, after everyone has
+    moved) starts as our Tailwind ends, and a Tailwind set on our room's last turn runs its three more turns without the
+    room. The redirect and Fake Out rows then pair their move with an attack; otherwise the setup stays (it can still
+    help another pairing)."""
     ours = [e["speed"] for e in sheet.speed_order if e["side"] == "mine"]
     foes = [e["speed"] for e in sheet.speed_order if e["side"] == "theirs"]
+
+    def ends_now(name: str) -> bool:
+        left = sheet.timers.get(name)
+        return left is not None and left <= 1
+
     if move_id == "trickroom" and not sheet.trick_room and setup_spent(sheet, "tailwind"):
-        return any(o > f for o in ours for f in foes)
+        return not ends_now("tailwind") and any(o > f for o in ours for f in foes)
     if move_id == "tailwind" and setup_spent(sheet, "trickroom", memory) and not setup_spent(sheet, "tailwind"):
-        return any(o < f < 2 * o for o in ours for f in foes)
+        return not ends_now("trickroom") and any(o < f < 2 * o for o in ours for f in foes)
     return False
 
 

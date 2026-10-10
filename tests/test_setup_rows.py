@@ -1,7 +1,8 @@
 """The redirect and Fake Out rows pair their move with the partner's speed control (Tailwind, Trick Room, Icy Wind,
 Electroweb). A Tailwind already up on our side sets nothing, and a second Trick Room ENDS the room we set: neither is
-the partner's setup then, and the partner attacks instead. Positions: the hand scenarios of scripts/scenarios.py with
-our Tailwind or Trick Room up (code only)."""
+the partner's setup then, and the partner attacks instead. A setup that reverses our own Tailwind or Trick Room is left
+out too, except on that condition's last turn: the hand-off. Positions: the hand scenarios of scripts/scenarios.py with
+our Tailwind or Trick Room up (code only; a dict condition is the turn it started, as the live server sends it)."""
 
 from __future__ import annotations
 
@@ -56,8 +57,14 @@ def test_the_partner_attacks_instead_of_a_spent_setup(name, sc, row, spent, tmp_
 @pytest.mark.parametrize("name, sc, row, against_us", [
     # our Tailwind up: Amoonguss 100 and Hatterene 88 outspeed Kingambit (71); a Trick Room would put them behind it
     ("redirect_room_under_our_tailwind", dataclasses.replace(REDIRECT, my_side=["Tailwind"], **HATTERENE), "redirect_to_protect_partner", "trickroom"),
+    # the same with two turns of it left (set on turn 2, now turn 4): next turn has both the room and the Tailwind
+    ("redirect_room_under_our_tailwind_2_left", dataclasses.replace(REDIRECT, turn=4, my_side={"TAILWIND": 2}, **HATTERENE),
+     "redirect_to_protect_partner", "trickroom"),
     # our Trick Room up: Incineroar (80) moves before Urshifu (149); doubled (160) it would move after it
     ("fake_out_tailwind_under_our_room", dataclasses.replace(FAKE_OUT, turn=3, my_fresh=("incineroar",), their_fresh=(), fields=["Trick Room"]),
+     "fake_out_setup", "tailwind"),
+    # the same with two turns of the room left (set on turn 3, now turn 6)
+    ("fake_out_tailwind_under_our_room_2_left", dataclasses.replace(FAKE_OUT, turn=6, my_fresh=("incineroar",), their_fresh=(), fields={"TRICK_ROOM": 3}),
      "fake_out_setup", "tailwind"),
 ])
 def test_the_partner_attacks_instead_of_a_setup_that_turns_the_speed_order_against_us(name, sc, row, against_us, tmp_path, monkeypatch):
@@ -81,6 +88,38 @@ def test_a_speed_setup_backfires_only_when_one_of_ours_would_lose_a_foe_it_outsp
     assert not battle.setup_backfires(sheet([30, 40], [149, 307], room=True), "tailwind", ours_room)  # 60, 80: still first
     assert not battle.setup_backfires(sheet([80, 179], [149, 307], room=True), "tailwind", their_room)  # their room: as before
     assert not battle.setup_backfires(sheet([80], [149]), "icywind") and not battle.setup_backfires(sheet([80], [149]), "tailwind")
+
+
+@pytest.mark.parametrize("name, sc, row, setup", [
+    # the last turn of our Tailwind (set on turn 1, now turn 4): a Trick Room set now (-7) starts as the Tailwind ends
+    ("redirect_room_on_our_tailwinds_last_turn", dataclasses.replace(REDIRECT, turn=4, my_side={"TAILWIND": 1}, **HATTERENE),
+     "redirect_to_protect_partner", "trickroom"),
+    # the last turn of our Trick Room (set on turn 1, now turn 5): a Tailwind set now runs three more turns without it
+    ("fake_out_tailwind_on_our_rooms_last_turn", dataclasses.replace(FAKE_OUT, turn=5, my_fresh=("incineroar",), their_fresh=(), fields={"TRICK_ROOM": 1}),
+     "fake_out_setup", "tailwind"),
+])
+def test_the_hand_off_on_the_last_turn_keeps_the_setup(name, sc, row, setup, tmp_path, monkeypatch):
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)
+    monkeypatch.setitem(tuning.DEFAULTS, "lineup_sim_budget_s", 0.0)
+    found = [c for c in rows(sc, tmp_path) if c["name"] == row]
+    assert found and all(f"sets {setup}" in c["why"] for c in found), (name, found)
+
+
+def test_a_speed_setup_never_backfires_on_the_last_turn_of_what_it_reverses():
+    def sheet(ours: list[int], foes: list[int], left: dict, *, our_tailwind: bool = False, room: bool = False) -> battle.TurnSheet:
+        s = battle.TurnSheet(trick_room=room, notes=["Our Tailwind is up (speed doubled)."] if our_tailwind else [], timers=dict(left))
+        s.speed_order = [{"side": "mine", "speed": v} for v in ours] + [{"side": "theirs", "speed": v} for v in foes]
+        return s
+    ours_room = SimpleNamespace(moves_by_turn={"mine": {"hatterene": {2: "trickroom"}}, "theirs": {}})
+    assert not battle.setup_backfires(sheet([100, 88], [149, 71], {"tailwind": 1}, our_tailwind=True), "trickroom")
+    assert not battle.setup_backfires(sheet([100, 88], [149, 71], {"tailwind": 0}, our_tailwind=True), "trickroom")
+    assert battle.setup_backfires(sheet([100, 88], [149, 71], {"tailwind": 2}, our_tailwind=True), "trickroom")
+    assert battle.setup_backfires(sheet([100, 88], [149, 71], {"tailwind": None}, our_tailwind=True), "trickroom")  # unknown: as before
+    assert not battle.setup_backfires(sheet([80, 179], [149, 307], {"trickroom": 1}, room=True), "tailwind", ours_room)
+    assert battle.setup_backfires(sheet([80, 179], [149, 307], {"trickroom": 2}, room=True), "tailwind", ours_room)
+    # the room's last turn does not excuse a Trick Room under our Tailwind, nor the Tailwind's a Tailwind in our room
+    assert battle.setup_backfires(sheet([100, 88], [149, 71], {"trickroom": 1}, our_tailwind=True), "trickroom")
+    assert battle.setup_backfires(sheet([80, 179], [149, 307], {"tailwind": 1}, room=True), "tailwind", ours_room)
 
 
 def test_a_tailwind_not_yet_up_is_still_the_redirect_partners_setup(tmp_path, monkeypatch):
