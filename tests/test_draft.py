@@ -111,9 +111,17 @@ def test_draft_is_deterministic_and_fast():
          "Arcanine", "Pelipper", "Kingambit", "Gholdengo", "Dragonite", "Tornadus", "Landorus-Therian",
          "Whimsicott", "Indeedee-F", "Farigiraf", "Ting-Lu"])]
     memory = memory_with(mine=(FLUTTER,), theirs=(GYARADOS,), pool=pool)
+    # Timed apart (the Oct 10 integrity review). The first pick builds the pool's matchup board, nearly all of the cost:
+    # ~70 ms after this file's earlier tests and ~110 ms in a fresh interpreter, on an idle machine. Wall time grows with
+    # load: 201-210 ms in three niced full suites at load ~15, and 285-350 ms under `taskpolicy -b` (efficiency cores),
+    # so the old 200 ms for both picks failed on load alone. The second pick reuses the board (~1 ms; ~6 ms under
+    # `taskpolicy -b`). Budgets: 400 ms for the cold pick, the old 200 ms for the warm one.
     started = time.perf_counter()
     first = draft.choose_pick(legal(*pool), memory)
+    cold_ms = (time.perf_counter() - started) * 1000
+    started = time.perf_counter()
     second = draft.choose_pick(legal(*pool), memory)
-    elapsed_ms = (time.perf_counter() - started) * 1000
+    warm_ms = (time.perf_counter() - started) * 1000
     assert first.card_id == second.card_id
-    assert elapsed_ms < 200, elapsed_ms
+    assert cold_ms < 400, cold_ms
+    assert warm_ms < 200, warm_ms
