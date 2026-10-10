@@ -61,9 +61,10 @@ Lessons from overrides that lost (Oct 8):
 Answer only in the required JSON."""
 
 # -- the model-path variants (lane M1) ----------------------------------------------------------------------------------
-# Each is off by default, and system_prompt() of the defaults is SYSTEM_PROMPT byte for byte. The text depends only on
-# the agent's params, so it is identical on every call of a match (the API caches it). Every variant is built once, at
-# import (VARIANTS): an anchor that no longer matches SYSTEM_PROMPT fails the import and every test, never a decision.
+# prompt_v2 is on by default from deploy #4, the others off; with all of them off, system_prompt() is SYSTEM_PROMPT byte
+# for byte. The text depends only on the agent's params, so it is identical on every call of a match (the API caches
+# it). Every variant is built once, at import (VARIANTS): an anchor that no longer matches SYSTEM_PROMPT fails the
+# import and every test, never a decision.
 
 _ROW_BULLETS = (
     "- row: the number of the candidate_turns row you choose. Pick a row unless you have a concrete reason the sheet does not show.\n"
@@ -189,8 +190,8 @@ def _warn(log: Callable[[str], Any] | None, line: str) -> None:
 
 def system_prompt(params: Mapping[str, Any] | None = None, *, log: Callable[[str], Any] | None = None) -> str:
     """The battle system prompt for these tuning params, read from VARIANTS (built at import; see ``build_variant``).
-    Never raises: should anything fail here at decision time, the deploy's SYSTEM_PROMPT is sent and ``log`` (stderr
-    by default) gets one line."""
+    Never raises: should anything fail here at decision time, SYSTEM_PROMPT (every variant off) is sent and ``log``
+    (stderr by default) gets one line."""
     try:
         rows_only = _on(params, "answer_rules_v2") and _on(params, "reply_mixture")
         text = VARIANTS[(rows_only, _on(params, "prompt_v2"), _on(params, "prompt_kb"))]

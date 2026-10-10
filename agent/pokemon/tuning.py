@@ -49,7 +49,7 @@ DEFAULTS: dict[str, float] = {
     "draft_sleep_w": 0.0,          # their sleepers against our sleep-proof cards in the finished-draft value (one-sided: x matchup.Board.sleep_reach of their four into ours; a Spore user against a four with no sleep-proof card is 1, one 0.5, two 0). 0 = off, the deployed draft: unmeasured at 0.4 it changed 21 of 120 live picks (Oct 9 review); set it from a simulator series
     "draft_tiebreak_eps": 0.01,    # picks whose finished-draft win chance is within this of the best are a tie, broken by the match's secret seed (0 = always the best)
     "draft_tiebreak_exposure": 0.0,  # > 0: inside that window only the cards the fewest undrafted pool cards beat (ScoredCard.exposure: the counters the opponent can still take) go to the seed's draw (Oct 9 draft review: the lower-exposure card won 61 % of 171 near-tie pairs). 0 = the draw over the whole window, bit for bit; off until its simulator A/B
-    "draft_support_w": 0.0,        # > 0: the draft's search scales each answer (margin >= 0.2) the holder's support blunts by 1 - min(1, w * n), n = its Intimidate / safe switch-in partners against that answer (draft.SupportView; both directions; support-counter analysis, pre-registration #2: w 0.25). Exposure, the first-pick policy, the counter-picker and Team Preview keep raw margins. 0 = the shipped draft, bit for bit; off until its simulator A/B
+    "draft_support_w": 0.25,       # on (deploy #4): the draft's search scales each answer (margin >= 0.2) the holder's support blunts by 1 - min(1, w * n), n = its Intimidate / safe switch-in partners against that answer (draft.SupportView; both directions). Exposure, the first-pick policy, the counter-picker and Team Preview keep raw margins. Why: pre-registration #2 (w 0.25) confirmed on 12,672 fresh simulated games (sixes log-loss -0.0074, 90 % interval -0.0094 to -0.0054; AUC +0.030), and +1.7 points in the pinned simulator A/B. 0 = the Oct 10 deploy's draft (81c4591), bit for bit
     "lineup_tiebreak_eps": 0.01,   # same for the four we bring and the lead pair (win chance of the candidate value / the lead value)
     # lineup
     "lineup_offense_w": 6.0,
@@ -124,8 +124,9 @@ DEFAULTS: dict[str, float] = {
     "sleep_use_prior": 0.6,        # Part 3: chance a sleep user with a target uses its sleep move this turn (aimed 0.8 at the slot that loses most)
     # model layer (ops lane)
     "override_margin": 0.15,       # E2: a free-form override whose value trails the best row by more than this share of the top value is rejected, unless the model's opponent prediction matches the code's top column
-    # model path (lane M1): the model audit's recommendations (Oct 9). The four switches below are off by default, and at 0
-    # the system prompt and the payload texts are the Oct 10 deploy's (81c4591), byte for byte, but not all of its rules.
+    # model path (lane M1): the model audit's recommendations (Oct 9). Of the four switches below, recheck_v2 and prompt_v2
+    # are on from deploy #4 and answer_rules_v2 and prompt_kb are off; with all four at 0 the system prompt and the payload
+    # texts are the Oct 10 deploy's (81c4591), byte for byte, but not all of its rules.
     # These apply at any setting, with no key: E2's refusal of our last Pokémon's lone Protect (agent._protects_alone:
     # override_value credits it nothing, and it never plays over a row, read or not; d9405f02 T7-T10 now play row 0 where
     # 81c4591 Protected) unless the sheet's stall reasons or agent._waits_out (a fresh Fake Out, Black Sludge, a Guts orb,
@@ -134,8 +135,8 @@ DEFAULTS: dict[str, float] = {
     # exception costing that turn's mixture only (battle.rank_candidates)
     "answer_rules_v2": 0.0,        # 1 = on the reply mixture (reply_mixture 1) the model chooses rows only: an override is logged (resolution override_ignored), never played while rows exist (one that repeats listed row k plays as row k: resolution override_as_row); a lower row stands within row_margin_points of row 0, no read bypass; the prompt's row/override bullets say so (model audit R1). Only on turns whose rows the mixture priced (sheet.reply set): a turn it did not price (a replacement, a mixture failure) keeps the E2 rules and its answer format says so (R7). The scorer path is unchanged at any setting
     "row_margin_points": 50.0,     # answer_rules_v2: a lower row stands if its value >= row 0's - max(this, 0.15 x |row 0's value|), else row 0 plays (25 is the audit's cautious alternative)
-    "recheck_v2": 0.0,             # 1 = the lethal recheck drops DOUBLE-TARGET triggers and fires only for a LETHAL/EXPOSED slot that row 0 Protects or switches, and sends the model back to row 0 (model audit R3, readiness item 10). Both paths
-    "prompt_v2": 0.0,              # 1 = the system prompt treats DOUBLE-TARGET as a risk, not a forecast (the sheet's DOUBLE-TARGET warnings end neutrally, the search bot's doubles are no forecast for one slot), leads its lessons with three from live games (model audit R2) and defines opponent_prediction in the code's words (R5)
+    "recheck_v2": 1.0,             # on (deploy #4): the lethal recheck drops DOUBLE-TARGET triggers and fires only for a LETHAL/EXPOSED slot that row 0 Protects or switches, and sends the model back to row 0 (model audit R3, readiness item 10). Both paths. Why: the Oct 10 model-on test (121 live positions, fresh Opus 5.5 answers, with prompt_v2): 0 recheck flips vs 43, 27 % fewer calls, p95 8.5 s vs 8.9 s, 0 timeouts vs 1. 0 = the Oct 10 deploy's recheck
+    "prompt_v2": 1.0,              # on (deploy #4): the system prompt treats DOUBLE-TARGET as a risk, not a forecast (the sheet's DOUBLE-TARGET warnings end neutrally, the search bot's doubles are no forecast for one slot), leads its lessons with three from live games (model audit R2) and defines opponent_prediction in the code's words (R5). Why: the same test, with recheck_v2: 0 added covers on DOUBLE-TARGET-only slots vs 4, model predictions 112/188 vs 103/188, and a paired-value tie on the 11 positions whose plays differ. 0 = the Oct 10 deploy's prompt (81c4591), byte for byte
     "prompt_kb": 0.0,              # 1 = the system prompt carries the battle reference (prompts.KNOWLEDGE_BASE: nine facts of general mechanics and rules, 335 words, nothing learned from reviewed games; model audit R4)
 }
 

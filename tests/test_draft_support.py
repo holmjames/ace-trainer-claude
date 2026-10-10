@@ -2,7 +2,8 @@
 an answer Y to a card X is blunted by an Intimidate partner of X (a physical Y one Attack stage down needs another hit)
 or by a partner that resists Y's attack and that Y does not beat (a safe switch-in), when Y cannot afford a free hit
 from X. With the key on, the draft's search sees each blunted answer's effective margin scaled by 1 - min(1, w * n),
-n = how many of the two kinds the holder supplies, in both directions. At 0 the search gets the board itself."""
+n = how many of the two kinds the holder supplies, in both directions. At 0 the search gets the board itself. Deploy #4
+ships it on at 0.25 (pre-registration #2's w), so the tests below set the key both ways explicitly."""
 
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from agent.pokemon import data, draft, lineup, matchup, tuning
 from agent.pokemon.memory import MatchMemory, observation_dict
 
 ON = tuning.merged({"draft_support_w": 0.25})
+OFF = tuning.merged({"draft_support_w": 0.0})  # the Oct 10 deploy's draft (81c4591)
 LIVE = Path(__file__).parent / "fixtures" / "live"
 CATALOG = {c["species"]: c for c in json.loads((data.DATA_DIR / "cards.json").read_text())} if (data.DATA_DIR / "cards.json").exists() else {}
 needs_data = pytest.mark.skipif(not CATALOG or not (data.DATA_DIR / "pokedex.json").exists(), reason="needs data/ tables")
@@ -43,9 +45,9 @@ def blunters(board, at: dict, y: str, x: str) -> tuple[set[str], set[str]]:
             {u.species for k, u in enumerate(board.units) if pair[1] >> k & 1})
 
 
-def test_the_key_ships_off():
-    assert tuning.DEFAULTS["draft_support_w"] == 0.0
-    assert ON["draft_support_w"] == 0.25
+def test_the_key_ships_on_at_the_pre_registered_w():
+    assert tuning.DEFAULTS["draft_support_w"] == 0.25 == ON["draft_support_w"]
+    assert OFF["draft_support_w"] == 0.0
 
 
 # -- the two kinds of support (pure functions of the sets) ------------------------------------------------------------
@@ -139,7 +141,7 @@ def test_key_zero_hands_the_search_the_board_itself(monkeypatch):
 
     monkeypatch.setattr(draft, "SupportView", view)
     for state, memory in live_decisions("07a3cb1f", 1):
-        for pick in draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS):
+        for pick in draft.rank_picks_v2(state.legal_actions, memory, OFF):
             assert not any(n.startswith("support:") for n in pick.notes)
 
 
@@ -147,8 +149,10 @@ def test_key_zero_hands_the_search_the_board_itself(monkeypatch):
 def test_with_the_key_on_the_search_values_change_and_say_why():
     changed = noted = 0
     for state, memory in live_decisions("07a3cb1f", 1):
-        off = {s.species: s.score for s in draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS)}
+        off = {s.species: s.score for s in draft.rank_picks_v2(state.legal_actions, memory, OFF)}
         on = draft.rank_picks_v2(state.legal_actions, memory, ON)
+        defaults = draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS)  # deploy #4: the key on
+        assert [(s.species, s.score, s.notes) for s in defaults] == [(s.species, s.score, s.notes) for s in on]
         assert {s.species for s in on} == set(off)
         changed += sum(1 for s in on if s.score != off[s.species])
         noted += sum(1 for s in on if any(n.startswith("support:") for n in s.notes))
@@ -162,7 +166,7 @@ def test_team_preview_never_sees_the_key():
     mine = [lineup.profile(CATALOG[s]) for s in ours]
     them = [lineup.profile(CATALOG[s]) for s in theirs]
     for seed in (None, 3):
-        off = lineup.shortlist_v2(mine, them, params=tuning.DEFAULTS, seed=seed)
+        off = lineup.shortlist_v2(mine, them, params=OFF, seed=seed)
         on = lineup.shortlist_v2(mine, them, params=ON, seed=seed)
         assert [(c.as_payload(), c.score, c.notes) for c in on] == [(c.as_payload(), c.score, c.notes) for c in off]
 

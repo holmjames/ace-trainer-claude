@@ -845,7 +845,8 @@ def _board_for(cards: list[dict], card_weight: float = 1.0, tier_adjust: float =
 # our answers, ours blunts theirs. That is where Board.margins already scales margins for speed control, so it reaches
 # every margin-based team term the search reads (answers, backup, mean, top4). Exposure, the first-pick policy and the
 # counter-picker's reply model (the opponent's own scorer) keep the raw margins; Team Preview builds its own boards
-# (lineup.py) and never sees any of it. 0 = the shipped search, bit for bit.
+# (lineup.py) and never sees any of it. 0 = the search without it (the Oct 10 deploy's, 81c4591), bit for bit; deploy #4
+# ships w 0.25 (tuning.py).
 
 SUPPORT_ATTACK_FREE = frozenset({"bodypress", "foulplay"})  # Defense / the target's Attack: Intimidate does not weaken them
 _SUPPORT_PAIRS: dict[tuple[str, str], tuple[bool, dict | None]] = {}  # (Y key, X key) -> (Intimidate blunts, Y's attack)

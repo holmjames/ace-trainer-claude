@@ -421,8 +421,10 @@ def test_first_round_picks_follow_the_review_targets():
     cards, seq, ours6, theirs6 = live_draft("da9c168e")
     pool = sorted({sp for _, sp in seq} | set(ours6) | set(theirs6))
     assert ranking_with(cards, pool, [], [])[0] != "Iron Valiant"  # benched at Team Preview, and the game was lost
-    off = tuning.merged({"draft_first_pick_w": 0.0})
-    assert ranking(POOLS["L3"][2], params=off)[0] not in strong  # the search alone does not get L3 right
+    # the search alone, as the policy was built on it (the support key off: deploy #4's draft_support_w 0.25 alone puts
+    # Iron Hands first here), does not get L3 right
+    off = tuning.merged({"draft_first_pick_w": 0.0, "draft_support_w": 0.0})
+    assert ranking(POOLS["L3"][2], params=off)[0] not in strong
 
 
 def test_the_policy_reads_the_pool_and_fades_after_our_second_pick():

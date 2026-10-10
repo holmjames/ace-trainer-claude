@@ -10,12 +10,13 @@
    max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1). Only on
    rows the mixture priced (a turn it did not price keeps E2); an override that repeats a listed row is that row. When
    the proposal does not play, the public summary is the played row's why, on the deploy's scorer path as well.
-4. recheck_v2 (off by default): no DOUBLE-TARGET triggers; LETHAL / EXPOSED fire only where row 0 covers that slot;
-   the message sends the model back to row 0 (model audit R3, readiness item 10).
-5. prompt_v2 and prompt_kb (off by default): the audit's R2 and R5 prompt text (with the sheet's DOUBLE-TARGET warnings
-   ending neutrally) and its R4 knowledge base, general mechanics checked against the mechanics data; every variant is
-   built at import and system_prompt never raises; the defaults send the Oct 10 deploy's system prompt and payload texts
-   (answer format, instructions) byte for byte.
+4. recheck_v2 (on by default from deploy #4): no DOUBLE-TARGET triggers; LETHAL / EXPOSED fire only where row 0 covers
+   that slot; the message sends the model back to row 0 (model audit R3, readiness item 10).
+5. prompt_v2 (on by default from deploy #4) and prompt_kb (off by default): the audit's R2 and R5 prompt text (with the
+   sheet's DOUBLE-TARGET warnings ending neutrally) and its R4 knowledge base, general mechanics checked against the
+   mechanics data; every variant is built at import and system_prompt never raises; with every model-path key at 0 the
+   Oct 10 deploy's system prompt and payload texts (answer format, instructions) are sent byte for byte, and deploy #4's
+   defaults send the prompt_v2 prompt (pinned by its sha256) with the same payload texts.
 6. scripts/live_positions.py: the live answers replayed through the agent (code only), a model-on mode that is a dry
    run without --max-calls and never spends more than it (N calls, up to 2N requests with fallbacks); an ignored
    override is recorded with its key and the evaluator's value.
@@ -429,6 +430,8 @@ def test_each_reason_to_wait_lets_a_fresh_lone_protect_be_judged_by_the_margin_d
 
 
 MODEL_PATH_SWITCHES = ("answer_rules_v2", "recheck_v2", "prompt_v2", "prompt_kb")
+DEPLOY4_SWITCHES = {"answer_rules_v2": 0.0, "recheck_v2": 1.0, "prompt_v2": 1.0, "prompt_kb": 0.0}  # deploy #4's defaults
+OFF = dict.fromkeys(MODEL_PATH_SWITCHES, 0.0)  # every model-path key at 0, explicitly: the Oct 10 deploy's (81c4591) texts
 
 
 def _model_path_comment() -> str:
@@ -458,7 +461,7 @@ def test_the_lone_protect_refusal_has_no_key_and_the_tuning_comment_says_so_d940
     for named in ("lone Protect", "_protects_alone", "_waits_out", "Lum or Chesto", "public summary", "status order",
                   "rank_candidates"):
         assert named in text, named
-    assert all(tuning.DEFAULTS[key] == 0.0 for key in MODEL_PATH_SWITCHES)
+    assert {key: tuning.DEFAULTS[key] for key in MODEL_PATH_SWITCHES} == DEPLOY4_SWITCHES  # recheck_v2 and prompt_v2 on
     agent, sheet, template, choice = _position("d9405f02", 0, 8, {"reply_mixture": mixture, "reply_seed": 7.0})
     protect = _lone_protect(template)
     payload = choice.build(protect)
@@ -730,9 +733,10 @@ def test_a_turn_the_mixture_did_not_price_says_the_scorers_rule_in_its_answer_fo
     assert decision.action["type"] == "doubles_turn"
 
 
-# -- the prompt and the payload say the rule in force; the defaults are byte for byte the Oct 10 deploy's ----------------
+# -- the prompt and the payload say the rule in force; all keys at 0 send the Oct 10 deploy's texts byte for byte -------
 
 SYSTEM_PROMPT_SHA256 = "ac6102af4c7648bc20ccbe6400b69ee875de6586f11cd63c41c5bbea904d4763"  # 81c4591's SYSTEM_PROMPT (8,593 chars)
+SYSTEM_PROMPT_V2_SHA256 = "09fc44b384ac735c88a00b65fd44d273ae1ae191e4510f7d005d26fe067b4211"  # deploy #4's default: prompt_v2 (9,651 chars)
 ANSWER_FORMAT_81C4591 = (
     "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. To propose a joint "
     "action that is not a row, set override.use=true and give both slots as {option: <index from that slot's "
@@ -774,18 +778,30 @@ def _ask_at(prefix: str, seat: int, turn: int, params: dict, answer: dict, log_d
     raise AssertionError(f"turn {turn} not in {prefix}")
 
 
-def test_the_defaults_send_the_deploys_prompt_and_payload_texts_byte_for_byte():
+def test_keys_at_0_send_the_oct_10_prompt_and_payload_texts_and_the_defaults_send_prompt_v2_with_the_same_texts():
     import hashlib
 
-    from agent.pokemon.prompts import SYSTEM_PROMPT, system_prompt
+    from agent.pokemon.prompts import SYSTEM_PROMPT, VARIANTS, system_prompt
 
-    assert system_prompt(dict(tuning.DEFAULTS)) is SYSTEM_PROMPT or system_prompt(dict(tuning.DEFAULTS)) == SYSTEM_PROMPT
-    assert hashlib.sha256(system_prompt(dict(tuning.DEFAULTS)).encode()).hexdigest() == SYSTEM_PROMPT_SHA256
+    off = tuning.merged(OFF)  # every model-path key at 0, explicitly: the Oct 10 deploy (81c4591), byte for byte
+    assert system_prompt(off) is SYSTEM_PROMPT or system_prompt(off) == SYSTEM_PROMPT
+    assert hashlib.sha256(system_prompt(off).encode()).hexdigest() == SYSTEM_PROMPT_SHA256
     # the rows-only bullets need the mixture: on the scorer path the key leaves the prompt alone
-    assert system_prompt({**tuning.DEFAULTS, "answer_rules_v2": 1.0}) == SYSTEM_PROMPT
-    recorder, _ = _ask_at("bcbaabe2", 0, 13, {}, _answer(0))
+    assert system_prompt({**off, "answer_rules_v2": 1.0}) == SYSTEM_PROMPT
+    recorder, _ = _ask_at("bcbaabe2", 0, 13, OFF, _answer(0))
     messages = recorder.calls[0]
     assert messages[0] == {"role": "system", "content": SYSTEM_PROMPT}
+    payload = json.loads(messages[-1]["content"])
+    assert payload["answer_format"] == ANSWER_FORMAT_81C4591 and payload["instructions"] == INSTRUCTIONS_81C4591
+    # deploy #4's defaults (prompt_v2 on; recheck_v2 does not touch the texts): the prompt_v2 prompt, pinned, and the
+    # same answer format and instructions
+    text = system_prompt(dict(tuning.DEFAULTS))
+    assert text is VARIANTS[(False, True, False)] and text == system_prompt(tuning.merged({**OFF, "prompt_v2": 1.0})) != SYSTEM_PROMPT
+    assert hashlib.sha256(text.encode()).hexdigest() == SYSTEM_PROMPT_V2_SHA256 and len(text) == 9651
+    assert system_prompt({**tuning.DEFAULTS, "answer_rules_v2": 1.0}) == text
+    recorder, _ = _ask_at("bcbaabe2", 0, 13, {}, _answer(0))
+    messages = recorder.calls[0]
+    assert messages[0] == {"role": "system", "content": text}
     payload = json.loads(messages[-1]["content"])
     assert payload["answer_format"] == ANSWER_FORMAT_81C4591 and payload["instructions"] == INSTRUCTIONS_81C4591
 
@@ -793,12 +809,17 @@ def test_the_defaults_send_the_deploys_prompt_and_payload_texts_byte_for_byte():
 def test_rows_only_prompt_and_payload_say_the_rule_in_force():
     from agent.pokemon.prompts import SYSTEM_PROMPT, system_prompt
 
+    def without_row_bullets(prompt: str) -> str:
+        return prompt.replace(prompt[prompt.index("- row:"):prompt.index("- opponent_prediction")], "")
+
     text = system_prompt(tuning.merged(RULES))
     assert "- override: leave use=false. This build plays only listed rows" in text
     assert "A row whose value trails row 0 by more than 50 points plays row 0 instead." in text
     assert "The code scores it with the same scorer as the rows" not in text
-    assert text.replace(text[text.index("- row:"):text.index("- opponent_prediction")], "") == \
-        SYSTEM_PROMPT.replace(SYSTEM_PROMPT[SYSTEM_PROMPT.index("- row:"):SYSTEM_PROMPT.index("- opponent_prediction")], "")
+    # only the row and override bullets move: on the Oct 10 deploy's prompt (the other model-path keys at 0, explicitly)
+    # and on deploy #4's default prompt (prompt_v2 on)
+    assert without_row_bullets(system_prompt(tuning.merged({**OFF, **RULES}))) == without_row_bullets(SYSTEM_PROMPT)
+    assert without_row_bullets(text) == without_row_bullets(system_prompt(tuning.merged(MIX))) != without_row_bullets(SYSTEM_PROMPT)
     assert "by more than 25 points" in system_prompt(tuning.merged({**RULES, "row_margin_points": 25}))
     recorder, decision = _ask_at("bcbaabe2", 0, 13, RULES, _answer(0))
     messages = recorder.calls[0]
@@ -919,13 +940,15 @@ def test_recheck_v2_drops_double_target_and_needs_row_0_to_cover_the_slot():
 
 
 def _recheck_at(prefix: str, seat: int, turn: int, answer_row: int, params: dict) -> tuple[str | None, dict, list]:
+    """The recheck of row ``answer_row``'s play at a live position, its sheet built and the recheck run with the same
+    params (the defaults with ``params`` over them), as agent._turn runs them."""
     from agent.agent import _lethal_recheck
 
-    agent, sheet, template, choice = _position(prefix, seat, turn)
+    agent, sheet, template, choice = _position(prefix, seat, turn, params)
     row = sheet.candidates[answer_row]
     value = choice.build({"slot_0": row["slot_0"], "slot_1": row["slot_1"]})
     info: dict = {}
-    return _lethal_recheck(value, sheet, memory=agent.memory, template=template, info=info, params=params), info, sheet.candidates
+    return _lethal_recheck(value, sheet, memory=agent.memory, template=template, info=info, params=agent.params), info, sheet.candidates
 
 
 def test_recheck_v2_spends_no_second_call_on_a_row_0_answer_07a3cb1f_t1():
@@ -933,23 +956,25 @@ def test_recheck_v2_spends_no_second_call_on_a_row_0_answer_07a3cb1f_t1():
     DOUBLE-TARGET warning, and the live answer was row 0. The old rule sent it back (a second call that cannot change the
     move: the quoted cover trails row 0 far beyond the margin); recheck_v2 does not fire. On the replayed live answers at
     reply_mixture 0, 26 of the 43 firings were row-0 answers; recheck_v2 leaves 2 firings."""
-    message, info, rows = _recheck_at("07a3cb1f", 1, 1, 0, {})
+    message, info, rows = _recheck_at("07a3cb1f", 1, 1, 0, OFF)  # the Oct 10 deploy's rule, explicitly
     assert rows[0]["name"] == "best_attacks" and message and "although: DOUBLE-TARGET" in message
     quoted = next(i for i, r in enumerate(rows) if f"row {i} {r['name']}: slot 0" in message)
     assert rows[quoted]["score"] < rows[0]["score"] * (1 - tuning.DEFAULTS["override_margin"])  # the margin sends it back to row 0
-    message, info, rows = _recheck_at("07a3cb1f", 1, 1, 0, V2)
-    assert message is None
+    for params in ({**OFF, **V2}, {}):  # recheck_v2 alone, and deploy #4's defaults (with prompt_v2)
+        message, info, rows = _recheck_at("07a3cb1f", 1, 1, 0, params)
+        assert message is None, params
 
 
 def test_recheck_v2_still_sends_back_an_attack_that_leaves_row_0s_protect_7ce71025_t1():
     """7ce71025 T1: row 0 Protects the EXPOSED Great Tusk (Hyper Voice KOs it after it moves) and sets Tailwind; the live
     answer was row 1, Headlong Rush + Tailwind (within the scorer's margin). Both rules fire; recheck_v2 names row 0."""
-    old, _, rows = _recheck_at("7ce71025", 0, 1, 1, {})
+    old, _, rows = _recheck_at("7ce71025", 0, 1, 1, OFF)  # the Oct 10 deploy's rule, explicitly
     assert rows[0]["name"] == "protect_threatened" and rows[1]["name"] == "best_attacks"
     assert old and "slot 0 attacks with headlongrush although: EXPOSED" in old
-    message, info, _ = _recheck_at("7ce71025", 0, 1, 1, V2)
-    assert message and "slot 0 attacks with headlongrush although: EXPOSED" in message
-    assert "otherwise choose row 0. Row 0 takes that slot out of the line of fire: row 0 protect_threatened: slot 0 option 3 (protect)" in message
+    for params in ({**OFF, **V2}, {}):  # recheck_v2 alone, and deploy #4's defaults (with prompt_v2)
+        message, info, _ = _recheck_at("7ce71025", 0, 1, 1, params)
+        assert message and "slot 0 attacks with headlongrush although: EXPOSED" in message, params
+        assert "otherwise choose row 0. Row 0 takes that slot out of the line of fire: row 0 protect_threatened: slot 0 option 3 (protect)" in message
 
 
 # -- 5. prompt_v2 and prompt_kb: the audit's prompt text and knowledge base (model audit R2, R4, R5) -----------------------
@@ -1020,9 +1045,12 @@ def test_prompt_kb_is_the_audits_mechanics_facts_checked_against_the_mechanics_d
     from agent.pokemon import data, preview_sim
     from agent.pokemon.prompts import KNOWLEDGE_BASE, SYSTEM_PROMPT, system_prompt
 
-    text = system_prompt(tuning.merged({"prompt_kb": 1}))
+    text = system_prompt(tuning.merged({**OFF, "prompt_kb": 1}))
     assert text.endswith("\n\n" + KNOWLEDGE_BASE + "\n\nAnswer only in the required JSON.")
     assert text.replace("\n\n" + KNOWLEDGE_BASE, "") == SYSTEM_PROMPT  # nothing else moves
+    on_v2 = system_prompt(tuning.merged({"prompt_kb": 1}))  # on deploy #4's prompt (prompt_v2) as well
+    assert on_v2.endswith("\n\n" + KNOWLEDGE_BASE + "\n\nAnswer only in the required JSON.")
+    assert on_v2.replace("\n\n" + KNOWLEDGE_BASE, "") == system_prompt(dict(tuning.DEFAULTS)) != SYSTEM_PROMPT
     assert len(KNOWLEDGE_BASE.split()) == 335 and [line[:3] for line in KNOWLEDGE_BASE.splitlines()[1:]] == [f"{i}. " for i in range(1, 10)]
     # general mechanics only: the audit's tenth item, a base rate learned from reviewed matches, is out (the M1 review)
     assert not re.search(r"reviewed|in \d+|times in|LETHAL|DOUBLE-TARGET", KNOWLEDGE_BASE)

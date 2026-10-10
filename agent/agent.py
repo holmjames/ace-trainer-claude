@@ -940,7 +940,8 @@ class PokemonAgent:
                       "consecutive failures (code plays #1); retrying on the next decision")
             return choice.fallback(), None, info
 
-        # SYSTEM_PROMPT at the defaults, byte for byte; never raises (a failed variant sends SYSTEM_PROMPT and says so)
+        # the params' prompt variant (SYSTEM_PROMPT byte for byte with every variant off); never raises (a failed variant
+        # sends SYSTEM_PROMPT and says so)
         messages = [{"role": "system", "content": system_prompt(self.params, log=self._say)}]
         if system_extra:
             messages.append({"role": "system", "content": system_extra})  # the match's known sets: cached across turns
