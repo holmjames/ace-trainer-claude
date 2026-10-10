@@ -1,11 +1,11 @@
 """The model path (lane M1): what happens between the model's answer and the move, and what the model is shown.
 
 1. A reply-mixture exception costs the mixture for that turn, never the match: the scorer's rows play (readiness 2B.1).
-2. Our last Pokémon's Protect with nothing to wait for earns no override credit and never plays over a row (model
-   audit R1/R7; d9405f02 T7-T10). "Nothing to wait for" also checks what the sheet's stall reasons miss (a fresh Fake
-   Out, Black Sludge, a Wish, Leech Seed, Yawn on a foe without a Lum or Chesto Berry, a Guts holder's orb), for a
-   Protect that is not a repeat; the Fake Out and the orb only when no sure KO lands first. d9405f02 T7's fresh Fake Out
-   is neither: refused, as T8-T10.
+2. Our last Pokémon's Protect with nothing to wait for earns no override credit and never plays over a row, at any
+   setting: it has no key, and tuning.py's model-path comment says so (model audit R1/R7; d9405f02 T7-T10). "Nothing
+   to wait for" also checks what the sheet's stall reasons miss (a fresh Fake Out, Black Sludge, a Wish, Leech Seed,
+   Yawn on a foe without a Lum or Chesto Berry, a Guts holder's orb), for a Protect that is not a repeat; the Fake Out
+   and the orb only when no sure KO lands first. d9405f02 T7's fresh Fake Out is neither: refused, as T8-T10.
 3. answer_rules_v2 (off by default): on the reply mixture the model chooses rows only; a lower row stands within
    max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1). Only on
    rows the mixture priced (a turn it did not price keeps E2); an override that repeats a listed row is that row. When
@@ -27,6 +27,7 @@ fake or absent. No test calls a model.
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 import tempfile
@@ -425,6 +426,68 @@ def test_each_reason_to_wait_lets_a_fresh_lone_protect_be_judged_by_the_margin_d
         meta = resolution()
         assert meta["resolution"].startswith(refused) and "lone_protect_waits" not in meta, (name, meta)
         setattr(agent.memory, name, {})
+
+
+MODEL_PATH_SWITCHES = ("answer_rules_v2", "recheck_v2", "prompt_v2", "prompt_kb")
+
+
+def _model_path_comment() -> str:
+    """tuning.py's comment over the model-path keys, as one line."""
+    lines = Path(tuning.__file__).read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if line.lstrip().startswith("# model path (lane M1)"))
+    block = []
+    for line in lines[start:]:
+        if not line.lstrip().startswith("#"):
+            break
+        block.append(line.strip()[1:].strip())
+    return " ".join(block)
+
+
+@pytest.mark.parametrize("mixture", [0.0, 1.0])
+def test_the_lone_protect_refusal_has_no_key_and_the_tuning_comment_says_so_d9405f02_t8(mixture):
+    """The M1c review: tuning.py's comment over the model-path keys said each is off by default and at 0 they are the
+    Oct 10 deploy's rules and prompt, bit for bit, with only the public summary of the row that played and the sorted
+    foe status order applying at any setting. E2's refusal of our last Pokémon's lone Protect has no key: on the
+    138-decision live replay at the defaults (PYTHONHASHSEED 0, both mixtures) 81c4591 Protects at d9405f02 T7-T10 and
+    this build plays row 0, as dcb16e3 does. And 816b619's Lum and Chesto Berries take a reason to wait away at any
+    setting too. So at every setting of the four switches, on both mixtures, the Protect earns no credit and never
+    plays; a drowsy foe gives it a reason to wait (the margin judges it on E2's turns) unless it holds a Lum Berry; and
+    the comment lists the refusal, with _waits_out's exceptions, as applying at any setting."""
+    text = _model_path_comment()
+    assert "rules and prompt, bit for bit" not in text and "each off by default" not in text
+    for named in ("lone Protect", "_protects_alone", "_waits_out", "Lum or Chesto", "public summary", "status order",
+                  "rank_candidates"):
+        assert named in text, named
+    assert all(tuning.DEFAULTS[key] == 0.0 for key in MODEL_PATH_SWITCHES)
+    agent, sheet, template, choice = _position("d9405f02", 0, 8, {"reply_mixture": mixture, "reply_seed": 7.0})
+    protect = _lone_protect(template)
+    payload = choice.build(protect)
+    top = choice.build({"slot_0": sheet.candidates[0]["slot_0"], "slot_1": sheet.candidates[0]["slot_1"]})
+    foe = next(m for m in sheet.field.actives if m.side == "theirs" and m.species == "ironhands")
+    refused = "override rejected: our last Pokémon's Protect has nothing to wait for"
+    yawn = ["their ironhands falls asleep at the end of this turn (Yawn)"]
+    for bits in itertools.product((0.0, 1.0), repeat=len(MODEL_PATH_SWITCHES)):
+        agent.params = tuning.merged({**FAST, "reply_mixture": mixture, "reply_seed": 7.0, **dict(zip(MODEL_PATH_SWITCHES, bits))})
+        rows_only = agent._rows_only(sheet)  # answer_rules_v2 on the mixture's rows: an override never plays at all
+        assert rows_only == (bits[0] > 0 and mixture > 0)
+        assert override_value(payload, sheet, agent.params, memory=agent.memory) == 0.0, bits
+        meta: dict = {}
+        assert agent._resolve_turn_answer(_answer(0, override=protect), sheet, choice, LONE_PROTECT_PREDICTION, meta) == top, (bits, meta)
+        assert meta["resolution"].startswith("override ignored" if rows_only else refused), (bits, meta)
+        # Yawn made Iron Hands drowsy on T7: it falls asleep at the end of T8, a reason to wait, unless it holds a Lum Berry
+        agent.memory.drowsy = {"theirs:ironhands": 7}
+        for item, waits in (("Lum Berry", []), ("Sitrus Berry", yawn)):
+            foe.item = item
+            assert _waits_out(sheet, agent.memory) == waits
+            meta = {}
+            value = agent._resolve_turn_answer(_answer(0, override=protect), sheet, choice, LONE_PROTECT_PREDICTION, meta)
+            if rows_only:
+                assert value == top and meta["resolution"].startswith("override ignored"), (bits, item, meta)
+            elif waits:
+                assert value == payload and meta["resolution"] == "override accepted" and meta["lone_protect_waits"] == waits, (bits, meta)
+            else:
+                assert value == top and meta["resolution"].startswith(refused), (bits, item, meta)
+        agent.memory.drowsy = {}
 
 
 # -- 3. answer_rules_v2: on the mixture the model chooses rows only (model audit R1) ----------------------------------------
