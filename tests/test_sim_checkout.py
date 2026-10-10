@@ -1,7 +1,8 @@
 """sim/subprocess_player.py and sim/shims/checkout_shim.py: an agent from another checkout (another starter fork, with
 its own interpreter) as a harness player, and sim/draft_eval.py taking such players. The fake checkouts live in
-``tmp_path`` so everything but the last test runs with this interpreter alone; the last test drives the external
-checkout (the Oct 7 opponent) through the shim when its venv exists."""
+``tmp_path`` so everything but the external-checkout test runs with this interpreter alone; that test drives the
+external checkout (the Oct 7 opponent) through the shim, and only on request: with ACE_EXTERNAL_CHECKOUT_TEST=1 and its
+venv present (the standard runs never drive anything under ~/projects/opponents)."""
 
 from __future__ import annotations
 
@@ -95,6 +96,23 @@ def external_checkout() -> Path | None:
                 return EXTERNAL_ROOT / parts[2]
     found = sorted(p.parent.parent for p in EXTERNAL_ROOT.glob("*/agent/agent.py")) if EXTERNAL_ROOT.is_dir() else []
     return found[-1] if found else None
+
+
+EXTERNAL_OPT_IN = "ACE_EXTERNAL_CHECKOUT_TEST"  # "1" runs the external-checkout test; the standard runs leave it unset
+
+
+def external_checkout_skip_reason() -> str | None:
+    """Why the external-checkout test does not run, or None when it does. The opt-in is checked first, so a default run
+    looks at nothing under ~/projects/opponents, whatever exists on the machine (the Oct 10 integrity review: the suite
+    and check_cand.sh's pytest -x had been driving the clone there whenever its venv existed)."""
+    if os.environ.get(EXTERNAL_OPT_IN) != "1":
+        return f"drives the external checkout under ~/projects/opponents: opt in with {EXTERNAL_OPT_IN}=1"
+    if not EXTERNAL_PYTHON.exists() or external_checkout() is None:
+        return "needs the external checkout and its venv under ~/projects/opponents"
+    return None
+
+
+_EXTERNAL_SKIP = external_checkout_skip_reason()
 
 
 def unwrap(decision):
@@ -244,8 +262,7 @@ def test_draft_eval_plays_a_checkout_player_and_records_seconds(logs_in_tmp, mon
     assert line["picks"] == result["picks"]
 
 
-@pytest.mark.skipif(not EXTERNAL_PYTHON.exists() or external_checkout() is None,
-                    reason="needs the external checkout and its venv under ~/projects/opponents")
+@pytest.mark.skipif(_EXTERNAL_SKIP is not None, reason=_EXTERNAL_SKIP or "opted in")
 def test_external_checkout_answers_all_three_phases_through_the_shim(logs_in_tmp, monkeypatch, live_states):
     monkeypatch.setenv("SHIM_PREVIEW_BUDGET_S", "2")
     monkeypatch.setenv("SHIM_TURN_BUDGET_S", "2")
@@ -271,3 +288,36 @@ def test_external_checkout_answers_all_three_phases_through_the_shim(logs_in_tmp
     assert translate.to_choice(turn)
     assert "Traceback" not in (log_dir_for(spec) / "child.stderr").read_text()
     assert any((logs_in_tmp / "scratch").iterdir()), "its match logs must land in the redirected scratch directory"
+
+
+def test_driving_the_external_checkout_is_opt_in(monkeypatch, tmp_path):
+    """A default run of the suite (pytest -q, check_cand.sh's pytest -x) never drives anything under ~/projects/opponents
+    (the Oct 10 integrity review): the external-checkout test runs only with ACE_EXTERNAL_CHECKOUT_TEST=1, whatever
+    exists on the machine, and without it nothing there is even looked at (the opt-in is checked first)."""
+    marks = [m for m in test_external_checkout_answers_all_three_phases_through_the_shim.pytestmark if m.name == "skipif"]
+    if os.environ.get(EXTERNAL_OPT_IN) != "1":  # this run: the real marker skips it
+        assert marks and any(bool(m.args[0]) for m in marks), "without the opt-in the external-checkout test must be skipped"
+    # the rule, with a venv and a checkout that exist
+    python = tmp_path / "venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    monkeypatch.setitem(globals(), "EXTERNAL_PYTHON", python)
+    monkeypatch.setenv("EXTERNAL_CHECKOUT", str(tmp_path / "clone"))
+    for value in (None, "", "0", "true", "yes"):
+        if value is None:
+            monkeypatch.delenv("ACE_EXTERNAL_CHECKOUT_TEST", raising=False)
+        else:
+            monkeypatch.setenv("ACE_EXTERNAL_CHECKOUT_TEST", value)
+        assert "ACE_EXTERNAL_CHECKOUT_TEST=1" in external_checkout_skip_reason(), value
+    monkeypatch.setenv("ACE_EXTERNAL_CHECKOUT_TEST", "1")
+    assert external_checkout_skip_reason() is None
+    python.unlink()
+    assert "needs the external checkout" in external_checkout_skip_reason()  # opted in, the venv must still exist
+
+    def _looked(*_a, **_k):
+        raise AssertionError("looked under ~/projects/opponents without the opt-in")
+
+    monkeypatch.setitem(globals(), "external_checkout", _looked)
+    monkeypatch.setitem(globals(), "EXTERNAL_PYTHON", tmp_path / "absent" / "python")
+    monkeypatch.delenv("ACE_EXTERNAL_CHECKOUT_TEST")
+    assert "ACE_EXTERNAL_CHECKOUT_TEST=1" in external_checkout_skip_reason()
