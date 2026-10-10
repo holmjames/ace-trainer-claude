@@ -889,11 +889,20 @@ def test_prompt_v2_makes_double_target_a_risk_leads_with_the_live_lessons_and_de
     # the search bot's doubles are no forecast for one slot any more (the M1 review); at prompt_v2 0 the line is unchanged
     assert "it doubles our biggest threat about half the time;" in SYSTEM_PROMPT and "it doubles our biggest threat" not in text
     search_line = next(line for line in text.splitlines() if line.startswith("- search_bot"))
-    assert ("; it sometimes sends both attacks into one of our Pokémon, but not into a predictable slot (the code's prediction "
-            "already prices doubles); it sets up rarely") in search_line
+    assert ("; it sometimes sends both attacks into one of our Pokémon, but not into a predictable slot (the rows already price "
+            "doubles); it sets up rarely") in search_line
     old_line = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith("- search_bot"))
     assert search_line == old_line.replace("it doubles our biggest threat about half the time;", "it sometimes sends both attacks into "
-                                           "one of our Pokémon, but not into a predictable slot (the code's prediction already prices doubles);")
+                                           "one of our Pokémon, but not into a predictable slot (the rows already price doubles);")
+    # the code's prediction gives one kind per slot and no target, so it is not what prices doubles (the M1b review); at
+    # prompt_v2 0 the line is the deploy's, with neither clause
+    assert "prediction already prices" not in text and "price doubles" not in SYSTEM_PROMPT and "prices doubles" not in SYSTEM_PROMPT
+    assert system_prompt(tuning.merged({"prompt_v2": 0})) == SYSTEM_PROMPT
+    from agent.pokemon.opponent import predict
+
+    agent, sheet, _, _ = _position("07a3cb1f", 1, 1)
+    per_slot = predict(sheet, agent.memory, turn=1)["per_slot"]
+    assert per_slot and all(set(entry) == {"species", "p", "top"} for entry in per_slot.values())  # a kind per slot, no target
     # the setup words are the code's own (the code predicts setup for exactly these, plus the stat boosts named)
     from agent.pokemon.opponent import SETUP_MOVES
 

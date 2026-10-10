@@ -96,10 +96,12 @@ _LESSONS_HEADER_V2 = (
     "- Moving an attack from row 0's target to a foe that can Protect or switch out lost more than it gained.\n"
 )
 # prompt_v2: the class line no longer reads as a forecast for one slot (the M1 review: it said the search bot "doubles
-# our biggest threat about half the time" next to "DOUBLE-TARGET alone is a risk, not a forecast").
+# our biggest threat about half the time" next to "DOUBLE-TARGET alone is a risk, not a forecast"). What prices doubles is
+# the rows (the scorer's double-target threats and cover rows, the mixture's columns), not opponent_model's prediction,
+# which gives one kind per slot and no target (the M1b review).
 _DOUBLES_CLAUSE = "it doubles our biggest threat about half the time;"
-_DOUBLES_CLAUSE_V2 = ("it sometimes sends both attacks into one of our Pokémon, but not into a predictable slot (the code's prediction "
-                      "already prices doubles);")
+_DOUBLES_CLAUSE_V2 = ("it sometimes sends both attacks into one of our Pokémon, but not into a predictable slot (the rows already "
+                      "price doubles);")
 # prompt_v2 (model audit R5): opponent_prediction in the code's own words (agent/pokemon/opponent.py SETUP_MOVES).
 _PREDICTION_BULLET = ("- opponent_prediction: what you expect each of their slots to do this turn (their_slot_1 / their_slot_2: "
                       "attack, protect, switch, setup, fakeout, none) and why, in one clause.\n")
