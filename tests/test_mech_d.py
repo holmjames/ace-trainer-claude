@@ -874,6 +874,45 @@ def test_the_redirectors_own_flinch_discounts_the_cover():
     assert row["score"] == pytest.approx((bonus + 25) * 0.8, abs=0.11), (row, knock_off["ko"])
 
 
+def test_the_redirect_rows_free_attack_needs_the_partner_to_act():
+    """Should-fix A (fix3 review): "attacks freely" took 0.8 of the partner's attack whatever its chance to act, while
+    "sets X" was discounted for the flinch. Indeedee-F (grounded in Psychic Terrain) Follow Mes Knock Off off the 25%
+    Gyarados, whom Incineroar's and Rillaboom's fresh Fake Outs flinch 90% of the time: the attack credit keeps 10%.
+    Inner Focus Gyarados (same damage, no flinch) is the control; the cover is the same in both."""
+    inner_focus = {"Gyarados": {**CATALOG["Gyarados"], "ability": "Inner Focus"}}
+
+    def row(**kw):
+        sheet, _ = build(["Indeedee-F", "Gyarados"], ["Incineroar", "Rillaboom"], hp={"Gyarados": 0.25},
+                         obs_extra={"fields": {"PSYCHIC_TERRAIN": 3}, "turn": 1}, **kw)
+        return sheet, next(c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner")
+
+    sheet, got = row()
+    _, ctrl = row(cards=inner_focus)
+    assert sheet.flinch_risk == {1: 0.9}, sheet.flinch_risk
+    assert "attacks freely (90% that their Fake Out flinches it first)" in got["why"] and "attacks freely" in ctrl["why"], (got, ctrl)
+    knock_off = threat_hit(sheet, "Incineroar", "knockoff", 1)
+    cover = (tuning.DEFAULTS["protect_bonus_guaranteed"] if knock_off["ko"] == "guaranteed" else tuning.DEFAULTS["protect_bonus_possible"]) + 25
+    assert got["score"] == pytest.approx(cover + (ctrl["score"] - cover) * 0.1, abs=0.11), (got["score"], ctrl["score"], cover)
+
+
+def test_the_fake_out_rows_attacking_partner_is_spared_when_ours_flinches_their_user_first():
+    """Should-fix A: the Fake Out row's attacking partner (0.6 x its own value) is priced with its chance to act as the
+    setup is: Rillaboom (124) Fakes Out the slower Incineroar, their only fresh Fake Out user, before it moves, so
+    Gyarados (0.8 of the risk) attacks unflinched, as an Inner Focus Gyarados (the control) does. 50edd01 priced the
+    attack with the flinch anyway (solo_value), as if Incineroar's Fake Out still came."""
+    inner_focus = {"Gyarados": {**CATALOG["Gyarados"], "ability": "Inner Focus"}}
+
+    def row(**kw):
+        sheet, _ = build(["Rillaboom", "Gyarados"], ["Incineroar", "Kingambit"], obs_extra={"turn": 1}, fresh=["Rillaboom", "Gyarados"], **kw)
+        return sheet, next(c for c in sheet.candidates if c["name"] == "fake_out_setup")
+
+    sheet, got = row()
+    _, ctrl = row(cards=inner_focus)
+    assert sheet.flinch_risk == {0: 0.2, 1: 0.8}, sheet.flinch_risk
+    assert got["why"].startswith("Fake Out Incineroar ") and "slot 1 attacks" in got["why"] and "flinches it first" not in got["why"], got["why"]
+    assert got["score"] == pytest.approx(ctrl["score"], abs=0.11), (got, ctrl)
+
+
 def test_the_fake_out_rows_partner_setup_meets_their_fake_out_unless_ours_flinches_it_first():
     """F8: the Fake Out row's partner (Tornadus, Tailwind) is Faked Out by their fresh Incineroar unless OUR Fake Out hits
     that Incineroar first: Rillaboom (124) outspeeds it (80), so Fake Out Incineroar spares the Tailwind, Fake Out

@@ -3784,38 +3784,43 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if est is None or est[1] >= 100:
                 continue  # it would just die instead
             partner_slot = slot_template(endangered_slot)
-            partner_action = None  # (answer, move, priority, target)
-            setup_name = None
+            # The partner's turn: its speed setup (+50) or its best attack (0.8 x its value), whichever is worth more once
+            # its chance to act is counted (asleep / paralysed, and their fresh Fake Out: should-fix A, the fix3 review:
+            # the setup always won and "attacks freely" was never discounted). (answer, move, priority, target, credit, setup)
+            options = []
             for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
                 idx = _option_index(partner_slot, "move", move_id=setup) if partner_slot and not (
                     setup_spent(sheet, setup, memory) or setup_backfires(sheet, setup, memory)) else None
                 if idx is not None:
                     # every setup is below +3 (Prankster's +1 included): Tailwind 0, Trick Room -7, Icy Wind, Electroweb 0
-                    partner_action = ({"option": idx, "target": 0}, setup, (data.move_info(setup) or {}).get("priority", 0) or 0, 0)
-                    setup_name = setup
+                    options.append(({"option": idx, "target": 0}, setup, (data.move_info(setup) or {}).get("priority", 0) or 0, 0, 50.0, setup))
                     break
             raw_partner = _best_attack(by_slot.get(endangered_slot, {}), P=P, threats=weights, protect=protect_p)
-            if partner_action is None and raw_partner[0]:
-                partner_action = (slot_answer(raw_partner[0]["option"], raw_partner[1]["target"]), raw_partner[0].get("move"),
-                                  raw_partner[0].get("priority", 0) or 0, raw_partner[1].get("target", 0))
-            if partner_action is None:
+            if raw_partner[0]:
+                options.append((slot_answer(raw_partner[0]["option"], raw_partner[1]["target"]), raw_partner[0].get("move"),
+                                raw_partner[0].get("priority", 0) or 0, raw_partner[1].get("target", 0), raw_partner[2] * 0.8, None))
+            if not options:
                 continue
             # The cover needs the redirect up: Follow Me / Rage Powder (+2) move after a fresh Fake Out (+3), which can
             # flinch the redirector (Note C), and the partner's turn is the redirect's to give. One Fake Out flinches the
-            # redirector or the partner, not both (fake_out_cases): the partner's setup counts when neither is flinched.
+            # redirector or the partner, not both (fake_out_cases): the partner's credit counts when neither is flinched.
             redirect_move = data.to_id(slot_r["options"][redirect].get("move_id"))
-            cases = fake_out_cases(sheet, {redirector: {"priority": (data.move_info(redirect_move) or {}).get("priority", 2), "move": redirect_move, "target": 0},
-                                           endangered_slot: {"priority": partner_action[2], "move": partner_action[1], "target": partner_action[3]}})
-            covered = sum(p for p, hit_ in cases if redirector not in hit_)
-            together = sum(p for p, hit_ in cases if redirector not in hit_ and endangered_slot not in hit_)
-            spared = sum(p for p, hit_ in cases if endangered_slot not in hit_)
             cover = (P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25
-            answers = {redirector: {"option": redirect, "target": 0}, endangered_slot: partner_action[0]}
+            priced = []
+            for answer, move_id, prio, tgt, credit, setup in options:
+                cases = fake_out_cases(sheet, {redirector: {"priority": (data.move_info(redirect_move) or {}).get("priority", 2), "move": redirect_move, "target": 0},
+                                               endangered_slot: {"priority": prio, "move": move_id, "target": tgt}})
+                covered = sum(p for p, hit_ in cases if redirector not in hit_)
+                together = sum(p for p, hit_ in cases if redirector not in hit_ and endangered_slot not in hit_)
+                spared = sum(p for p, hit_ in cases if endangered_slot not in hit_)
+                priced.append(((cover * covered + credit * sheet.acts(endangered_slot) * together) * sheet.acts(redirector),
+                               answer, setup, covered, spared))
+            score, answer, setup_name, covered, spared = max(priced, key=lambda x: x[0])  # the setup first on a tie
+            answers = {redirector: {"option": redirect, "target": 0}, endangered_slot: answer}
             add("redirect_to_protect_partner", answers[0], answers[1],
                 f"{threat['species']}'s {hit['move']} would KO slot {endangered_slot}; slot {redirector} redirects it ({est[0]}-{est[1]}% to itself)"
-                + _flinch_clause(covered) + f" while slot {endangered_slot} " + (f"sets {setup_name}" + _flinch_clause(spared) if setup_name else "attacks freely"),
-                (cover * covered + (50 * together if setup_name else raw_partner[2] * 0.8 * covered)) * sheet.acts(redirector),
-                covers=endangered_slot)
+                + _flinch_clause(covered) + f" while slot {endangered_slot} " + (f"sets {setup_name}" if setup_name else "attacks freely")
+                + _flinch_clause(spared), score, covers=endangered_slot)
 
     # 4. Fake Out on a Pokémon's first turn out: flinch the biggest threat while the partner sets up or attacks.
     for number in (0, 1):
@@ -3845,29 +3850,35 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         target = max(lethal_by_target, key=lambda pos: (lethal_by_target[pos], danger[pos])) if lethal_by_target else max(danger, key=danger.get)
         other = 1 - number
         other_slot = slot_template(other)
-        partner = None
-        setup_name = None
+        ours_fake = {"priority": 3, "move": "fakeout", "target": target}
+        # The partner's turn: its speed setup when it has one (fakeout_setup_value), else its own best action (0.6 x its
+        # value), each priced with the partner's chance to act: asleep / paralysed, and their fresh Fake Out (below +3),
+        # which ours stops when it flinches that user first (our target, and ours moves first: the speed order decides
+        # between two +3 moves; fake_out_cases). Should-fix A (fix3 review): "attacks" was not discounted for it.
+        # (value, answer, setup, spared, cases)
+        option = None
         if other_slot:
             for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
                 idx = None if setup_spent(sheet, setup, memory) or setup_backfires(sheet, setup, memory) else \
                     _option_index(other_slot, "move", move_id=setup)
                 if idx is not None:
-                    partner, setup_name = {"option": idx, "target": 0}, setup
+                    cases = fake_out_cases(sheet, {number: ours_fake, other: {"priority": (data.move_info(setup) or {}).get("priority", 0) or 0,
+                                                                              "move": setup, "target": 0}})
+                    spared = sum(p for p, hit in cases if other not in hit)
+                    option = (P["fakeout_setup_value"] * sheet.acts(other) * spared, {"option": idx, "target": 0}, setup, spared, cases)
                     break
-        if partner is None and solo[other][0]:
-            partner = solo_answer(other)
-        if partner is None:
+        if option is None and solo[other][0] and solo_answer(other) is not None:
+            s_opt, s_row = solo[other][0], solo[other][1]
+            cases = fake_out_cases(sheet, {number: ours_fake, other: {"priority": s_opt.get("priority", 0) or 0, "move": s_opt.get("move"),
+                                                                      "target": (s_row or {}).get("target", 0)}})
+            spared = sum(p for p, hit in cases if other not in hit)
+            option = (joint_value([(other, *solo[other])], cases=cases) * 0.6, solo_answer(other), None, spared, cases)
+        if option is None:
             continue
+        partner_value, partner, setup_name, spared, cases = option
         answers = {number: {"option": fake, "target": target}, other: partner}
-        # one Fake Out of theirs flinches one of ours (fake_out_cases): the partner's setup (below +3) meets it unless ours
-        # flinches its user first (our target, and ours moves first: the speed order decides between two +3 moves)
-        plan = {number: {"priority": 3, "move": "fakeout", "target": target}}
-        if setup_name:
-            plan[other] = {"priority": (data.move_info(setup_name) or {}).get("priority", 0) or 0, "move": setup_name, "target": 0}
-        cases = fake_out_cases(sheet, plan)
-        spared = sum(p for p, hit in cases if other not in hit) if setup_name else 1.0
         why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (
-            f"sets {setup_name}" + _flinch_clause(spared) if setup_name else "attacks")
+            f"sets {setup_name}" if setup_name else "attacks") + _flinch_clause(spared)
         attacks_ko = any(kos_a_foe(b[1]) for b in best.values())  # per foe: a spread's summed range is not a KO (D1j)
         lethal_first = lethal_by_target.get(target, 0.0)  # chance this target KOs one of our slots before it moves
         base = P["fakeout_base"] if (not attacks_ko or lethal_first) else 15
@@ -3883,8 +3894,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if lands < 1.0:
             why += f"; their faster Fake Out may flinch ours first ({int((1 - lands) * 100)}%)"
         add("fake_out_setup", answers[0], answers[1], why,
-            (base + (P["fakeout_threat_bonus"] if threatens_us else 0) + P["protect_bonus_guaranteed"] * lethal_first) * lands
-            + (solo_value(other) * 0.6 if not setup_name else P["fakeout_setup_value"] * spared))
+            (base + (P["fakeout_threat_bonus"] if threatens_us else 0) + P["protect_bonus_guaranteed"] * lethal_first) * lands + partner_value)
 
     # 4b. Taunt the support (Part 3; the Oct 8 evening loss, turn 1: Gyarados's Taunt on Amoonguss stops Spore and Rage
     #     Powder for three turns, and no generator built it): Taunt a foe whose status moves (sleep, redirection, Trick
