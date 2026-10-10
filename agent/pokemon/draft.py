@@ -490,8 +490,9 @@ BEATS_MARGIN = 0.2
 # the Oct 9 series analysis found a pair of picks losing where each card alone did not). Every entry follows the
 # policy's schedule (full at our first pick, half at our second, nothing after) and draft_first_adjust_w.
 # DRAFT_FIRST_PICK_ADJUST=<path to a file of the same shape> swaps in another table for one process (a simulator A/B
-# arm); that file must read cleanly or the pick raises (so a mistyped path cannot quietly turn an arm into the
-# control). A missing or unreadable shipped table counts as all zeros.
+# arm); that file must read cleanly or first_pick_adjust raises. choose_pick answers that error, like any other in
+# choose_pick_v2, with the old scorer's pick, so sim/draft_eval.py match loads the table before its first game and
+# stops on a bad one. A missing or unreadable shipped table counts as all zeros.
 FIRST_PICK_ADJUST_FILE = data.DATA_DIR / "first_pick_adjust.json"
 FIRST_PICK_ADJUST_ENV = "DRAFT_FIRST_PICK_ADJUST"
 

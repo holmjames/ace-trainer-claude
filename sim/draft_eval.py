@@ -28,6 +28,10 @@ only the pools holding that card: seeds without it are skipped, deterministicall
 ``--seed`` plays the same pools in the same seats (``--pairs`` then counts the pools played). ``--first-only a`` (or
 ``b``) plays only the game of each pool in which player A (or B) drafts first; ``--pairs`` still counts pools.
 
+Before its first game ``match`` loads the first-pick table the in-process players will use (DRAFT_FIRST_PICK_ADJUST, else
+the shipped one) and prints it with its count of non-zero entries; a table that does not load, or names a card
+sim/cards.json does not hold, stops the run (draft.choose_pick would otherwise answer the error with the old scorer).
+
 ``--pin-tiebreak`` pins the secret tie-break seed (agent/pokemon/draft.py ``tiebreak_seed``) of the in-process players
 game by game: ``draft._SEEDS`` is cleared and ``draft.secrets.randbits`` returns bits of sha256(f"{battle seed}:{swap}")
 (swap False / True, the seat order) for that game only, as scripts/preview_replay.py does for one session. Two arms run
@@ -235,8 +239,29 @@ def pin_tiebreak(seed: int, swap: bool):
         draft_rules._SEEDS.clear()
 
 
+def first_pick_table() -> str:
+    """``match``'s check of the first-pick table (agent/pokemon/draft.py ``first_pick_adjust``) before its first game, and
+    the line it prints. draft.choose_pick answers any error inside choose_pick_v2 with the old scorer's pick, so a
+    DRAFT_FIRST_PICK_ADJUST path that does not load would quietly hand an arm's first two picks (the only ones a table
+    touches) to the old scorer with 0 errors, and a card spelled wrong would never act. Either one stops the run here."""
+    from agent.pokemon import draft as draft_rules
+
+    source = os.environ.get(draft_rules.FIRST_PICK_ADJUST_ENV) or "shipped"
+    try:
+        table = draft_rules.first_pick_adjust()
+    except ValueError as exc:
+        raise SystemExit(f"stopped before the first game: {exc}") from exc
+    named = {sid for section in (table.adjust, table.we_first, table.they_first) for sid, v in section.items() if v}
+    named |= {sid for pair, v in table.pairs.items() if v for sid in pair}
+    unknown = sorted(named - {data.to_id(c["species"]) for c in harness.CARDS})
+    if unknown:
+        raise SystemExit(f"stopped before the first game: first-pick table {source} names cards sim/cards.json does not hold: {unknown}")
+    return f"first-pick table: {source} ({table.entries()} non-zero entries)"
+
+
 def cmd_match(args) -> int:
     global LOG_DIR
+    print(first_pick_table(), flush=True)  # before a game is played or --out is opened: a bad table stops the run
     LOG_DIR = getattr(args, "log_dir", None) or NO_LOG
     a, b = args.a, args.b
     pool_has = getattr(args, "pool_has", None)
