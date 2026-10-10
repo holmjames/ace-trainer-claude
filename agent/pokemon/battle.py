@@ -1966,7 +1966,14 @@ SINGLE_TARGETS = ("normal", "any", "adjacentFoe")  # the move targets redirectio
 LIKELY_KO = 0.5  # a redirector this likely to be KO'd (accuracy included) is not counted on
 
 
-def redirect_cover(sheet: "TurnSheet", redirector: int, killer_pos: int, hit: dict, theirs: dict[int, "Mon"]) -> dict:
+def _redirect_move(sheet: "TurnSheet", redirector: int) -> str | None:
+    """The Follow Me / Rage Powder our Pokémon in slot ``redirector`` knows (for callers that do not name the move)."""
+    me = next((m for m in (sheet.field.actives if sheet.field is not None else []) if m.side == "mine" and m.position == redirector), None)
+    return next((mv["id"] for mv in (me.moves if me is not None else []) if mv.get("id") in REDIRECT_MOVES), None)
+
+
+def redirect_cover(sheet: "TurnSheet", redirector: int, killer_pos: int, hit: dict, theirs: dict[int, "Mon"],
+                   move: str | None = None) -> dict:
     """Does Follow Me / Rage Powder from our slot ``redirector`` keep ``hit`` (a threat row of the foe at ``killer_pos``
     into the partner) off the partner? Redirection lasts only while the redirector stands: a foe that moves before the
     killer (priority first, then the sheet's speed order, which has Trick Room, Tailwind, Scarf and paralysis in it) and
@@ -1978,13 +1985,18 @@ def redirect_cover(sheet: "TurnSheet", redirector: int, killer_pos: int, hit: di
     redirector likely survives what it draws (one that just goes down instead buys nothing)}. ``redirect_holds`` sums
     it up for ``status_value``'s cover credit and the ``redirect_to_protect_partner`` row alike (07a3cb1f T2: Follow Me
     was worth 45 from an Indeedee that Wood Hammer KOs before Archaludon moves; Draco Meteor then KO'd the Basculegion
-    its own Wave Crash recoil had weakened). Attackers that ignore redirection (mech's ``data.redirect_ignored``) are
-    not read yet: tests/test_mech_d.py pins a Rage Powder row against Arcanine, whose Safety Goggles ignore it."""
+    its own Wave Crash recoil had weakened). ``move`` is the redirect (default: the one the redirector knows): an
+    attacker that ignores it is not covered (mech's ``data.redirect_ignored``: Grass types, Overcoat and Safety Goggles
+    ignore Rage Powder, a powder move; Stalwart / Propeller Tail ignore both)."""
     out: dict[str, Any] = {"covers": False, "broken_by": None, "why": "", "drawn_ko": 0.0, "holds": False}
     if (data.move_info(hit["move"]) or {}).get("target") not in SINGLE_TARGETS:
         out["why"] = f"{hit['move']} is a spread move, which redirection does not move"
         return out
     killer = theirs.get(killer_pos)
+    ignored = data.redirect_ignored(move or _redirect_move(sheet, redirector), killer) if killer is not None else None
+    if ignored:
+        out["why"] = f"{ignored}, so {killer.species}'s {hit['move']} still goes into its target"
+        return out
     rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
     k_prio = hit.get("priority", 0) or 0
     if k_prio > 2 or (k_prio == 2 and rank.get(("theirs", killer_pos), 99) < rank.get(("mine", redirector), 99)):
@@ -2018,13 +2030,14 @@ def redirect_cover(sheet: "TurnSheet", redirector: int, killer_pos: int, hit: di
     return out
 
 
-def redirect_holds(sheet: "TurnSheet", redirector: int, theirs: dict[int, "Mon"]) -> tuple[bool, list[tuple[dict, dict]]]:
+def redirect_holds(sheet: "TurnSheet", redirector: int, theirs: dict[int, "Mon"],
+                   move: str | None = None) -> tuple[bool, list[tuple[dict, dict]]]:
     """Is Follow Me / Rage Powder from our slot ``redirector`` real cover for the partner this turn: ``redirect_cover``
     holds for at least one of the foes' KO hits into the partner, and none of the LIKELY ones (KO chance >= 50% with
-    accuracy) is left uncovered (a spread move, a redirector KO'd first or by what it draws: the partner goes down
-    anyway). Returns (that, [(hit, its verdict), ...]). ``status_value``'s cover credit and the
-    ``redirect_to_protect_partner`` row both call this, so they agree."""
-    verdicts = [(h, redirect_cover(sheet, redirector, t["position"], h, theirs))
+    accuracy) is left uncovered (a spread move, an attacker that ignores the redirect, a redirector KO'd first or by what
+    it draws: the partner goes down anyway). Returns (that, [(hit, its verdict), ...]). ``status_value``'s cover credit and the
+    ``redirect_to_protect_partner`` row both call this, so they agree (``move``: the redirect, as ``redirect_cover``)."""
+    verdicts = [(h, redirect_cover(sheet, redirector, t["position"], h, theirs, move))
                 for t in sheet.threats for h in t["hits"] if h["into_slot"] != redirector and h["ko"] != "no"]
     held = any(v["holds"] for _, v in verdicts)
     uncovered = any(not v["holds"] and ko_probability(h, with_accuracy=True) >= LIKELY_KO for h, v in verdicts)
@@ -2117,8 +2130,10 @@ def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "Turn
         return best
     if move_id in REDIRECT_MOVES:
         # The cover credit (45) only when the redirection holds for the partner (``redirect_holds``); otherwise it just
-        # draws hits, like Follow Me with no KO to stop (15).
-        return ((45 if redirect_holds(sheet, slot_number, theirs)[0] else 15), 0)
+        # draws hits, like Follow Me with no KO to stop (15), and nothing when every foe ignores it (Rage Powder vs Grass).
+        if theirs and all(data.redirect_ignored(move_id, foe) for foe in theirs.values()):
+            return (0.0, 0)
+        return ((45 if redirect_holds(sheet, slot_number, theirs, move_id)[0] else 15), 0)
     if move_id in SETUP_MOVES:
         up = {"tailwind": any("Our Tailwind" in n for n in sheet.notes), "trickroom": sheet.trick_room}.get(move_id, False)
         return ((0 if up else SETUP_MOVES[move_id]), 0)
@@ -3017,7 +3032,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                         if o.get("type") == "move" and data.to_id(o.get("move_id")) in REDIRECT_MOVES), None)
         if move_id is None or mate not in ours:
             return None
-        verdict = redirect_cover(sheet, mate, killer_pos, hit, theirs)
+        verdict = redirect_cover(sheet, mate, killer_pos, hit, theirs, move_id)
         return None if verdict["covers"] else (verdict, f"slot {mate}'s {move_id} does not cover it: {verdict['why']}")
 
     endangered: set[int] = set()
@@ -3504,7 +3519,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                              and data.to_id(o.get("move_id")) in ("followme", "ragepowder")), None)
             if redirect is None:
                 continue
-            real, verdicts = redirect_holds(sheet, redirector, theirs)
+            real, verdicts = redirect_holds(sheet, redirector, theirs, data.to_id(slot_r["options"][redirect].get("move_id")))
             if not real or not next((v["holds"] for h, v in verdicts if h is hit), False):
                 continue  # status_value's check: the partner is not safe behind it, or this hit is not kept off it
             move_info = data.move_info(hit["move"]) or {}

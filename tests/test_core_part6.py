@@ -155,10 +155,13 @@ def test_spread_moves_are_never_covered_and_a_faster_spread_hit_can_break_the_co
     assert heat_wave["ko"] != "no"
     spread = battle.redirect_cover(sheet, 0, pos, heat_wave, theirs)
     assert not spread["covers"] and "spread" in spread["why"]
-    # Rillaboom's Wood Hammer would be drawn, but Chi-Yu's faster Heat Wave (it hits Amoonguss too) KOs the redirector first
+    # Rillaboom's Wood Hammer would be drawn, but Chi-Yu's faster Heat Wave (it hits Amoonguss too) KOs the redirector first.
+    # Re-pointed: that holds for a Follow Me; Rillaboom is a Grass type, which ignores the Rage Powder outright.
     pos, wood_hammer = hit(sheet, "rillaboom", "woodhammer", 1)
     assert wood_hammer["ko"] != "no"
-    assert battle.redirect_cover(sheet, 0, pos, wood_hammer, theirs)["broken_by"]["move"] == "heatwave"
+    assert battle.redirect_cover(sheet, 0, pos, wood_hammer, theirs, move="followme")["broken_by"]["move"] == "heatwave"
+    powder = battle.redirect_cover(sheet, 0, pos, wood_hammer, theirs)
+    assert not powder["covers"] and powder["broken_by"] is None and "Grass types ignore Rage Powder" in powder["why"]
 
 
 def test_a_faster_plus_two_hit_lands_before_the_redirection_is_up():
@@ -172,18 +175,46 @@ def test_a_faster_plus_two_hit_lands_before_the_redirection_is_up():
         assert battle.redirect_cover(sheet, 1, pos, extreme_speed, sides(sheet)[1])["covers"] is covered
 
 
-def test_status_value_and_the_redirect_row_read_the_same_check(monkeypatch):
-    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's redirect row
-    # tests/test_mech_d.py's position: behind our Reflect, Rage Powder Amoonguss survives the Flare Blitz it draws
+def _rage_powder_vs_arcanine(**card) -> battle.TurnSheet:
+    """tests/test_mech_d.py's position: behind our Reflect, Rage Powder Amoonguss survives the Flare Blitz it draws."""
     from tests.test_mech_d import CATALOG
 
-    arcanine = {**CATALOG["Arcanine"], "moves": ["Flare Blitz", "Snarl", "Will-O-Wisp", "Protect"]}
-    sheet, _ = build(["Flutter Mane", "Amoonguss"], ["Arcanine", "Scream Tail"], bench=[], hp={"Flutter Mane": 0.2},
-                     cards={"Arcanine": arcanine}, obs_extra={"side_conditions": ["Reflect"]})
+    arcanine = {**CATALOG["Arcanine"], "moves": ["Flare Blitz", "Snarl", "Will-O-Wisp", "Protect"], **card}
+    return build(["Flutter Mane", "Amoonguss"], ["Arcanine", "Scream Tail"], bench=[], hp={"Flutter Mane": 0.2},
+                 cards={"Arcanine": arcanine}, obs_extra={"side_conditions": ["Reflect"]})[0]
+
+
+def test_status_value_and_the_redirect_row_read_the_same_check(monkeypatch):
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's redirect row
+    # Re-pointed: the catalog Arcanine's Safety Goggles ignore Rage Powder, a powder move, so this pin of the shared
+    # check now runs on an Arcanine with a Sitrus Berry (no effect on Flare Blitz); the Goggles case is the next test.
+    sheet = _rage_powder_vs_arcanine(item="Sitrus Berry")
     ours, theirs = sides(sheet)
     assert battle.redirect_holds(sheet, 1, theirs)[0]
     assert battle.status_value("ragepowder", ours[1], theirs, sheet, 1) == (45, 0)
     assert [c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner"]
+
+
+def test_rage_powder_is_no_cover_against_an_attacker_that_ignores_it(monkeypatch):
+    """Grass types, Overcoat and Safety Goggles ignore Rage Powder (mech's data.redirect_ignored): the catalog Arcanine's
+    Flare Blitz still goes into Flutter Mane, so the scorer gives no cover credit and no redirect row. Follow Me is no
+    powder move: the same hit stays covered."""
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's redirect row
+    sheet = _rage_powder_vs_arcanine()
+    ours, theirs = sides(sheet)
+    pos, flare_blitz = hit(sheet, "arcanine", "flareblitz", 0)
+    assert "Safety Goggles" in data.redirect_ignored("ragepowder", theirs[pos])
+    assert battle.status_value("ragepowder", ours[1], theirs, sheet, 1) == (15, 0)  # was 45: Scream Tail's hits still draw
+    assert not battle.redirect_holds(sheet, 1, theirs)[0]
+    assert not [c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner"]
+    verdict = battle.redirect_cover(sheet, 1, pos, flare_blitz, theirs, move="ragepowder")
+    assert not verdict["covers"] and "Safety Goggles" in verdict["why"]
+    assert battle.redirect_cover(sheet, 1, pos, flare_blitz, theirs, move="followme")["holds"]
+    exposed = [n for n in sheet.notes if n.startswith("EXPOSED: slot 0") and "flareblitz" in n]
+    assert exposed and "ragepowder does not cover it" in exposed[0] and "redirected" not in exposed[0], exposed
+    # with Grass types alone on their side (Rillaboom, Amoonguss) Rage Powder draws nothing at all
+    grass, _ = build(["Flutter Mane", "Amoonguss"], ["Rillaboom", "Amoonguss"], bench=[], hp={"Flutter Mane": 0.2})
+    assert battle.status_value("ragepowder", sides(grass)[0][1], sides(grass)[1], grass, 1) == (0.0, 0)
 
 
 # -- Helping Hand by what it enables ---------------------------------------------------------------------------------

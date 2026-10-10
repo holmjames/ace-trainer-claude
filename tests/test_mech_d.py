@@ -288,7 +288,10 @@ def test_redirect_check_uses_the_field(monkeypatch):
     """Arcanine's Flare Blitz KOs a Rage Powder Amoonguss in the open (198-234 of 220) but not behind our Reflect
     (132-156): the redirect candidate exists only with the screen priced in."""
     monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's redirect row
-    arcanine = {**CATALOG["Arcanine"], "moves": ["Flare Blitz", "Snarl", "Will-O-Wisp", "Protect"]}  # no Extreme Speed: one KO threat to redirect
+    # Re-pointed: the catalog Arcanine's Safety Goggles ignore Rage Powder (data.redirect_ignored), so it was never
+    # a redirect to offer; a Sitrus Berry (no effect on Flare Blitz) keeps this test about the screen.
+    arcanine = {**CATALOG["Arcanine"], "moves": ["Flare Blitz", "Snarl", "Will-O-Wisp", "Protect"],  # no Extreme Speed: one KO threat to redirect
+                "item": "Sitrus Berry"}
     # Flutter Mane at 20%: Flare Blitz KOs it; its Icy Wind gives the redirect candidate a payload of its own (not best_attacks').
     kwargs = dict(bench=[], hp={"Flutter Mane": 0.2}, cards={"Arcanine": arcanine})
     open_field, _ = build(["Flutter Mane", "Amoonguss"], ["Arcanine", "Scream Tail"], **kwargs)
