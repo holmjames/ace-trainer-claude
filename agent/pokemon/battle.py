@@ -2196,6 +2196,20 @@ def setup_spent(sheet: "TurnSheet", move_id: str, memory: "MatchMemory | None" =
     return used["mine"] >= used["theirs"]
 
 
+def setup_backfires(sheet: "TurnSheet", move_id: str, memory: "MatchMemory | None" = None) -> bool:
+    """Would our ``move_id`` turn the speed order against us: a Trick Room under our own Tailwind (the room reverses the
+    order), or a Tailwind under our own Trick Room (doubled, a slow one of ours stops moving first), when one of our
+    actives would then move after a foe it moves before now (the sheet's speed order). The redirect and Fake Out rows
+    then pair their move with an attack; otherwise the setup stays (it can still help another pairing)."""
+    ours = [e["speed"] for e in sheet.speed_order if e["side"] == "mine"]
+    foes = [e["speed"] for e in sheet.speed_order if e["side"] == "theirs"]
+    if move_id == "trickroom" and not sheet.trick_room and setup_spent(sheet, "tailwind"):
+        return any(o > f for o in ours for f in foes)
+    if move_id == "tailwind" and setup_spent(sheet, "trickroom", memory) and not setup_spent(sheet, "tailwind"):
+        return any(o < f < 2 * o for o in ours for f in foes)
+    return False
+
+
 def priority_move_blocked(sheet: "TurnSheet", target: "Mon") -> bool:
     """Does a priority move of ours (Prankster's +1 status moves included) fail into ``target``: Psychic Terrain with the
     target grounded, or Armor Tail / Dazzling / Queenly Majesty on the target's side (the check build_sheet makes for
@@ -3568,7 +3582,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             partner_slot = slot_template(endangered_slot)
             partner_action = None
             for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
-                idx = _option_index(partner_slot, "move", move_id=setup) if partner_slot and not setup_spent(sheet, setup, memory) else None
+                idx = _option_index(partner_slot, "move", move_id=setup) if partner_slot and not (
+                    setup_spent(sheet, setup, memory) or setup_backfires(sheet, setup, memory)) else None
                 if idx is not None:
                     partner_action = ({"option": idx, "target": 0}, f"sets {setup}")
                     break
@@ -3617,7 +3632,8 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         setup_name = None
         if other_slot:
             for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
-                idx = None if setup_spent(sheet, setup, memory) else _option_index(other_slot, "move", move_id=setup)
+                idx = None if setup_spent(sheet, setup, memory) or setup_backfires(sheet, setup, memory) else \
+                    _option_index(other_slot, "move", move_id=setup)
                 if idx is not None:
                     partner, setup_name = {"option": idx, "target": 0}, setup
                     break

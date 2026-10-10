@@ -53,6 +53,36 @@ def test_the_partner_attacks_instead_of_a_spent_setup(name, sc, row, spent, tmp_
     assert all("attack" in c["why"] for c in found), found
 
 
+@pytest.mark.parametrize("name, sc, row, against_us", [
+    # our Tailwind up: Amoonguss 100 and Hatterene 88 outspeed Kingambit (71); a Trick Room would put them behind it
+    ("redirect_room_under_our_tailwind", dataclasses.replace(REDIRECT, my_side=["Tailwind"], **HATTERENE), "redirect_to_protect_partner", "trickroom"),
+    # our Trick Room up: Incineroar (80) moves before Urshifu (149); doubled (160) it would move after it
+    ("fake_out_tailwind_under_our_room", dataclasses.replace(FAKE_OUT, turn=3, my_fresh=("incineroar",), their_fresh=(), fields=["Trick Room"]),
+     "fake_out_setup", "tailwind"),
+])
+def test_the_partner_attacks_instead_of_a_setup_that_turns_the_speed_order_against_us(name, sc, row, against_us, tmp_path, monkeypatch):
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)
+    monkeypatch.setitem(tuning.DEFAULTS, "lineup_sim_budget_s", 0.0)
+    found = [c for c in rows(sc, tmp_path) if c["name"] == row]
+    assert found and all("attack" in c["why"] and f"sets {against_us}" not in c["why"] for c in found), (name, found)
+
+
+def test_a_speed_setup_backfires_only_when_one_of_ours_would_lose_a_foe_it_outspeeds():
+    def sheet(ours: list[int], foes: list[int], *, our_tailwind: bool = False, room: bool = False) -> battle.TurnSheet:
+        s = battle.TurnSheet(trick_room=room, notes=["Our Tailwind is up (speed doubled)."] if our_tailwind else [])
+        s.speed_order = [{"side": "mine", "speed": v} for v in ours] + [{"side": "theirs", "speed": v} for v in foes]
+        return s
+    ours_room = SimpleNamespace(moves_by_turn={"mine": {"hatterene": {2: "trickroom"}}, "theirs": {}})
+    their_room = SimpleNamespace(moves_by_turn={"mine": {}, "theirs": {"farigiraf": {2: "trickroom"}}})
+    assert battle.setup_backfires(sheet([100, 88], [149, 71], our_tailwind=True), "trickroom")  # ours outspeed Kingambit
+    assert not battle.setup_backfires(sheet([60, 50], [149, 71], our_tailwind=True), "trickroom")  # still slower than both
+    assert not battle.setup_backfires(sheet([100, 88], [149, 71]), "trickroom")  # no Tailwind of ours to undo
+    assert battle.setup_backfires(sheet([80, 179], [149, 307], room=True), "tailwind", ours_room)  # 80 -> 160 passes 149
+    assert not battle.setup_backfires(sheet([30, 40], [149, 307], room=True), "tailwind", ours_room)  # 60, 80: still first
+    assert not battle.setup_backfires(sheet([80, 179], [149, 307], room=True), "tailwind", their_room)  # their room: as before
+    assert not battle.setup_backfires(sheet([80], [149]), "icywind") and not battle.setup_backfires(sheet([80], [149]), "tailwind")
+
+
 def test_a_tailwind_not_yet_up_is_still_the_redirect_partners_setup(tmp_path, monkeypatch):
     monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)
     monkeypatch.setitem(tuning.DEFAULTS, "lineup_sim_budget_s", 0.0)
