@@ -185,3 +185,26 @@ def test_no_helping_hand_without_an_ally(tmp_path):
     for turn in (7, 8, 9, 10):
         for cand in turn_row(rows, turn)["turn_sheet"]["candidate_turns"]:
             assert "helpinghand" not in cand["why"], (turn, cand)
+
+
+@pytest.mark.parametrize("prefix, seat, turn, slot, move, open_foe, grounded", [
+    ("6ce0b81e", 0, 5, 1, "iceshard", "landorustherian", "kingambit"),  # the Scarf Landorus' U-turn KOs our Rillaboom first
+    ("7551b7da", 1, 6, 0, "extremespeed", "salamence", "gholdengo"),  # Salamence at 12%; Gholdengo's Air Balloon had popped
+])
+def test_psychic_terrain_blocks_our_priority_only_into_a_grounded_foe(prefix, seat, turn, slot, move, open_foe, grounded, tmp_path):
+    # Psychic Terrain stops priority moves into GROUNDED targets only (a Flying type, Levitate or an Air Balloon is still
+    # hit). The sheet marked these priority attacks BLOCKED into both foes because the partner beside the open one stood
+    # on the ground.
+    _, rows = replay(prefix, tmp_path, seat=seat)
+    row = option(turn_row(rows, turn), slot, move)
+    assert not row.get("fails"), row
+    assert [species_key(t["species"]) for t in row["targets"] if t["side"] == "theirs"] == [open_foe], row
+    assert grounded in species_key(row["note"]) and "BLOCKED" not in row["note"], row
+
+
+def test_a_priority_attack_with_only_a_grounded_foe_left_stays_blocked(tmp_path):
+    # 6ce0b81e turn 6: Landorus-Therian has fainted and its slot is still offered as a target; Ice Shard into the
+    # grounded Kingambit alone is still BLOCKED (never a candidate), not an option with no target.
+    _, rows = replay("6ce0b81e", tmp_path, seat=0)
+    row = option(turn_row(rows, 6), 1, "iceshard")
+    assert row.get("fails") and "BLOCKED" in row["note"] and not row["targets"], row

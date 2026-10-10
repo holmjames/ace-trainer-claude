@@ -949,15 +949,22 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             # Rock Slide and Icy Wind were invisible to the ranking and to the model).
             targets = [t for t in option.get("targets") or [] if t != 0]
             fresh_now = species_key(me.species) in set(memory.fresh_active) or obs.get("turn") in (None, 1)
-            priority_blocked = (eff.get("priority") or 0) > 0 and data.is_damaging(move) and (
-                any(data.to_id(o.ability) in ("armortail", "dazzling", "queenlymajesty") for o in theirs.values())
-                or (fs.terrain == "psychic" and any(o.grounded for o in theirs.values())))
+            # A priority attack fails into a foe on an Armor Tail / Dazzling / Queenly Majesty side (they shield the holder
+            # and its ally) and, in Psychic Terrain, into a GROUNDED foe only: a Flying type, Levitate or an Air Balloon is
+            # still hit (priority_move_blocked, per target). BLOCKED only when no foe is left to hit.
+            shielded = {pos for pos, o in theirs.items() if priority_move_blocked(sheet, o)} \
+                if (eff.get("priority") or 0) > 0 and data.is_damaging(move) else set()
+            priority_blocked = bool(shielded) and not [t for t in targets if t in theirs and t not in shielded]
             if move["id"] in ("fakeout", "firstimpression") and not fresh_now:
                 note = f"{move['id']} FAILS: {me.species} is not on its first turn out."
                 targets = []
             elif priority_blocked:
                 note = f"{move['id']} is BLOCKED: their Armor Tail/Dazzling/Queenly Majesty (or Psychic Terrain) stops priority moves aimed at them."
                 targets = []
+            elif shielded:
+                targets = [t for t in targets if t not in shielded]
+                note = (f"{move['id']} cannot hit {', '.join(theirs[p].species for p in sorted(shielded))}: Psychic Terrain stops "
+                        "priority moves into grounded targets (a Flying type, Levitate or an Air Balloon is still hit).")
             if targets:
                 for target in targets:
                     defender = theirs.get(target) if target > 0 else (ours.get(-target - 1) if target < 0 else None)

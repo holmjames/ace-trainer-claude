@@ -721,6 +721,18 @@ def test_glaive_rush_volatile_and_conditional_moves():
     assert error_vs_calc(c, (est[0] * boost, est[1] * boost)) < TOLERANCE
 
 
+def test_our_priority_attack_is_blocked_per_target():
+    """Psychic Terrain shields grounded foes only; Armor Tail (also Dazzling, Queenly Majesty) shields its holder and the
+    holder's ally, Flying or not."""
+    terrain = {"fields": {"PSYCHIC_TERRAIN": 3}}
+    for opp, extra, reached in ((["Kingambit", "Talonflame"], terrain, ["Talonflame"]), (["Farigiraf", "Talonflame"], None, []),
+                                (["Kingambit", "Garchomp"], terrain, []), (["Kingambit", "Garchomp"], None, ["Kingambit", "Garchomp"])):
+        sheet, _ = build(["Arcanine", "Amoonguss"], opp, obs_extra=extra)
+        es = next(o for e in sheet.our_options if e["slot"] == 0 for o in e["options"] if o["move"] == "extremespeed")
+        assert [species_key(t["species"]) for t in es["targets"] if t["side"] == "theirs"] == [species_key(s) for s in reached], (opp, es)
+        assert bool(es.get("fails")) is (not reached), (opp, es)
+
+
 def test_redirect_ignored_and_blocked_effects():
     rillaboom, hatterene = catalog_mon("Rillaboom", side="theirs", position=1), catalog_mon("Hatterene", side="theirs", position=2)
     gholdengo, scream_tail = catalog_mon("Gholdengo", side="theirs", position=1), catalog_mon("Scream Tail", side="theirs", position=2)
