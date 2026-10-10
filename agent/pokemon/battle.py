@@ -14,6 +14,7 @@ species, missing field), that line is simply omitted from the sheet.
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 from dataclasses import dataclass, field
@@ -1480,10 +1481,13 @@ def _switch_previews(sheet: "TurnSheet", slots: list[dict], theirs: dict[int, "M
         sheet.switch_ins[key] = entry
 
 
-def _flinchable(me: "Mon", ours: dict[int, "Mon"], fs: "FieldState") -> bool:
-    """Can a Fake Out make this Pokémon flinch? Not a Ghost (Fake Out is Normal), not Inner Focus / Shield Dust /
-    Covert Cloak, not grounded in Psychic Terrain, and no Armor Tail / Dazzling / Queenly Majesty on our side."""
-    if "ghost" in me.types or data.to_id(me.ability) in ("innerfocus", "shielddust") or data.to_id(me.item) == "covertcloak":
+def _flinchable(me: "Mon", ours: dict[int, "Mon"], fs: "FieldState", attacker: "Mon | None" = None) -> bool:
+    """Can a Fake Out make this Pokémon flinch? Not a Ghost (Fake Out is Normal; an ``attacker`` with Scrappy or Mind's
+    Eye hits one), not Inner Focus / Shield Dust / Covert Cloak, not grounded in Psychic Terrain, and no Armor Tail /
+    Dazzling / Queenly Majesty on its side (``ours``: the Pokémon on that side; theirs for our own Fake Out)."""
+    scrappy = attacker is not None and data.to_id(attacker.ability) in ("scrappy", "mindseye")
+    if ("ghost" in me.types and not scrappy) or data.to_id(me.ability) in ("innerfocus", "shielddust") \
+            or data.to_id(me.item) == "covertcloak":
         return False
     if fs.terrain == "psychic" and me.grounded:
         return False
@@ -1503,6 +1507,12 @@ def _no_flinch_reason(me: "Mon", fs: "FieldState") -> str:
     return f"our Armor Tail / Dazzling / Queenly Majesty shields {me.species}"
 
 
+def _fresh_fake_out_users(sheet: "TurnSheet") -> list[dict]:
+    """Their Pokémon whose Fake Out works this turn: the threats build_sheet notes FRESH (on their first turn out, with
+    a slot of ours it can flinch)."""
+    return [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")]
+
+
 def _flinch_risk(sheet: "TurnSheet", ours: dict[int, "Mon"], theirs: dict[int, "Mon"], fs: "FieldState",
                  slots: list[dict] | None = None, P: dict | None = None) -> None:
     """A FRESH opposing Fake Out (+3 priority) will usually hit one of our slots, and that slot does not move this turn.
@@ -1511,7 +1521,7 @@ def _flinch_risk(sheet: "TurnSheet", ours: dict[int, "Mon"], theirs: dict[int, "
     The Fake Out is aimed: the search bot used its fresh Fake Outs on the slot whose action it could still stop every
     time (Oct 8, 2 of 2), so the slot with more to deny (its best attack, a KO, a setup move) carries 0.8 of the risk
     and the other 0.2, instead of an even split that under-priced the Thundurus it flinched and then KO'd."""
-    users = [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")]
+    users = _fresh_fake_out_users(sheet)
     if not users:
         return
     eligible = [n for n, me in ours.items() if _flinchable(me, ours, fs) and sheet.acts(n) > 0]
@@ -2499,7 +2509,7 @@ def _outcome(parts: list[tuple[float, dict]], defender: "Mon | None" = None) -> 
 
 def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, speed_rank: dict,
                     my_attack_row: dict | None = None, P: dict | None = None, removed: dict[int, float] | None = None,
-                    ignore_pos: int | None = None) -> float:
+                    ignore_pos: int | None = None, flinched: bool | None = None) -> float:
     """Chance this slot gets its action to count: 1.0 if nothing faster can KO it, 0.0 for a sure KO first, in between
     by the KO odds (rolls, hit count and accuracy). ``removed`` is each foe's chance of being taken out before it moves
     by the PARTNER (``joint_value`` fills it in): a threat the partner's faster or priority hit removes does not count
@@ -2508,7 +2518,10 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
     first. A slot that acts first ONLY through a priority move still lands its hit; what it loses right afterwards is
     ``doomed_after_priority``, charged as material by the ranking (D1i, the Oct 8 practice game turn 13: Extreme Speed
     for 39-46% into Dragonite was 'an escape' from a Scale Shot that then KO'd Arcanine). Slower threats are the
-    ranking's business."""
+    ranking's business. A fresh Fake Out's flinch is its chance (``fake_out_spares``), or, with ``flinched`` given, one
+    case of ``fake_out_cases``: the slot is flinched (0.0) or it is not (no flinch at all)."""
+    if flinched:
+        return 0.0
     P = P or DEFAULTS
     removed = removed or {}
     factor = 1.0
@@ -2537,8 +2550,9 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
             continue
         if focus["slot"] == slot_number and focus["before_we_move"] and my_priority <= 0:
             factor *= 1.0 - P.get("focus_risk", 0.35) * focus["ko_chance"]
-    # a fresh Fake Out (+3) stops anything slower than it: every move below +3, and our own Fake Out when theirs is faster
-    factor *= fake_out_spares(sheet, slot_number, my_priority)
+    if flinched is None:
+        # a fresh Fake Out (+3) stops anything slower than it: every move below +3, and our own Fake Out when theirs is faster
+        factor *= fake_out_spares(sheet, slot_number, my_priority)
     factor *= sheet.acts(slot_number)  # asleep: it acts only if it wakes (0, 1/3, 1/2, 1 by missed attempts)
     risk = sheet.sleep_risk.get(slot_number)
     if risk and my_priority <= risk[1]:
@@ -2550,17 +2564,94 @@ def fake_out_spares(sheet: "TurnSheet", slot_number: int, priority: int) -> floa
     """Chance a fresh opposing Fake Out (+3) does not stop our slot's move of this ``priority`` (``sheet.flinch_risk``):
     below +3 (Prankster's +1 Tailwind / Taunt / Encore, Follow Me / Rage Powder / Ally Switch +2, every speed setup) it
     moves after the Fake Out; at +3 (Wide Guard, Quick Guard) only a FRESH Fake Out user ahead of it in the speed order
-    goes first; Protect / Detect (+4) and Helping Hand (+5) come before it. The same rule prices an attack's flinch
-    (``survival_factor``: our own +3 Fake Out is flinched first by a faster fresh one, as the Fake Out row says)."""
+    goes first, each as often as it aims at this slot (``_fake_out_aim``; with one user that is the risk itself);
+    Protect / Detect (+4) and Helping Hand (+5) come before it. The same rule prices an attack's flinch
+    (``survival_factor``: our own +3 Fake Out is flinched first by a faster fresh one, as the Fake Out row says). One
+    slot on its own: ``fake_out_cases`` has both at once (one Fake Out flinches one Pokémon)."""
     risk = sheet.flinch_risk.get(slot_number, 0.0)
     if not risk or priority > 3:
         return 1.0
-    if priority == 3:
-        rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
-        if not any("fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")
-                   and rank.get(("theirs", t["position"]), 99) < rank.get(("mine", slot_number), 99) for t in sheet.threats):
-            return 1.0
-    return 1.0 - risk
+    if priority < 3:
+        return 1.0 - risk
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    ahead = sum(1 for t in _fresh_fake_out_users(sheet) if rank.get(("theirs", t["position"]), 99) < rank.get(("mine", slot_number), 99))
+    return (1.0 - _fake_out_aim(sheet).get(slot_number, 0.0)) ** ahead
+
+
+def _fake_out_aim(sheet: "TurnSheet") -> dict[int, float]:
+    """How often ONE fresh Fake Out user aims at each of our slots. ``flinch_risk`` is a slot's chance over all n users,
+    1 - (1 - aim)^n capped at 0.9 (``_flinch_risk``: the slot with more to stop carries 0.8 of the aim), so one user
+    aims at it 1 - (1 - risk)^(1/n) of the time; with one user, the risk itself."""
+    n = max(1, len(_fresh_fake_out_users(sheet)))
+    return {slot: 1.0 - (1.0 - min(1.0, r)) ** (1.0 / n) for slot, r in sheet.flinch_risk.items() if r > 0}
+
+
+def fake_out_cases(sheet: "TurnSheet", plan: dict[int, dict]) -> list[tuple[float, frozenset]]:
+    """Which of our slots their fresh Fake Outs (+3) flinch this turn when each slot plays ``plan`` (slot -> {"priority",
+    "move", "target"}): [(chance, the slots flinched)], the chances summing to 1. One Fake Out flinches ONE Pokémon:
+    each fresh user aims at one of our slots as the sheet estimates (``_fake_out_aim``), so one user never flinches
+    both of ours (two users can). The slot it aims at is flinched when its move is below +3; at +3 (Wide Guard, Quick
+    Guard, our own Fake Out) only when the user moves first in the speed order; never at +4 / +5 (Protect, Helping
+    Hand). Our Fake Out into a user it reaches first (faster, not flinched before it moves, a target it can flinch:
+    ``_flinchable``) stops that user's Fake Out when our slot acts (asleep or fully paralysed it stops nobody), and our
+    Quick Guard up first stops them all. Each slot alone comes out at ``fake_out_spares``'s chance when nothing of ours
+    stops a user."""
+    aim = _fake_out_aim(sheet)
+    if not aim:
+        return [(1.0, frozenset())]
+    users = [t["position"] for t in _fresh_fake_out_users(sheet)] or [None]  # None: a user the speed order lacks
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    fs = sheet.field if sheet.field is not None else FieldState()
+    ours = {m.position: m for m in fs.actives if m.side == "mine"}
+    theirs = {m.position: m for m in fs.actives if m.side == "theirs"}
+
+    def stops(n: int) -> bool:
+        move, target = plan[n].get("move"), plan[n].get("target")
+        if move == "quickguard":
+            return True
+        return move == "fakeout" and target in users and target in theirs and n in ours \
+            and _flinchable(theirs[target], theirs, fs, attacker=ours[n])
+
+    fast = [n for n in plan if (plan[n].get("priority") or 0) == 3]
+    stoppers = [n for n in fast if stops(n)]
+    # the +3 bracket in the speed order (ours first on a tie, as fake_out_spares reads it); a user the order lacks goes last
+    events = sorted([(rank.get(("mine", n), 99), 0, n) for n in fast]
+                    + [(rank.get(("theirs", u), 99) if u is not None else 100, 1, i) for i, u in enumerate(users)])
+    choices: list[tuple[int | None, float]] = list(aim.items())
+    if 1.0 - sum(aim.values()) > 1e-9:
+        choices.append((None, 1.0 - sum(aim.values())))  # this user's Fake Out goes nowhere it can flinch
+    out: dict[frozenset, float] = {}
+    for picks in itertools.product(choices, repeat=len(users)):
+        for acting in itertools.product((True, False), repeat=len(stoppers)):
+            p = math.prod(a for _, a in picks) * math.prod(sheet.acts(n) if up else 1.0 - sheet.acts(n) for n, up in zip(stoppers, acting))
+            if p <= 0:
+                continue
+            idle = {n for n, up in zip(stoppers, acting) if not up}
+            flinched: set[int] = set()
+            moved: set[int] = set()
+            stopped: set[int] = set()
+            guarded = False
+            for _, side, who in events:
+                if side == 0:  # one of our +3 moves
+                    if who in flinched:
+                        continue
+                    moved.add(who)
+                    if who in stoppers and who not in idle:
+                        guarded = guarded or plan[who].get("move") == "quickguard"
+                        if plan[who].get("move") == "fakeout":
+                            stopped.add(plan[who]["target"])
+                    continue
+                slot = picks[who][0]
+                if slot is None or guarded or users[who] in stopped:
+                    continue
+                prio = (plan.get(slot) or {}).get("priority", 0) or 0
+                if prio > 3 or (prio == 3 and slot in moved):
+                    continue
+                flinched.add(slot)
+            key = frozenset(flinched)
+            out[key] = out.get(key, 0.0) + p
+    total = sum(out.values()) or 1.0
+    return [(p / total, key) for key, p in sorted(out.items(), key=lambda kv: sorted(kv[0]))]
 
 
 def _flinch_clause(spared: float) -> str:
@@ -3246,8 +3337,13 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 else:  # the redirector stands: a note, which still says when its redirect misses this hit (ignored, spread)
                     sheet.notes.append(f"{text} {gap[1][0].upper()}{gap[1][1:]}." if gap else text)
 
+    def plan_of(picks: list[tuple[int, dict | None, dict | None, float]]) -> dict[int, dict]:
+        """What each picked slot plays, as ``fake_out_cases`` reads it: its move's priority, id and target."""
+        return {n: {"priority": opt.get("priority", 0) or 0, "move": opt.get("move"), "target": (row or {}).get("target", 0)}
+                for n, opt, row, _ in picks if opt}
+
     def joint_value(picks: list[tuple[int, dict | None, dict | None, float]], *, protect_aware: bool = False,
-                    partner: str | None = None) -> float:
+                    partner: str | None = None, cases: list[tuple[float, frozenset]] | None = None) -> float:
         """Both slots' actions valued TOGETHER. Damage into each foe is pooled across the slots, each hit capped at a KO
         before it is weighted by its slot's chance to act (an overkill at a 50% flinch is half a KO, not a whole one),
         one KO bonus per foe scaled by the threat it removes, the hits taken in the order they land (a pinch berry heals
@@ -3257,10 +3353,28 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         our own ally (Earthquake next to Archaludon: in the same units as damage into a foe, with that Pokémon's KO
         when it can fall to it; nothing when ``partner`` is "protect", the ally's Protect blocking it). With
         ``protect_aware`` a target that can Protect (and didn't last turn) and is in KO range is discounted by the
-        chance it does (the Oct 7 opponent Protected the threatened Pokémon three times in four games)."""
+        chance it does (the Oct 7 opponent Protected the threatened Pokémon three times in four games). A fresh Fake Out
+        flinches ONE of our Pokémon, not each slot on its own: with both slots acting under its risk (or ``cases``
+        given) the value is averaged over ``fake_out_cases``, which slot it flinches, if any, so a double that needs
+        both slots never gets the product of their two flinch chances (1aef9227 T1: Incineroar's one Fake Out stops Iron
+        Hands or Whimsicott, never both: Close Combat + Moonblast both land 0% of the time, not 16%)."""
+        if cases is None:
+            plan = plan_of(picks)
+            if len(plan) < 2 or not any(sheet.flinch_risk.get(n) for n in plan):
+                return joint_value_in(picks, protect_aware, partner, None)
+            cases = fake_out_cases(sheet, plan)
+        return sum(p * joint_value_in(picks, protect_aware, partner, hit) for p, hit in cases if p > 0)
+
+    def joint_value_in(picks: list[tuple[int, dict | None, dict | None, float]], protect_aware: bool, partner: str | None,
+                       flinched: frozenset | None) -> float:
+        """``joint_value`` in one Fake Out case (``flinched``: the slots it stops), or with each slot's own flinch chance
+        (None)."""
+        def hit(n: int) -> bool | None:
+            return None if flinched is None else n in flinched
+
         attacks = [(n, opt, row) for n, opt, row, _ in picks if opt and row and "status_value" not in row and opt.get("targets")]
         attacks.sort(key=lambda a: (-(a[1].get("priority", 0) or 0), speed_rank.get(("mine", a[0]), 99)))  # the order they land
-        status_picks = [(opt, row, v) for _, opt, row, v in picks if opt and row and ("status_value" in row or not opt.get("targets"))]
+        status_picks = [(n, opt, row, v) for n, opt, row, v in picks if opt and row and ("status_value" in row or not opt.get("targets"))]
         extra = 0.0
         removed: dict[int, float] = {}
         own: dict[tuple[int, int], float] = {}  # (slot, foe) -> the slot's own chance of taking that foe out before it moves
@@ -3273,16 +3387,20 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 prio = opt.get("priority", 0) or 0
                 if acts_before(n, pos, prio, their_priority_into(sheet, pos)):
                     # this hit lands before the foe moves: only the OTHER foe's faster threats and a flinch can stop it
-                    p_act = survival_factor(n, sheet, prio, speed_rank, row, P, ignore_pos=pos) * float(sub.get("hit_chance", 1.0))
+                    p_act = survival_factor(n, sheet, prio, speed_rank, row, P, ignore_pos=pos, flinched=hit(n)) * float(sub.get("hit_chance", 1.0))
                     parts.append((p_act, sub))
                     own[(n, pos)] = p_act * ko_probability(sub)
             removed[pos] = _outcome(parts, foe)[1] if parts else 0.0
-        for opt, row, v in status_picks:
+        for n, opt, row, v in status_picks:
+            if flinched is not None:  # best_action priced the slot's own flinch chance in: in a case it is flinched or not
+                keep = fake_out_spares(sheet, n, opt.get("priority", 0) or 0)
+                v = 0.0 if n in flinched or keep <= 0 else v / keep
             # a Taunt (or any status move) aimed at a foe the partner removes before it moves blocks nothing: Heat Wave
             # KOs Amoonguss before it moves, so a Taunt on it next to the Heat Wave is worth the miss only (review 5714330)
             target = row.get("target", 0)
             extra += max(v, 0.0) * (1.0 - removed.get(target, 0.0)) if target in theirs else max(v, 0.0)
-        surv = {n: survival_factor(n, sheet, opt.get("priority", 0) or 0, speed_rank, row, P, removed=removed) for n, opt, row in attacks}
+        surv = {n: survival_factor(n, sheet, opt.get("priority", 0) or 0, speed_rank, row, P, removed=removed, flinched=hit(n))
+                for n, opt, row in attacks}
         total = 0.0
         for pos, foe in theirs.items():
             parts = []
@@ -3682,12 +3800,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if fake is None:
             continue
         fake_option = (slot.get("options") or [])[fake]
-        # Armor Tail / Dazzling / Queenly Majesty on EITHER opponent blocks priority moves into both of them.
-        priority_blocked = any(data.to_id(o.ability) in ("armortail", "dazzling", "queenlymajesty") for o in theirs.values())
-        legal_targets = [t for t in fake_option.get("targets") or [] if t > 0 and t in theirs and not priority_blocked
-                         and (data.effectiveness("normal", theirs[t].types) > 0 or data.to_id(me.ability) in ("scrappy", "mindseye"))
-                         and not (sheet.field is not None and sheet.field.terrain == "psychic" and theirs[t].grounded)
-                         and data.to_id(theirs[t].item) != "covertcloak" and data.to_id(theirs[t].ability) not in ("innerfocus", "shielddust")]
+        # a target it can flinch (_flinchable, the rule for theirs into us): not a Ghost (unless Scrappy / Mind's Eye), no
+        # Inner Focus / Shield Dust / Covert Cloak, not grounded in Psychic Terrain, and no Armor Tail / Dazzling / Queenly
+        # Majesty on their side (it blocks priority moves into both of them)
+        fs_now = sheet.field if sheet.field is not None else FieldState()
+        legal_targets = [t for t in fake_option.get("targets") or [] if t > 0 and t in theirs and _flinchable(theirs[t], theirs, fs_now, attacker=me)]
         if not legal_targets:
             continue  # nothing flinchable: a Fake Out would be wasted
         # The threat whose known attacks do the most to us. A target that would KO one of our slots BEFORE that slot moves
@@ -3715,12 +3832,13 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if partner is None:
             continue
         answers = {number: {"option": fake, "target": target}, other: partner}
-        # the partner's setup (below +3) meets their fresh Fake Out, unless ours flinches it first: their only fresh Fake
-        # Out user is our target and our Fake Out moves before its own (the speed order decides between two +3 moves)
-        users = [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")]
-        stopped = len(users) == 1 and users[0]["position"] == target and acts_before(number, target, 3, 3)
-        spared = fake_out_spares(sheet, other, (data.move_info(setup_name) or {}).get("priority", 0) or 0) \
-            if setup_name and not stopped else 1.0
+        # one Fake Out of theirs flinches one of ours (fake_out_cases): the partner's setup (below +3) meets it unless ours
+        # flinches its user first (our target, and ours moves first: the speed order decides between two +3 moves)
+        plan = {number: {"priority": 3, "move": "fakeout", "target": target}}
+        if setup_name:
+            plan[other] = {"priority": (data.move_info(setup_name) or {}).get("priority", 0) or 0, "move": setup_name, "target": 0}
+        cases = fake_out_cases(sheet, plan)
+        spared = sum(p for p, hit in cases if other not in hit) if setup_name else 1.0
         why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (
             f"sets {setup_name}" + _flinch_clause(spared) if setup_name else "attacks")
         attacks_ko = any(kos_a_foe(b[1]) for b in best.values())  # per foe: a spread's summed range is not a KO (D1j)
@@ -3734,7 +3852,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             pierces = data.to_id(theirs[target].ability) == "unseenfist"
             why += f"; its attack would KO one of our slots before it moves ({int(lethal_first * 100)}% chance), and the flinch stops that" + (" even though Unseen Fist goes through Protect" if pierces else "")
         # Fake Out vs Fake Out is decided by speed: a faster fresh Fake Out on their side can flinch ours first.
-        lands = fake_out_spares(sheet, number, 3) * sheet.acts(number)
+        lands = sum(p for p, hit in cases if number not in hit) * sheet.acts(number)
         if lands < 1.0:
             why += f"; their faster Fake Out may flinch ours first ({int((1 - lands) * 100)}%)"
         add("fake_out_setup", answers[0], answers[1], why,
@@ -3760,26 +3878,42 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         prio = 1 if data.to_id(me.ability) == "prankster" else 0
         legal = (slot.get("options") or [])[idx].get("targets") or []
         flinch = secondary_flinch(sheet, number, ours, speed_rank, prio)
-        acts = survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else sheet.acts(number) * fake_out_spares(sheet, number, prio)
+
+        def taunt_acts(flinched: bool | None, prio: int = prio, number: int = number) -> float:
+            """The Taunt's chance to go up: the slot acts and a fresh Fake Out does not flinch it (its chance, or one
+            case of ``fake_out_cases``)."""
+            if prio <= 0:
+                return survival_factor(number, sheet, prio, speed_rank, None, P, flinched=flinched)
+            return 0.0 if flinched else sheet.acts(number) * (fake_out_spares(sheet, number, prio) if flinched is None else 1.0)
+
+        acts = taunt_acts(None)
         for pos, foe in sorted(theirs.items()):
             if legal and pos not in legal:
                 continue
             blocked = taunt_value(me, number, pos, foe, sheet, P)
             if blocked <= 0:
                 continue
+            value = blocked * acts
             if other in ours and solo[other][0] and solo[other][1] is not None:
                 o_opt, o_row = solo[other][0], solo[other][1]
                 sub = row_into(o_opt, o_row, pos, foe.species)
                 o_prio = o_opt.get("priority", 0) or 0
                 if sub is not None and "status_value" not in o_row and acts_before(other, pos, o_prio, 1 if data.to_id(foe.ability) == "prankster" else 0):
-                    blocked *= 1.0 - ko_probability(sub, with_accuracy=True) * survival_factor(other, sheet, o_prio, speed_rank, o_row, P)
+                    # it blocks nothing when the partner removes the foe before it moves; one fresh Fake Out flinches the
+                    # Taunt or the partner's attack, not each on its own (fake_out_cases)
+                    ko = ko_probability(sub, with_accuracy=True)
+                    cases = fake_out_cases(sheet, {number: {"priority": prio, "move": "taunt", "target": pos},
+                                                   other: {"priority": o_prio, "move": o_opt.get("move"), "target": o_row.get("target", 0)}})
+                    value = blocked * sum(p * taunt_acts(number in hit) * (1.0 - ko * survival_factor(other, sheet, o_prio, speed_rank, o_row, P,
+                                                                                                         flinched=other in hit))
+                                          for p, hit in cases)
             what = [m["id"] for m in foe.moves if not data.is_damaging(data.move_info(m["id"]) or {}) and m["id"] not in PROTECT_LIKE]
             answers = {number: {"option": idx, "target": pos}, other: partner}
             add("taunt_status", answers.get(0), answers.get(1),
                 f"slot {number} Taunts {foe.species}: it cannot use {', '.join(what)} for three turns"
                 + (f" ({int(round(100 * flinch))}% that a faster flinch stops the Taunt)" if flinch >= 0.05 else "")
                 + (f"; slot {other} attacks" if other in ours else ""),
-                blocked * acts * (1.0 - flinch) + (solo_value(other) if other in ours else 0.0))
+                value * (1.0 - flinch) + (solo_value(other) if other in ours else 0.0))
 
     # 5. Switch a slot that has no worthwhile attack into a bench Pokémon (a safe one: a pivot that is KO'd on entry
     #    just donates a Pokémon, Oct 8 practice game turn 12).

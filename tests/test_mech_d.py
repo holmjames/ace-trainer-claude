@@ -916,6 +916,100 @@ def test_our_fake_out_is_flinched_first_by_a_faster_fresh_one():
     assert sheet.flinch_risk[0] == 0.2 and [battle.survival_factor(0, sheet, p, rank) for p in (0, 3)] == pytest.approx([0.8, 1.0])
 
 
+def _fake_out_sheet(risk: dict[int, float], users: list[tuple[str, int, int]], ours: list[tuple[str, int, int]], **cards) -> battle.TurnSheet:
+    """A hand sheet for fake_out_cases: ``users`` their fresh Fake Out users (species, position, speed), ``ours`` our
+    actives (species, slot, speed), ``cards`` per-species set overrides."""
+    sheet = battle.TurnSheet(flinch_risk=dict(risk))
+    sheet.threats = [{"position": pos, "species": s, "known_moves": ["fakeout"], "note": "FRESH: its Fake Out works THIS turn", "hits": []}
+                     for s, pos, _ in users]
+    order = [("theirs", s, pos, v) for s, pos, v in users] + [("mine", s, n, v) for s, n, v in ours]
+    sheet.speed_order = [{"species": s, "side": side, "position": pos, "speed": v} for side, s, pos, v in sorted(order, key=lambda e: -e[3])]
+    sheet.field = battle.FieldState(actives=[catalog_mon(s, side="theirs", position=pos, **cards.get(s, {})) for s, pos, _ in users]
+                                    + [catalog_mon(s, side="mine", position=n, **cards.get(s, {})) for s, n, _ in ours])
+    return sheet
+
+
+def _cases(sheet: battle.TurnSheet, plan: dict[int, dict]) -> dict[frozenset, float]:
+    return {hit: round(p, 6) for p, hit in battle.fake_out_cases(sheet, plan)}
+
+
+def test_one_fresh_fake_out_flinches_one_of_our_pokemon():
+    """fake_out_cases: Incineroar's one Fake Out aims at Iron Hands (0.8) or Whimsicott (0.2, the sheet's estimate) and
+    flinches THAT one: never both, never neither (1aef9227 T1). Protect (+4) takes the hit it aims at; Prankster
+    Tailwind (+1) does not. Two fresh users can flinch both (each aims on its own, the slot's chance over both is its
+    flinch_risk). Our Fake Out (+3) goes first only when faster: then it stops their Fake Out, unless its target ignores
+    the flinch (Covert Cloak). Our Quick Guard up first stops it for both slots. Alone, a slot comes out at
+    fake_out_spares."""
+    m2 = _fake_out_sheet({0: 0.8, 1: 0.2}, [("Incineroar", 1, 80)], [("Iron Hands", 0, 73), ("Whimsicott", 1, 184)])
+    move = {0: {"priority": 0, "move": "closecombat", "target": 1}, 1: {"priority": 0, "move": "moonblast", "target": 1}}
+    assert _cases(m2, move) == {frozenset({0}): 0.8, frozenset({1}): 0.2}
+    assert _cases(m2, {0: {"priority": 4, "move": "protect"}, 1: {"priority": 1, "move": "tailwind"}}) == {frozenset(): 0.8, frozenset({1}): 0.2}
+    for n, prio in ((0, 0), (1, 1), (0, 3), (1, 3), (1, 4)):
+        assert sum(p for p, hit in battle.fake_out_cases(m2, {n: {"priority": prio}}) if n not in hit) == pytest.approx(
+            battle.fake_out_spares(m2, n, prio)), (n, prio)
+    # our Fake Out: Iron Hands (73) is slower than Incineroar (80), so theirs goes first; Rillaboom (124) is faster and stops it
+    assert _cases(m2, {0: {"priority": 3, "move": "fakeout", "target": 1}, 1: {"priority": 0}}) == {frozenset({0}): 0.8, frozenset({1}): 0.2}
+    fast = _fake_out_sheet({0: 0.8, 1: 0.2}, [("Incineroar", 1, 80)], [("Rillaboom", 0, 124), ("Tornadus", 1, 179)])
+    assert _cases(fast, {0: {"priority": 3, "move": "fakeout", "target": 1}, 1: {"priority": 0}}) == {frozenset(): 1.0}
+    assert _cases(fast, {0: {"priority": 3, "move": "fakeout", "target": 2}, 1: {"priority": 0}}) == {frozenset({1}): 0.2, frozenset(): 0.8}
+    cloak = _fake_out_sheet({0: 0.8, 1: 0.2}, [("Incineroar", 1, 80)], [("Rillaboom", 0, 124), ("Tornadus", 1, 179)],
+                            Incineroar={"item": "Covert Cloak"})
+    assert _cases(cloak, {0: {"priority": 3, "move": "fakeout", "target": 1}, 1: {"priority": 0}}) == {frozenset({1}): 0.2, frozenset(): 0.8}
+    assert _cases(fast, {0: {"priority": 3, "move": "quickguard"}, 1: {"priority": 0}}) == {frozenset(): 1.0}
+    # two fresh users (aims 0.8 / 0.2 each: flinch_risk 0.9 capped, 0.36): both slots are flinched together sometimes
+    two = _fake_out_sheet({0: 0.9, 1: 0.36}, [("Incineroar", 1, 80), ("Rillaboom", 2, 124)], [("Iron Hands", 0, 73), ("Whimsicott", 1, 184)])
+    got = _cases(two, move)
+    assert got[frozenset({0, 1})] > 0.2 and sum(got.values()) == pytest.approx(1.0)
+    assert sum(p for hit, p in got.items() if 0 in hit) == pytest.approx(0.9) and sum(p for hit, p in got.items() if 1 in hit) == pytest.approx(0.36)
+
+
+def test_our_faster_fake_out_stops_one_of_two_fresh_fake_outs():
+    """Two fresh Fake Out users (Incineroar 80, Rillaboom 124): Sneasler (189) Fakes Out Incineroar first, so only
+    Rillaboom's Fake Out is left for Tornadus's Tailwind, which it aims at 0.2 of the time; the 50edd01 rule saw two users
+    and no stop (36%). The best attacks row (Fake Out + Bleakwind Storm) counts the same stop. Covert Cloak Tornadus is
+    the control."""
+    cloak = {"Tornadus": {**CATALOG["Tornadus"], "item": "Covert Cloak"}}
+
+    def rows(**kw):
+        sheet, _ = build(["Sneasler", "Tornadus"], ["Incineroar", "Rillaboom"], obs_extra={"turn": 1}, fresh=["Sneasler", "Tornadus"], **kw)
+        return sheet, {c["name"]: c for c in sheet.candidates}
+
+    sheet, got = rows()
+    _, ctrl = rows(cards=cloak)
+    assert sheet.flinch_risk == {0: 0.9, 1: 0.36}, sheet.flinch_risk
+    row = got["fake_out_setup"]
+    assert row["why"].startswith("Fake Out Incineroar ") and "sets tailwind (20% that their Fake Out flinches it first)" in row["why"], row["why"]
+    assert row["score"] == pytest.approx(ctrl["fake_out_setup"]["score"] - tuning.DEFAULTS["fakeout_setup_value"] * 0.2, abs=0.11)
+    cases = {hit: p for p, hit in battle.fake_out_cases(sheet, {0: {"priority": 3, "move": "fakeout", "target": 1}, 1: {"priority": 0}})}
+    assert cases == {frozenset(): pytest.approx(0.8), frozenset({1}): pytest.approx(0.2)}, cases
+
+
+def test_a_double_that_needs_both_slots_is_priced_over_the_fake_out_cases(monkeypatch):
+    """Every two-slot row is averaged over fake_out_cases, the slot one Fake Out flinches. Iron Hands + Whimsicott vs a
+    fresh Incineroar + Sylveon (Incineroar aims at Iron Hands 0.8, Whimsicott 0.2): each row is 0.8 x (its value with Iron
+    Hands flinched) + 0.2 x (with Whimsicott flinched): best attacks (Close Combat + Prankster Tailwind: the status
+    move's own flinch chance comes out of its value first), focus fire, finish the other and the Fake Out row. The
+    independent product (both act 16% of the time, both flinched 16%) prices the focus fire differently."""
+    real_cases = battle.fake_out_cases
+    names = ("best_attacks", "focus_fire", "finish_the_other", "fake_out_setup")
+
+    def rows(cases=None):
+        if cases is not None:
+            monkeypatch.setattr(battle, "fake_out_cases", lambda sheet, plan: cases)
+        sheet, _ = build(["Iron Hands", "Whimsicott"], ["Incineroar", "Sylveon"], obs_extra={"turn": 1}, fresh=["Iron Hands", "Whimsicott"])
+        monkeypatch.setattr(battle, "fake_out_cases", real_cases)
+        return sheet, {c["name"]: c["score"] for c in sheet.candidates if c["name"] in names}
+
+    sheet, real = rows()
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2} and set(real) == set(names), (sheet.flinch_risk, real)
+    hands, whims = rows([(1.0, frozenset({0}))])[1], rows([(1.0, frozenset({1}))])[1]  # Iron Hands / Whimsicott flinched
+    for name in names:
+        assert real[name] == pytest.approx(0.8 * hands[name] + 0.2 * whims[name], abs=0.11), (name, real, hands, whims)
+    both, neither = rows([(1.0, frozenset())])[1], rows([(1.0, frozenset({0, 1}))])[1]
+    independent = 0.16 * both["focus_fire"] + 0.16 * neither["focus_fire"] + 0.64 * hands["focus_fire"] + 0.04 * whims["focus_fire"]
+    assert abs(real["focus_fire"] - independent) > 1.0, (real["focus_fire"], independent)
+
+
 def test_redirect_ignored_and_blocked_effects():
     rillaboom, hatterene = catalog_mon("Rillaboom", side="theirs", position=1), catalog_mon("Hatterene", side="theirs", position=2)
     gholdengo, scream_tail = catalog_mon("Gholdengo", side="theirs", position=1), catalog_mon("Scream Tail", side="theirs", position=2)
