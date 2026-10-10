@@ -3435,6 +3435,16 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     extra -= P["exposure_w"] * min(1.0, more + doomed) * material(me, P) * surv[n]
         return total + extra
 
+    def all_act(picks: list[tuple[int, dict, dict, float]]) -> float:
+        """Chance every slot in ``picks`` gets its action to count (``survival_factor``: not KO'd first, awake...), a fresh
+        Fake Out flinching at most one of them per user (``fake_out_cases``): what a bonus for their hits TOGETHER is
+        worth. 1aef9227 T1: Close Combat and Moonblast both act 0% of the time beside Incineroar's one Fake Out."""
+        plan = plan_of(picks)
+        cases = fake_out_cases(sheet, plan) if len(plan) > 1 and any(sheet.flinch_risk.get(n) for n in plan) else [(1.0, None)]
+        return sum(p * math.prod(survival_factor(n, sheet, opt.get("priority", 0) or 0, speed_rank, row, P,
+                                                 flinched=None if hit is None else n in hit) for n, opt, row, _ in picks)
+                   for p, hit in cases)
+
     def ally_exposed(n: int, partner: str | None) -> float:
         """How much of a spread hit from slot ``n`` reaches our own ally: all of it, none behind the ally's Protect (a
         repeat Protect only 1 time in 3), all of it on whatever comes in when the ally switches."""
@@ -3484,12 +3494,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 # a pinch berry between the hits can turn a 'guaranteed' double into a coin flip (Wiki Berry Sylveon: 0.80)
                 guard = can_protect(opp)
                 # The bonus is for what the SECOND hit adds: when one hit alone already takes the target out, the other is
-                # overkill, and the split (finish_the_other) is the better turn (the Oct 8 LLM-agent game, turn 5).
+                # overkill, and the split (finish_the_other) is the better turn (the Oct 8 LLM-agent game, turn 5). It needs
+                # both hits, so both slots acting: one fresh Fake Out flinches one of them (all_act; the fix3 review: 50edd01
+                # left the full +30 on a double their one Incineroar Fake Out always breaks, 1aef9227 T1).
                 single = max(ko_probability(r, with_accuracy=True) for _, _, r, _ in rows)
                 add("focus_fire", slot_answer(rows[0][1]["option"], target), slot_answer(rows[1][1]["option"], target),
                     f"both into {opp.species}: {combined:.0f}% minimum combined, likely KO" + (" (it can Protect)" if guard else ""),
                     joint_value([(n, o, r, e) for n, o, r, e in rows], protect_aware=True)
-                    + P["focus_fire_bonus"] * (1.0 - single) * ((1.0 - protect_risk(target)) if guard else 1.0))
+                    + P["focus_fire_bonus"] * (1.0 - single) * ((1.0 - protect_risk(target)) if guard else 1.0) * all_act(rows))
 
     # 2a. Priority focus: both slots' priority moves into a foe that KOs one of them before it moves, when together they
     #     take it out first (the Oct 8 loss, turn 6: Extreme Speed + Sucker Punch KO'd Lucario before its Close Combat;
@@ -3516,7 +3528,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 picks.append(pick)
         if len(picks) < 2:
             continue
-        combined_ko = _outcome([(float(r.get("hit_chance", 1.0)) * sheet.acts(n), r) for n, _, r, _ in picks], theirs.get(pos))[1]
+        # both priority hits (+1 / +2) still move after a fresh Fake Out (+3), which flinches one of them (fake_out_cases)
+        plan = plan_of(picks)
+        cases = fake_out_cases(sheet, plan) if any(sheet.flinch_risk.get(n) for n in plan) else [(1.0, frozenset())]
+        combined_ko = sum(p * _outcome([(float(r.get("hit_chance", 1.0)) * sheet.acts(n) * (0.0 if n in hit else 1.0), r) for n, _, r, _ in picks],
+                                       theirs.get(pos))[1] for p, hit in cases)
         if combined_ko < 0.5:
             continue
         answers = {n: slot_answer(o["option"], r["target"] if r.get("target", 0) > 0 else 0) for n, o, r, _ in picks}

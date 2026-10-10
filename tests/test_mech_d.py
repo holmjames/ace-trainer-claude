@@ -1010,6 +1010,27 @@ def test_a_double_that_needs_both_slots_is_priced_over_the_fake_out_cases(monkey
     assert abs(real["focus_fire"] - independent) > 1.0, (real["focus_fire"], independent)
 
 
+def test_a_bonus_for_both_hits_needs_both_slots_to_act_past_one_fake_out(monkeypatch):
+    """focus_fire's +30 and priority_focus's bonus (and its gate) are for the two hits TOGETHER: all_act, both slots
+    acting with one fresh Fake Out flinching one of them. Talonflame (Gale Wings Brave Bird +1, 0.8 of the risk) and
+    Kingambit (Sucker Punch +1, 0.2) vs a fresh Incineroar + Chi-Yu: the two never both act, so the focus fire into Chi-Yu
+    keeps no bonus (its score is the same with focus_fire_bonus 0) and the priority focus (100% together, before) is no
+    row at all. On turn 3 (Incineroar no longer fresh) both stand: the bonus counts and the priority focus is 100%."""
+    def rows(turn, bonus=None):
+        if bonus is not None:
+            monkeypatch.setitem(tuning.DEFAULTS, "focus_fire_bonus", bonus)
+        sheet, _ = build(["Talonflame", "Kingambit"], ["Incineroar", "Chi-Yu"], obs_extra={"turn": turn}, fresh=["Talonflame", "Kingambit"])
+        monkeypatch.setitem(tuning.DEFAULTS, "focus_fire_bonus", 30.0)
+        return sheet, {c["name"]: c for c in sheet.candidates if c["name"] in ("focus_fire", "priority_focus")}
+
+    sheet, fresh = rows(1)
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2} and "focus_fire" in fresh and "priority_focus" not in fresh, (sheet.flinch_risk, fresh)
+    assert fresh["focus_fire"]["score"] == pytest.approx(rows(1, 0.0)[1]["focus_fire"]["score"], abs=0.11)
+    sheet, late = rows(3)
+    assert not sheet.flinch_risk and "take it out first 100% of the time" in late["priority_focus"]["why"], late
+    assert late["focus_fire"]["score"] > rows(3, 0.0)[1]["focus_fire"]["score"] + 1.0
+
+
 def test_redirect_ignored_and_blocked_effects():
     rillaboom, hatterene = catalog_mon("Rillaboom", side="theirs", position=1), catalog_mon("Hatterene", side="theirs", position=2)
     gholdengo, scream_tail = catalog_mon("Gholdengo", side="theirs", position=1), catalog_mon("Scream Tail", side="theirs", position=2)
