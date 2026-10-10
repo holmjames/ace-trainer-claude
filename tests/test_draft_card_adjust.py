@@ -87,10 +87,29 @@ def test_the_shipped_table_loads_and_names_only_catalog_cards_within_its_limit()
     assert "Archaludon" not in raw["us"] and "Archaludon" not in raw["them"]
     table = draft.card_adjust_table()
     assert not draft._CARD_ADJUST_ERRORS
-    assert (len(table.us), len(table.them), table.entries()) == (16, 21, 37)
+    assert (len(table.us), len(table.them), table.entries()) == (13, 19, 32)
     # pinned from the gate's frozen table (skeptic work/table.json, sha256 01e6cf6c...): the largest entries each side
     assert table.us["irontreads"] == 0.5 and table.us["torkoal"] == -0.5 and table.us["kingambit"] == 0.436
     assert table.them["urshifurapidstrike"] == -0.5 and table.them["whimsicott"] == 0.464
+
+
+@needs_data
+def test_the_shipped_table_is_the_gate_table_less_five_noise_entries_and_matches_its_frozen_hash():
+    """The review fix-up zeroed five of the gate's 37 entries before the simulator A/B, so the tested table is the
+    shipped one: Farigiraf us, Gyarados us and Gholdengo them (their 90 % interval holds 0 once the bootstrap clusters
+    by seed, the gate's own drop rule), Sylveon us (fails at 95 %, and the natural experiment puts it at -0.30) and
+    Gyarados them (a selection artifact: we draft Gyarados 97 % of the times it is drafted). Every other entry is the
+    gate's value. _table_sha256 freezes the entries: sha256 of json.dumps({"them": ..., "us": ...}, sort_keys=True)."""
+    import hashlib
+
+    raw = json.loads(draft.CARD_ADJUST_FILE.read_text())
+    dropped = {"us": {"Farigiraf", "Gyarados", "Sylveon"}, "them": {"Gholdengo", "Gyarados"}}
+    for side, names in dropped.items():
+        assert not names & set(raw[side]), side
+        assert names <= set(raw["_dropped"][side])
+    entries = json.dumps({"them": raw["them"], "us": raw["us"]}, sort_keys=True)
+    assert hashlib.sha256(entries.encode()).hexdigest() == raw["_table_sha256"]
+    assert raw["_source_sha256"].startswith("01e6cf6cfd7fad54")  # the gate's frozen table it came from
 
 
 @pytest.mark.parametrize("body, why", [
@@ -244,7 +263,7 @@ def test_the_correction_flips_a_near_tie_toward_the_card_the_table_rates_higher(
     on = {s.species: s for s in draft.rank_picks_v2(state.legal_actions, memory, ON)}
     best = max(on.values(), key=lambda s: s.score)
     assert best.species == "Kingambit" and on["Kingambit"].score - on["Iron Hands"].score > 0.2
-    assert "card table (weight 0.5, 37 entries): Kingambit +0.44 in our four" in best.notes
+    assert "card table (weight 0.5, 32 entries): Kingambit +0.44 in our four" in best.notes
 
 
 # -- what the table never reaches -------------------------------------------------------------------------------------------
@@ -356,11 +375,22 @@ def test_the_table_never_lowers_archaludons_chance_on_the_live_drafts(off, on):
     assert lowered == []
 
 
+def gate_table(monkeypatch):
+    """The gate's whole 37-entry table (the shipped entries plus the five the fix-up dropped), as the loader's answer:
+    the table these floor cases were found with."""
+    raw = json.loads(draft.CARD_ADJUST_FILE.read_text())
+    whole = {side: {**raw[side], **raw["_dropped"][side]} for side in ("us", "them")}
+    table = draft.CardAdjustTable(*({data.to_id(k): v for k, v in whole[side].items()} for side in ("us", "them")))
+    assert table.entries() == 37
+    monkeypatch.setattr(draft, "card_adjust_table", lambda path=None: table)
+
+
 @needs_data
-def test_where_the_floor_holds_the_pick_is_ranked_without_the_table():
-    """Live 7551b7da seat 1, our first pick after they drafted first, with the support key: without the table
-    Archaludon leads alone; with it, Gholdengo comes within the tie window (the seed would pass Archaludon half the
-    time). The floor ranks this decision without the table, bit for bit, and every card says why."""
+def test_where_the_floor_holds_the_pick_is_ranked_without_the_table(monkeypatch):
+    """Live 7551b7da seat 1, our first pick after they drafted first, with the support key and the gate's whole table:
+    without the table Archaludon leads alone; with it, Gholdengo comes within the tie window (the seed would pass
+    Archaludon half the time). The floor ranks this decision without the table, bit for bit, and every card says why."""
+    gate_table(monkeypatch)
     name, state, memory = next(live_decisions("7551b7da", 1))
     assert not memory.my_cards and memory.opp_cards
     off = draft.rank_picks_v2(state.legal_actions, memory, SUPPORT)
@@ -374,9 +404,11 @@ def test_where_the_floor_holds_the_pick_is_ranked_without_the_table():
 
 
 @needs_data
-def test_the_floor_keeps_what_the_table_gives_archaludon():
-    """Live 1aef9227 seat 0, our second pick (they drafted first): without the table the search takes Sylveon and
-    Archaludon is outside the window; with it Archaludon is the pick. The floor stops losses only."""
+def test_the_floor_keeps_what_the_table_gives_archaludon(monkeypatch):
+    """Live 1aef9227 seat 0, our second pick (they drafted first), with the gate's whole table: without the table the
+    search takes Sylveon and Archaludon is outside the window; with it Archaludon is the pick. The floor stops losses
+    only. (The shipped table, without Sylveon's entry, puts Archaludon in a window with Sylveon: still a gain.)"""
+    gate_table(monkeypatch)
     name, state, memory = next(d for d in live_decisions("1aef9227", 0) if len(d[2].my_cards) == 1)
     off = draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS)
     assert off[0].species == "Sylveon" and seed_chance(off, tuning.DEFAULTS) == 0.0
