@@ -128,7 +128,7 @@ DEFAULTS: dict[str, float] = {
     "answer_rules_v2": 0.0,        # 1 = on the reply mixture (reply_mixture 1) the model chooses rows only: an override is logged (resolution override_ignored), never played while rows exist; a lower row stands within row_margin_points of row 0, no read bypass; the prompt's row/override bullets say so (model audit R1). The scorer path is unchanged at any setting
     "row_margin_points": 50.0,     # answer_rules_v2: a lower row stands if its value >= row 0's - max(this, 0.15 x |row 0's value|), else row 0 plays (25 is the audit's cautious alternative)
     "recheck_v2": 0.0,             # 1 = the lethal recheck drops DOUBLE-TARGET triggers and fires only for a LETHAL/EXPOSED slot that row 0 Protects or switches, and sends the model back to row 0 (model audit R3, readiness item 10). Both paths
-    "prompt_v2": 0.0,              # 1 = the system prompt treats DOUBLE-TARGET as a risk, not a forecast, leads its lessons with three from live games (model audit R2) and defines opponent_prediction in the code's words (R5)
+    "prompt_v2": 0.0,              # 1 = the system prompt treats DOUBLE-TARGET as a risk, not a forecast (the sheet's DOUBLE-TARGET warnings end neutrally, the search bot's doubles are no forecast for one slot), leads its lessons with three from live games (model audit R2) and defines opponent_prediction in the code's words (R5)
     "prompt_kb": 0.0,              # 1 = the system prompt carries the battle reference (prompts.KNOWLEDGE_BASE: ten general mechanics facts, under 450 words; model audit R4)
 }
 

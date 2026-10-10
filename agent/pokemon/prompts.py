@@ -93,6 +93,11 @@ _LESSONS_HEADER_V2 = (
     "or hit the switch-in. Add one only for a slot a LETHAL warning names, and keep the other slot's action.\n"
     "- Moving an attack from row 0's target to a foe that can Protect or switch out lost more than it gained.\n"
 )
+# prompt_v2: the class line no longer reads as a forecast for one slot (the M1 review: it said the search bot "doubles
+# our biggest threat about half the time" next to "DOUBLE-TARGET alone is a risk, not a forecast").
+_DOUBLES_CLAUSE = "it doubles our biggest threat about half the time;"
+_DOUBLES_CLAUSE_V2 = ("it sometimes sends both attacks into one of our Pokémon, but not into a predictable slot (the code's prediction "
+                      "already prices doubles);")
 # prompt_v2 (model audit R5): opponent_prediction in the code's own words (agent/pokemon/opponent.py SETUP_MOVES).
 _PREDICTION_BULLET = ("- opponent_prediction: what you expect each of their slots to do this turn (their_slot_1 / their_slot_2: "
                       "attack, protect, switch, setup, fakeout, none) and why, in one clause.\n")
@@ -139,14 +144,16 @@ def _swap(text: str, old: str, new: str) -> str:
 def system_prompt(params: Mapping[str, Any] | None = None) -> str:
     """The battle system prompt for these tuning params. ``answer_rules_v2`` with ``reply_mixture``: the row and override
     bullets of model audit R1 (rows only; the lower-row margin is ``row_margin_points``). ``prompt_v2``: R2's Protect
-    procedure line and lessons from live games, R5's opponent_prediction vocabulary. ``prompt_kb``: R4's battle
-    reference (KNOWLEDGE_BASE) before the last line."""
+    procedure line and lessons from live games, the search bot's doubles no longer a forecast for one slot, R5's
+    opponent_prediction vocabulary (with it the sheet's DOUBLE-TARGET warnings end neutrally, battle.py). ``prompt_kb``:
+    R4's battle reference (KNOWLEDGE_BASE) before the last line."""
     text = SYSTEM_PROMPT
     if _on(params, "answer_rules_v2") and _on(params, "reply_mixture"):
         margin = float((params or {}).get("row_margin_points", 50.0))
         text = _swap(text, _ROW_BULLETS, _ROW_BULLETS_ROWS_ONLY.format(margin=f"{margin:g}"))
     if _on(params, "prompt_v2"):
         text = _swap(text, _PROTECT_LINE, _PROTECT_LINE_V2)
+        text = _swap(text, _DOUBLES_CLAUSE, _DOUBLES_CLAUSE_V2)
         text = _swap(text, _LESSONS_HEADER, _LESSONS_HEADER_V2)
         text = _swap(text, _PREDICTION_BULLET, _PREDICTION_BULLET_V2)
     if _on(params, "prompt_kb"):

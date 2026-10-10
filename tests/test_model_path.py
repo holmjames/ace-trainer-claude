@@ -651,12 +651,39 @@ def test_prompt_v2_makes_double_target_a_risk_leads_with_the_live_lessons_and_de
             "attack = a damaging move, spread moves included. setup = Tailwind, Trick Room, Icy Wind, Electroweb, Snarl, Reflect") in text
     assert "Predict switch when that Pokémon faces our likely KO, cannot Protect (it just did) and has a Pokémon seen in back" in text
     assert "(their_slot_1 / their_slot_2: attack, protect, switch, setup, fakeout, none)" not in text
+    # the search bot's doubles are no forecast for one slot any more (the M1 review); at prompt_v2 0 the line is unchanged
+    assert "it doubles our biggest threat about half the time;" in SYSTEM_PROMPT and "it doubles our biggest threat" not in text
+    search_line = next(line for line in text.splitlines() if line.startswith("- search_bot"))
+    assert ("; it sometimes sends both attacks into one of our Pokémon, but not into a predictable slot (the code's prediction "
+            "already prices doubles); it sets up rarely") in search_line
+    old_line = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith("- search_bot"))
+    assert search_line == old_line.replace("it doubles our biggest threat about half the time;", "it sometimes sends both attacks into "
+                                           "one of our Pokémon, but not into a predictable slot (the code's prediction already prices doubles);")
     # the setup words are the code's own (the code predicts setup for exactly these, plus the stat boosts named)
     from agent.pokemon.opponent import SETUP_MOVES
 
     named = {"tailwind", "trickroom", "icywind", "electroweb", "snarl", "reflect", "lightscreen", "nastyplot", "calmmind",
              "swordsdance", "dragondance", "bulkup", "quiverdance"}
     assert named == set(SETUP_MOVES)
+
+
+def test_prompt_v2_ends_the_sheets_double_target_warnings_neutrally_and_changes_nothing_else_07a3cb1f_t1():
+    """07a3cb1f T1: Basculegion under DOUBLE-TARGET (Wood Hammer + Spirit Break). Every DOUBLE-TARGET warning ended
+    "Opponents double the target that threatens them most; Protect or switch if that is this slot.", a forecast that
+    contradicts prompt_v2's own line. With prompt_v2 it ends "Both foes can reach this slot; it falls only if both choose
+    it."; at 0 it is the Oct 10 deploy's text. Nothing else on the sheet moves, and the recheck still reads the warning."""
+    from agent.agent import _SheetFacts
+
+    old = "Opponents double the target that threatens them most; Protect or switch if that is this slot."
+    new = "Both foes can reach this slot; it falls only if both choose it."
+    sheets = {v2: _position("07a3cb1f", 1, 1, {"prompt_v2": v2})[1] for v2 in (0.0, 1.0)}
+    for v2, sheet in sheets.items():
+        warning = next(w for w in sheet.warnings if w.startswith("DOUBLE-TARGET: if both foes go into slot 0 (basculegion)"))
+        assert warning.endswith("— it goes down. " + (new if v2 else old)), warning
+        assert [t["kind"] for t in _SheetFacts(sheet).triggers() if t["slot"] == 0].count("double") == 1
+    off, on = sheets[0.0].as_prompt(), sheets[1.0].as_prompt()
+    assert on["WARNINGS"] != off["WARNINGS"] and on["WARNINGS"] == [w.replace(old, new) for w in off["WARNINGS"]]
+    assert {k: v for k, v in on.items() if k != "WARNINGS"} == {k: v for k, v in off.items() if k != "WARNINGS"}
 
 
 def test_prompt_kb_is_the_audits_ten_facts_checked_against_the_mechanics_data():
