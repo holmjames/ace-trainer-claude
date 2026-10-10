@@ -38,12 +38,12 @@ def hit(sheet: battle.TurnSheet, species: str, move: str, into_slot: int) -> tup
     return threat["position"], next(h for h in threat["hits"] if h["move"] == move and h["into_slot"] == into_slot)
 
 
-def sheet_at(name: str, log_dir, overrides: dict | None = None) -> battle.TurnSheet:
-    """The sheet a code-only agent builds at 07a3cb1f's capture ``name``, after playing the captures before it
-    (``overrides``: tuning keys for that sheet only)."""
-    folder = _folder(M9)
+def sheet_at(name: str, log_dir, overrides: dict | None = None, session: str = M9, seat: int = 1) -> battle.TurnSheet:
+    """The sheet a code-only agent builds at ``session``'s capture ``name`` (default 07a3cb1f, seat 1), after playing the
+    captures before it (``overrides``: tuning keys for that sheet only)."""
+    folder = _folder(session)
     agent = PokemonAgent(None, version="core6", log_dir=log_dir, capture_dir="", log=lambda *_: None)
-    for path in _sequence(folder, 1):
+    for path in _sequence(folder, seat):
         raw = json.loads(path.read_text())
         state = GameState.from_mcp_state(raw)
         if not state.legal_actions:
@@ -54,7 +54,7 @@ def sheet_at(name: str, log_dir, overrides: dict | None = None) -> battle.TurnSh
             return battle.build_sheet(state.legal_actions[0].input.get("action") or {}, obs, agent.memory,
                                       {**agent.params, **(overrides or {})})
         agent.choose_action(state, DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
-                                                   agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=1))
+                                                   agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=seat))
     raise AssertionError(f"{name} not captured")
 
 
@@ -215,6 +215,21 @@ def test_rage_powder_is_no_cover_against_an_attacker_that_ignores_it(monkeypatch
     # with Grass types alone on their side (Rillaboom, Amoonguss) Rage Powder draws nothing at all
     grass, _ = build(["Flutter Mane", "Amoonguss"], ["Rillaboom", "Amoonguss"], bench=[], hp={"Flutter Mane": 0.2})
     assert battle.status_value("ragepowder", sides(grass)[0][1], sides(grass)[1], grass, 1) == (0.0, 0)
+
+
+def test_a_likely_spread_ko_on_the_partner_cancels_the_redirect_cover(tmp_path):
+    """Kept on review (Oct 9): 7551b7da seat 1 turn 4, our Indeedee-F (57%) + Tornadus (7%) under our Tailwind. Follow Me
+    would hold Salamence's Draco Meteor / Hurricane and Gholdengo's Shadow Ball, but Make It Rain, a spread move, KOs the
+    Tornadus anyway: no cover credit, no redirect row; the scorer's Psychic + Bleakwind Storm both land on Salamence
+    before it moves."""
+    sheet = sheet_at("moving-00005-seat1.json", tmp_path, session="7551b7da")
+    ours, theirs = sides(sheet)
+    real, verdicts = battle.redirect_holds(sheet, 0, theirs)
+    assert not real and {h["move"] for h, v in verdicts if v["holds"]} == {"dracometeor", "hurricane", "shadowball"}
+    spread = next((h, v) for h, v in verdicts if h["move"] == "makeitrain")
+    assert "spread" in spread[1]["why"] and battle.ko_probability(spread[0], with_accuracy=True) >= battle.LIKELY_KO
+    assert battle.status_value("followme", ours[0], theirs, sheet, 0) == (15, 0)
+    assert not [c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner"]
 
 
 # -- Helping Hand by what it enables ---------------------------------------------------------------------------------

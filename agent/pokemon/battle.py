@@ -2042,7 +2042,10 @@ def redirect_holds(sheet: "TurnSheet", redirector: int, theirs: dict[int, "Mon"]
     """Is Follow Me / Rage Powder from our slot ``redirector`` real cover for the partner this turn: ``redirect_cover``
     holds for at least one of the foes' KO hits into the partner, and none of the LIKELY ones (KO chance >= 50% with
     accuracy) is left uncovered (a spread move, an attacker that ignores the redirect, a redirector KO'd first or by what
-    it draws: the partner goes down anyway). Returns (that, [(hit, its verdict), ...]). ``status_value``'s cover credit and the
+    it draws: the partner goes down anyway). A likely SPREAD KO cancels the cover on purpose (kept on review, Oct 9):
+    Protect, not a redirect, answers it, and crediting the redirect for the single-target KOs alone turned 7551b7da
+    turns 4-5 from Psychic + Bleakwind Storm, which KO Salamence before it moves, into Follow Me beside a Make It Rain
+    that still KOs the partner. Returns (that, [(hit, its verdict), ...]). ``status_value``'s cover credit and the
     ``redirect_to_protect_partner`` row both call this, so they agree (``move``: the redirect, as ``redirect_cover``)."""
     verdicts = [(h, redirect_cover(sheet, redirector, t["position"], h, theirs, move))
                 for t in sheet.threats for h in t["hits"] if h["into_slot"] != redirector and h["ko"] != "no"]
