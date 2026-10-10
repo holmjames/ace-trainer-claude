@@ -31,7 +31,7 @@ from dataclasses import dataclass, field, replace
 from typing import Callable
 
 from . import data, matchup
-from .battle import FLINCH_CHANCE, RESIST_BERRIES, FieldState, effective_move, paradox_boosted_stat
+from .battle import FLINCH_CHANCE, RESIST_BERRIES, FieldState, effective_move, gale_wings, paradox_boosted_stat
 
 SPREAD = matchup.SPREAD_TARGETS
 PROTECT_MOVES = ("protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "kingsshield", "obstruct")
@@ -268,9 +268,7 @@ class Sim:
         for v in fs.actives:
             v.boosted_stat = paradox_boosted_stat(v, fs)
         eff = effective_move(a_mon, move, d_mon, fs)
-        priority = int(eff.get("priority") or 0)
-        if att.unit.ability == "galewings" and data.to_id(eff.get("type")) == "flying" and att.hp >= 99.95:
-            priority += 1
+        priority = int(gale_wings(a_mon, eff).get("priority") or 0)  # the view is at full HP exactly when att.hp >= 99.95
         if move["id"] == "ruination":
             return (0.0, 0.0, priority) if data.effectiveness("dark", d_mon.types) == 0 else (-1.0, -1.0, priority)
         est = matchup.calc_hit(a_mon, move, d_mon, fs, spread=spread)

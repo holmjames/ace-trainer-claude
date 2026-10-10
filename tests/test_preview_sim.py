@@ -153,6 +153,17 @@ def test_their_fake_out_takes_our_slot_s_turn_and_psychic_terrain_or_a_ghost_can
     assert not ghost.flinchable(ghost.active[0][0])  # a Ghost type: Fake Out is Normal
 
 
+def test_gale_wings_is_counted_once():
+    """The simulation reads Gale Wings from battle.gale_wings, the turn sheet's rule: Talonflame's Brave Bird is +1 at
+    full HP (never +2) and +0 below it."""
+    sim, _ = make(["Talonflame", "Garchomp", "Gyarados", "Kingambit"], ["Indeedee-F", "Dragonite", "Arcanine", "Sylveon"])
+    talonflame = mon(sim, "Talonflame")
+    brave_bird = next(a for a in talonflame.info.attacks if a["id"] == "bravebird")
+    assert sim.hit(talonflame, brave_bird, mon(sim, "Dragonite"), False)[2] == 1
+    talonflame.hp = 60.0
+    assert sim.hit(talonflame, brave_bird, mon(sim, "Dragonite"), False)[2] == 0
+
+
 # -- sleep ----------------------------------------------------------------------------------------------------------
 
 

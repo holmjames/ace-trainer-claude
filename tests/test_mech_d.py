@@ -115,6 +115,10 @@ def option_row(sheet: battle.TurnSheet, slot: int, move: str, species: str) -> d
     return next(r for r in option["targets"] if r["species"] == species)
 
 
+def threat_hits(sheet: battle.TurnSheet, species: str, move: str) -> list[dict]:
+    return [h for t in sheet.threats if t["species"] == species for h in t["hits"] if h["move"] == move]
+
+
 def threat_hit(sheet: battle.TurnSheet, species: str, move: str, into_slot: int) -> dict:
     threat = next(t for t in sheet.threats if t["species"] == species)
     return next(h for h in threat["hits"] if h["move"] == move and h["into_slot"] == into_slot)
@@ -757,6 +761,36 @@ def test_their_priority_attack_is_blocked_per_target():
         assert not [h for t in sheet.threats for h in t["hits"] if (h.get("priority") or 0) > 0], mine
         incineroar = next(t for t in sheet.threats if t["species"] == "Incineroar")
         assert "blocks it" in incineroar["note"] and not sheet.flinch_risk, (mine, incineroar["note"])
+
+
+def test_gale_wings_is_plus_one_at_full_hp_and_the_priority_blocks_apply():
+    """F9 (fix2 review): Gale Wings gives a Flying move +1 at full HP (battle.gale_wings; the deep Team Preview's
+    simulation had its own copy of the rule). The turn sheet builds our options and their threats with it, so a full-HP
+    Talonflame's Brave Bird is a priority attack: theirs goes into our Flying Tornadus only, Psychic Terrain shielding
+    the grounded Indeedee-F, and ours cannot hit their grounded Kingambit; Farigiraf's Armor Tail blocks it into both
+    foes. Below full HP it is +0 and reaches everything."""
+    brave_bird = {**data.move_info("bravebird"), "id": "bravebird"}
+    talonflame = catalog_mon("Talonflame", side="theirs", position=1)
+    tornadus = catalog_mon("Tornadus", side="mine", position=1)
+    assert [battle.gale_wings(talonflame, {**data.move_info(m), "id": m})["priority"] for m in ("bravebird", "tailwind", "taunt")] == [1, 1, 0]
+    assert battle.gale_wings(replace(talonflame, hp_fraction=0.99), brave_bird)["priority"] == 0
+    assert battle.gale_wings(replace(talonflame, ability="Flame Body"), brave_bird)["priority"] == 0
+    assert battle.gale_wings(tornadus, {**data.move_info("bleakwindstorm"), "id": "bleakwindstorm"})["priority"] == 0
+    terrain = {"fields": {"PSYCHIC_TERRAIN": 3}, "turn": 2}
+    for hp, into in ((1.0, [(1, 1)]), (0.5, [(0, 0), (1, 0)])):
+        sheet, _ = build(["Indeedee-F", "Tornadus"], ["Talonflame", "Kingambit"], hp={"Talonflame": hp}, obs_extra=terrain)
+        assert [(h["into_slot"], h["priority"]) for h in threat_hits(sheet, "Talonflame", "bravebird")] == into, hp
+        theirs = next(m for m in sheet.field.actives if m.side == "theirs" and m.species == "Talonflame")
+        ours = next(m for m in sheet.field.actives if m.side == "mine" and m.position == 1)
+        assert threat_hit(sheet, "Talonflame", "bravebird", 1)["damage_pct_of_current_hp"] == list(
+            battle.damage_percent(theirs, brave_bird, ours, field=sheet.field))
+    sheet, _ = build(["Talonflame", "Indeedee-F"], ["Kingambit", "Tornadus"], obs_extra=terrain)
+    ours_bb = next(o for e in sheet.our_options if e["slot"] == 0 for o in e["options"] if o["move"] == "bravebird")
+    assert ours_bb["priority"] == 1 and [r["species"] for r in ours_bb["targets"]] == ["Tornadus"], ours_bb
+    assert "cannot hit Kingambit" in ours_bb["note"], ours_bb
+    sheet, _ = build(["Talonflame", "Garchomp"], ["Farigiraf", "Tornadus"])
+    ours_bb = next(o for e in sheet.our_options if e["slot"] == 0 for o in e["options"] if o["move"] == "bravebird")
+    assert ours_bb.get("fails") and "BLOCKED" in ours_bb["note"] and not ours_bb["targets"], ours_bb
 
 
 def test_fresh_fake_out_note_needs_a_slot_it_can_flinch():

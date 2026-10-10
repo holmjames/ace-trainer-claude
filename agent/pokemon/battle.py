@@ -320,6 +320,16 @@ def effective_move(attacker: "Mon", move: dict, defender: "Mon", fs: "FieldState
     return out
 
 
+def gale_wings(attacker: "Mon", move: dict) -> dict:
+    """``move`` with Gale Wings' +1 priority when it applies: a Flying move used at full HP by a Pokémon with Gale Wings
+    (Talonflame's Brave Bird and Tailwind). The turn sheet builds our options and their threats from it, so the
+    per-target Psychic Terrain and Armor Tail blocks apply; preview_sim reads its priority the same way. effective_move
+    leaves it out: the draft's matchup races (matchup.py) and the card tiers built from them do not have it."""
+    if data.to_id(attacker.ability) == "galewings" and attacker.hp_fraction >= 0.999 and data.to_id(move.get("type")) == "flying":
+        return {**move, "priority": (move.get("priority") or 0) + 1}
+    return move
+
+
 def _field_arg(weather: str | None, field: "FieldState | None") -> "FieldState | None":
     if field is not None:
         return field
@@ -945,9 +955,9 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             if option.get("type") != "move" or not me:
                 continue
             move = data.move_info(option.get("move_id")) or {}
-            move = {**move, "id": data.to_id(option.get("move_id")), "type": move.get("type") or option.get("move_type"),
-                    "category": move.get("category") or str(option.get("category") or "").capitalize() or None,
-                    "base_power": move.get("base_power") or option.get("base_power") or 0}
+            move = gale_wings(me, {**move, "id": data.to_id(option.get("move_id")), "type": move.get("type") or option.get("move_type"),
+                                   "category": move.get("category") or str(option.get("category") or "").capitalize() or None,
+                                   "base_power": move.get("base_power") or option.get("base_power") or 0})
             spread = is_spread(move, foes=len(theirs), allies=len(ours) - 1)  # Earthquake with one foe and our ally is still 0.75x (batch 2)
             eff = effective_move(me, move, me, fs)
             psychic_spread = move["id"] == "expandingforce" and fs.terrain == "psychic" and me.grounded and len(theirs) > 1
@@ -1038,6 +1048,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                 continue
             if move["id"] in ("fakeout", "firstimpression") and not opp_fresh:
                 continue  # only works on the user's first turn out
+            move = gale_wings(opp, move)  # a full-HP Talonflame's Brave Bird is +1: the blocks below apply to it
             eff = effective_move(opp, move, opp, fs)
             for number, me in sorted(ours.items()):
                 if (eff.get("priority") or 0) > 0 and number in shielded:
