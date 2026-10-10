@@ -407,8 +407,23 @@ _BOARDS: dict[tuple, object] = {}  # (card fingerprints, knobs) -> matchup.Board
 # at the match's first decision, never from public state. The seed is written into the decision notes (so the
 # decision log carries it and a post-mortem can replay the choice); it is kept on the match memory and, for Team
 # Preview, found again through the match's card dict.
+#
+# The registry answers only for the very dict that registered: each entry holds its dict (so no other dict can be
+# given that address while the entry lives) and a lookup checks identity. When it held only the number, a later match
+# in the same long-lived process whose card dict took a freed dict's address inherited the earlier match's seed (4 and
+# 6 matches of 30 in a tight loop, Oct 10 state audit). The live runtime starts a new process per match, where the
+# registry is empty either way.
 
-_SEEDS: dict[int, int] = {}  # id(memory.my_cards) -> this match's seed
+_SEEDS: dict[int, tuple[dict, int]] = {}  # id(memory.my_cards) -> (that dict, this match's seed)
+
+
+def _registered(my_cards: dict) -> int | None:
+    """The seed registered for this card dict itself, else None (an entry for another dict at a recycled address
+    never answers)."""
+    entry = _SEEDS.get(id(my_cards))
+    if isinstance(entry, tuple) and len(entry) == 2 and entry[0] is my_cards:
+        return entry[1]
+    return None
 
 
 def tiebreak_seed(my_cards: dict, memory: MatchMemory | None = None) -> int:
@@ -416,12 +431,12 @@ def tiebreak_seed(my_cards: dict, memory: MatchMemory | None = None) -> int:
     key = id(my_cards)
     seed = getattr(memory, "tiebreak_seed", None) if memory is not None else None
     if seed is None:
-        seed = _SEEDS.get(key)
+        seed = _registered(my_cards)
     if seed is None:
         seed = secrets.randbits(64)
     if len(_SEEDS) > 256:
         _SEEDS.clear()
-    _SEEDS[key] = seed
+    _SEEDS[key] = (my_cards, seed)
     if memory is not None and getattr(memory, "tiebreak_seed", None) != seed:
         try:
             memory.tiebreak_seed = seed
@@ -433,7 +448,7 @@ def tiebreak_seed(my_cards: dict, memory: MatchMemory | None = None) -> int:
 def known_seed(my_cards: dict) -> int | None:
     """The match's seed if a draft decision registered one for these cards, else None (a Team Preview outside a
     match, as in the simulator's lineup replays, stays deterministic)."""
-    return _SEEDS.get(id(my_cards))
+    return _registered(my_cards)
 
 
 def tiebreak(values: list[float], eps: float, seed: int | None, context: str) -> int:
