@@ -154,7 +154,8 @@ RECHECK_KO_PROBABILITY = 0.5  # a hit that lands first "removes" a threat when i
 ROW_MARGIN_SHARE = 0.15  # answer_rules_v2: a lower row's margin is max(row_margin_points, this x |row 0's value|) (model audit R1)
 
 
-def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dict | None = None, info: dict | None = None) -> str | None:
+def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dict | None = None, info: dict | None = None,
+                    params: dict | None = None) -> str | None:
     """A valid answer that leaves a threatened slot attacking gets one explicit second look, unless the sheet shows
     the attack is right. The model keeps the final say (trades can be right), but it has to make that call with the
     warning and the concrete alternative row in front of it.
@@ -165,12 +166,19 @@ def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dic
     cannot KO is no escape (bcbaabe2 T13/T14 lost Arcanine to exactly that); the partner's hit (or the two hits
     together) removes the threat before it moves with p >= 0.5; a Fake Out that goes first flinches it; Protect is
     on a streak and no switch-in is safe; the threat pierces Protect and no pivot is safe; our last Pokémon with
-    nothing to wait for. ``info`` (optional) gets the outcome for the decision log."""
+    nothing to wait for. ``info`` (optional) gets the outcome for the decision log.
+
+    recheck_v2 in ``params`` (model audit R3, readiness item 10): no DOUBLE-TARGET triggers (a risk, not a forecast:
+    a slot left in under it alone fell 1 time in 28 live), and a LETHAL or EXPOSED trigger counts only when row 0
+    Protects or switches that slot - when row 0 attacks with it too, the code has already priced the warning. The
+    message then sends the model back to row 0, which the margin always accepts, so a recheck never asks for an
+    alternative that cannot play (with the old rules 53 of 94 rechecks on 895ef70's live replays named none)."""
     payload = value if isinstance(value, dict) else getattr(value, "payload", None)
     if not isinstance(payload, dict):
         return None
+    v2 = float((params or {}).get("recheck_v2", 0.0) or 0.0) > 0
     facts = _SheetFacts(sheet, memory, template)
-    triggers = facts.triggers()
+    triggers = facts.triggers(double=not v2)
     if not triggers:
         return None
     if getattr(sheet, "alone", False) and not getattr(sheet, "stall_reasons", None):
@@ -181,6 +189,9 @@ def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dic
     for number in (0, 1):
         slot = payload.get(f"slot_{number}") or {}
         if slot.get("type") != "move" or _move_key(slot.get("move_id")) in _PROTECT_MOVES:
+            continue
+        if v2 and any(t["slot"] == number for t in triggers) and not facts.top_row_covers(number):
+            skips.append(f"slot {number}: row 0 does not Protect or switch this slot either (the code priced the warning)")
             continue
         for trigger in [t for t in triggers if t["slot"] == number]:
             skip = facts.escape(number, trigger, payload)
@@ -196,6 +207,14 @@ def _lethal_recheck(value: Any, sheet: Any, *, memory: Any = None, template: dic
         _note(info, "skipped: " + "; ".join(skips) if skips else "no attacking slot under a trigger")
         return None
     _note(info, "fired: " + " | ".join(p[:80] for p in problems) + (" (skipped: " + "; ".join(skips) + ")" if skips else ""))
+    if v2:
+        row0 = facts.row_zero()
+        return ("Recheck before this is final. " + " | ".join(problems) +
+                " A Pokémon that is knocked out before it moves never gets its attack off, and one that is knocked out after it "
+                "moves is gone next turn. Keep your answer only if the other slot removes that threat first (priority, or faster "
+                "with a likely KO) or the trade wins the game; otherwise choose row 0."
+                + (" Row 0 takes that slot out of the line of fire: " + row0 + "." if row0 else "")
+                + " Answer again; reasoning_summary stays a one-sentence public description of the move itself.")
     alternatives = [facts.alternative(number) for number in (0, 1) if any(p.startswith(f"slot {number} ") for p in problems)]
     alternatives = [a for a in alternatives if a]
     return ("Recheck before this is final. " + " | ".join(problems) +
@@ -234,7 +253,8 @@ class _SheetFacts:
 
     # -- triggers --------------------------------------------------------------------------------------------------
 
-    def triggers(self) -> list[dict]:
+    def triggers(self, *, double: bool = True) -> list[dict]:
+        """LETHAL and DOUBLE-TARGET warnings and EXPOSED notes as triggers (``double=False``: no DOUBLE-TARGET, recheck_v2)."""
         out = []
         for text in getattr(self.sheet, "warnings", None) or []:
             text = str(text)
@@ -243,7 +263,7 @@ class _SheetFacts:
                 out.append({"kind": "lethal", "slot": int(m.group(4)), "threat": species_key(m.group(1)), "move": m.group(2), "text": text})
                 continue
             m = re.match(r"DOUBLE-TARGET: if both foes go into slot (\d) \((.+?)\) — (.+?)'s (\S+) \+ (.+?)'s (\S+) =", text)
-            if m:
+            if m and double:
                 out.append({"kind": "double", "slot": int(m.group(1)), "threat": species_key(m.group(3)), "move": m.group(4),
                             "threat2": species_key(m.group(5)), "move2": m.group(6), "text": text})
         for text in getattr(self.sheet, "notes", None) or []:
@@ -385,6 +405,27 @@ class _SheetFacts:
             return (f"row {row} {cand.get('name')}: slot {number} {what}, slot {other} option {theirs.get('option')} target {theirs.get('target')} "
                     f"— {str(cand.get('why'))[:160]}")
         return None
+
+    def row_zero(self) -> str | None:
+        """Row 0 in words for the recheck_v2 message: what each slot does there, and the sheet's why."""
+        rows = getattr(self.sheet, "candidates", None) or []
+        if not rows:
+            return None
+        cand = rows[0]
+        parts = []
+        for number in (0, 1):
+            mine = cand.get(f"slot_{number}") or {}
+            option = self.option_by_index(number, mine.get("option"))
+            if option is None:
+                continue
+            if option.get("type") == "switch":
+                what = f"switches to {option.get('species')}"
+            elif option.get("type") == "move":
+                what = str(option.get("move_id")) + (f" into target {mine.get('target')}" if mine.get("target") not in (None, 0) else "")
+            else:
+                what = "passes"
+            parts.append(f"slot {number} option {mine.get('option')} ({what})")
+        return f"row 0 {cand.get('name')}: " + ", ".join(parts) + f" — {str(cand.get('why'))[:160]}"
 
     def option_by_index(self, number: int, index: Any) -> dict | None:
         """The server's option at that index for the slot (moves, switches and pass alike: the sheet's own rows only
@@ -673,7 +714,8 @@ class PokemonAgent:
         remaining = expected_remaining_turns(roster["ours"].get("remaining"), roster["theirs"].get("remaining"))
         recheck_info: dict[str, Any] = {}
         value, answer, info = self._ask(choice, payload, kind="turn",
-                                        recheck=lambda v: _lethal_recheck(v, sheet, memory=self.memory, template=template, info=recheck_info),
+                                        recheck=lambda v: _lethal_recheck(v, sheet, memory=self.memory, template=template, info=recheck_info,
+                                                                          params=self.params),
                                         clock=obs.get("clock"), remaining_turns=remaining,
                                         system_extra=KNOWN_SETS_PREAMBLE + json.dumps(known_sets, ensure_ascii=False, default=str))
         forced = any(slot.get("force_switch") for slot in template.get("slots") or [])

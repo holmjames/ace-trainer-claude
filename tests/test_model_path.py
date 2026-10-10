@@ -5,6 +5,8 @@
    audit R1/R7; d9405f02 T7 and T9).
 3. answer_rules_v2 (off by default): on the reply mixture the model chooses rows only; a lower row stands within
    max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1).
+4. recheck_v2 (off by default): no DOUBLE-TARGET triggers; LETHAL / EXPOSED fire only where row 0 covers that slot;
+   the message sends the model back to row 0 (model audit R3, readiness item 10).
 
 Positions are replayed from the live captures (tests/fixtures/live/) through a code-only agent; the model is a scripted
 fake or absent. No test calls a model.
@@ -400,3 +402,92 @@ def test_rows_only_prompt_and_payload_say_the_rule_in_force():
     assert payload["answer_format"].startswith("Answer with row") and "Leave override.use=false" in payload["answer_format"]
     assert payload["instructions"].endswith("(override only when there are no rows).")
     assert payload["turn_sheet"]["reply_table"] and decision.action["type"] == "doubles_turn"
+
+
+# -- 4. recheck_v2: a recheck only where the answer leaves row 0's cover (model audit R3, readiness item 10) ---------------
+
+
+class _Warned:
+    """A sheet with an EXPOSED note on slot 0 and a DOUBLE-TARGET warning on slot 1 (the shape of the live texts)."""
+
+    warnings = ["DOUBLE-TARGET: if both foes go into slot 1 (tornadus) — incineroar's flareblitz + gholdengo's makeitrain = 147-172% — "
+                "it goes down. Opponents double the target that threatens them most; Protect or switch if that is this slot."]
+    notes = ["EXPOSED: slot 0 (lucario) moves before basculegion, but basculegion's wavecrash KOs it (303.2-356.7%) afterwards unless "
+             "basculegion is removed, flinched, redirected or this slot Protects/switches."]
+    threats: list = []
+    our_options: list = []
+    speed_order: list = []
+    switch_ins: dict = {}
+    alone = False
+    stall_reasons: list = []
+
+    def __init__(self, candidates: list | None = None) -> None:
+        self.candidates = candidates or []
+
+
+_WARNED_TEMPLATE = {"slots": [
+    {"slot": 0, "options": [{"type": "move", "move_id": "closecombat", "targets": [1, 2]}, {"type": "move", "move_id": "protect", "targets": []}]},
+    {"slot": 1, "options": [{"type": "move", "move_id": "bleakwindstorm", "targets": []}, {"type": "move", "move_id": "protect", "targets": []}]},
+]}
+_ATTACK = {"type": "doubles_turn", "slot_0": {"type": "move", "move_id": "closecombat", "target": 1},
+           "slot_1": {"type": "move", "move_id": "bleakwindstorm"}}
+V2 = {"recheck_v2": 1.0}
+
+
+def test_recheck_v2_drops_double_target_and_needs_row_0_to_cover_the_slot():
+    from agent.agent import _lethal_recheck
+
+    old = _lethal_recheck(_ATTACK, _Warned(), template=_WARNED_TEMPLATE)
+    assert "slot 0 attacks with closecombat although: EXPOSED" in old and "although: DOUBLE-TARGET" in old
+    assert old.endswith("public description of the move itself.") and "otherwise take the alternative row." in old
+    # recheck_v2 with row 0 attacking with both slots: the code priced both warnings, nothing fires
+    attacking_row = {"name": "best_attacks", "slot_0": {"option": 0, "target": 1}, "slot_1": {"option": 0, "target": 0}, "why": "attack"}
+    info: dict = {}
+    assert _lethal_recheck(_ATTACK, _Warned([attacking_row]), template=_WARNED_TEMPLATE, info=info, params=V2) is None
+    assert info["recheck_skips"] == ["slot 0: row 0 does not Protect or switch this slot either (the code priced the warning)"]
+    # row 0 Protects slot 0: the EXPOSED slot fires, the DOUBLE-TARGET one does not, and the model is sent back to row 0
+    cover = {"name": "protect_threatened", "slot_0": {"option": 1, "target": 0}, "slot_1": {"option": 0, "target": 0},
+             "why": "basculegion's wavecrash can KO slot 0 after it moves; Protect it, slot 1 attacks"}
+    info = {}
+    message = _lethal_recheck(_ATTACK, _Warned([cover, attacking_row]), template=_WARNED_TEMPLATE, info=info, params=V2)
+    assert message.startswith("Recheck before this is final. slot 0 attacks with closecombat although: EXPOSED") and "DOUBLE-TARGET" not in message
+    assert ("otherwise choose row 0. Row 0 takes that slot out of the line of fire: row 0 protect_threatened: slot 0 option 1 (protect), "
+            "slot 1 option 0 (bleakwindstorm) — basculegion's wavecrash can KO slot 0") in message and "alternative" not in message
+    assert info["recheck_problems"] and info["recheck_outcome"].startswith("fired: slot 0")
+    # answering row 0 (or any cover of that slot) never fires
+    protect = {**_ATTACK, "slot_0": {"type": "move", "move_id": "protect"}}
+    assert _lethal_recheck(protect, _Warned([cover, attacking_row]), template=_WARNED_TEMPLATE, params=V2) is None
+
+
+def _recheck_at(prefix: str, seat: int, turn: int, answer_row: int, params: dict) -> tuple[str | None, dict, list]:
+    from agent.agent import _lethal_recheck
+
+    agent, sheet, template, choice = _position(prefix, seat, turn)
+    row = sheet.candidates[answer_row]
+    value = choice.build({"slot_0": row["slot_0"], "slot_1": row["slot_1"]})
+    info: dict = {}
+    return _lethal_recheck(value, sheet, memory=agent.memory, template=template, info=info, params=params), info, sheet.candidates
+
+
+def test_recheck_v2_spends_no_second_call_on_a_row_0_answer_07a3cb1f_t1():
+    """07a3cb1f T1 (the scorer, the deploy): row 0 is Wave Crash + Follow Me, attacking with Basculegion under a
+    DOUBLE-TARGET warning, and the live answer was row 0. The old rule sent it back (a second call that cannot change the
+    move: the quoted cover trails row 0 far beyond the margin); recheck_v2 does not fire. On the replayed live answers at
+    reply_mixture 0, 26 of the 43 firings were row-0 answers; recheck_v2 leaves 2 firings."""
+    message, info, rows = _recheck_at("07a3cb1f", 1, 1, 0, {})
+    assert rows[0]["name"] == "best_attacks" and message and "although: DOUBLE-TARGET" in message
+    quoted = next(i for i, r in enumerate(rows) if f"row {i} {r['name']}: slot 0" in message)
+    assert rows[quoted]["score"] < rows[0]["score"] * (1 - tuning.DEFAULTS["override_margin"])  # the margin sends it back to row 0
+    message, info, rows = _recheck_at("07a3cb1f", 1, 1, 0, V2)
+    assert message is None
+
+
+def test_recheck_v2_still_sends_back_an_attack_that_leaves_row_0s_protect_7ce71025_t1():
+    """7ce71025 T1: row 0 Protects the EXPOSED Great Tusk (Hyper Voice KOs it after it moves) and sets Tailwind; the live
+    answer was row 1, Headlong Rush + Tailwind (within the scorer's margin). Both rules fire; recheck_v2 names row 0."""
+    old, _, rows = _recheck_at("7ce71025", 0, 1, 1, {})
+    assert rows[0]["name"] == "protect_threatened" and rows[1]["name"] == "best_attacks"
+    assert old and "slot 0 attacks with headlongrush although: EXPOSED" in old
+    message, info, _ = _recheck_at("7ce71025", 0, 1, 1, V2)
+    assert message and "slot 0 attacks with headlongrush although: EXPOSED" in message
+    assert "otherwise choose row 0. Row 0 takes that slot out of the line of fire: row 0 protect_threatened: slot 0 option 3 (protect)" in message

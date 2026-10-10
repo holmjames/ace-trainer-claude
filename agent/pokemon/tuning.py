@@ -127,6 +127,7 @@ DEFAULTS: dict[str, float] = {
     # model path (lane M1): the model audit's recommendations (Oct 9), each off by default (0 = the Oct 10 deploy, bit for bit)
     "answer_rules_v2": 0.0,        # 1 = on the reply mixture (reply_mixture 1) the model chooses rows only: an override is logged (resolution override_ignored), never played while rows exist; a lower row stands within row_margin_points of row 0, no read bypass; the prompt's row/override bullets say so (model audit R1). The scorer path is unchanged at any setting
     "row_margin_points": 50.0,     # answer_rules_v2: a lower row stands if its value >= row 0's - max(this, 0.15 x |row 0's value|), else row 0 plays (25 is the audit's cautious alternative)
+    "recheck_v2": 0.0,             # 1 = the lethal recheck drops DOUBLE-TARGET triggers and fires only for a LETHAL/EXPOSED slot that row 0 Protects or switches, and sends the model back to row 0 (model audit R3, readiness item 10). Both paths
 }
 
 
