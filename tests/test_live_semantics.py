@@ -18,7 +18,7 @@ from altruagent import DecisionContext
 from altruagent.models import GameState
 
 from agent.agent import PokemonAgent
-from agent.pokemon import battle, data
+from agent.pokemon import battle, data, tuning
 from agent.pokemon.memory import species_key
 
 LIVE = Path(__file__).parent / "fixtures" / "live"
@@ -265,3 +265,19 @@ def test_supreme_overlord_keeps_the_count_kingambit_came_in_with(prefix, seat, t
     if (prefix, side) == ("6ce0b81e", "mine"):
         lo, hi = next(got for got, move, d in rows if move == "ironhead" and species_key(d.species) == "baxcalibur")
         assert lo < 96 and hi >= 95, (lo, hi)  # the live hit, 95%, is inside the range
+
+
+def test_the_tailwind_lead_stays_above_a_double_the_fresh_fake_out_can_stop(tmp_path, monkeypatch):
+    # M2 turn 1 (live_scenarios m2_t1_tailwind_first): Iron Hands + Whimsicott vs a fresh Incineroar + Sylveon. Its one
+    # Fake Out flinches Iron Hands (80%) or Whimsicott (20%), never both. Close Combat + Moonblast into Incineroar needs
+    # both slots to act; Fake Out + Prankster Tailwind needs Whimsicott only. Pricing that flinch on the Tailwind alone
+    # (50edd01, reverted: focus_fire's bonus and joint_value's per-slot flinches still gave the double its full credit)
+    # put the double on top, 75.0 over 66.7. The scorer (reply_mixture 0, the deploy's) plays the Tailwind.
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)
+    _, rows = replay(M2, tmp_path)
+    row = turn_row(rows, 1)
+    warnings = row["turn_sheet"]["WARNINGS"]
+    assert [w for w in warnings if w.startswith("FAKE OUT") and "slot 0 (ironhands): 80%" in w and "slot 1 (whimsicott): 20%" in w], warnings
+    top = row["turn_sheet"]["candidate_turns"][0]
+    assert (row["payload"].get("slot_1") or {}).get("move_id") == "tailwind", (row["payload"], top)
+    assert top["name"] != "focus_fire", top
