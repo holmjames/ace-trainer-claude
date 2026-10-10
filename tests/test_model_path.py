@@ -944,7 +944,44 @@ def test_the_harness_replays_a_match_exactly_and_never_calls_a_model(tmp_path, m
     assert lp.main(["--logs", str(logs), "--audit", str(tmp_path / "no-audit"), "--model-on", "--out", str(tmp_path / "dry.jsonl")]) == 0
     printed = capsys.readouterr().out
     assert "MODEL ON: 4 main positions x 1 call = 4 calls planned" in printed and "estimated $0.60" in printed
+    assert "N calls, up to 2N requests with fallbacks" in printed and "at most $1.20 for 8 calls, $2.40 if every one falls back" in printed
     assert "dry run: nothing was called" in printed and not (tmp_path / "dry.jsonl").exists()
+    # a negative cap prints a cost cap of 0, not a negative one, and spends nothing
+    assert lp.main(["--logs", str(logs), "--audit", str(tmp_path / "no-audit"), "--model-on", "--max-calls", "-3",
+                    "--out", str(tmp_path / "dry.jsonl")]) == 0
+    printed = capsys.readouterr().out
+    assert "at most $0.00 for 0 calls, $0.00 if every one falls back" in printed and "$-" not in printed
+    assert "dry run: nothing was called" in printed and not (tmp_path / "dry.jsonl").exists()
+
+
+def test_the_harness_records_an_ignored_overrides_key_and_evaluator_value(tmp_path):
+    """Under answer_rules_v2 on the mixture a live play that is not a row becomes a proposed override, which is ignored:
+    the record carries its option:target key and the evaluator's realised value of it, against the play made and row 0,
+    and the summary adds them up (what playing the ignored overrides would have changed)."""
+    lp = _harness()
+    logs = _own_log(tmp_path)  # 07a3cb1f from seat 1, code only: every live play is row 0
+    log_file = next(logs.glob("*.jsonl"))
+    lines = [json.loads(line) for line in log_file.read_text().splitlines()]
+    first = next(r for r in lines if r["kind"] == "turn" and r["turn"] == 1)
+    agent, sheet, template, choice = _position("07a3cb1f", 1, 1, RULES)
+    unlisted = _unlisted(template, sheet.candidates, choice.build)
+    first["payload"] = choice.build(unlisted)  # the "live" play: a joint action no row lists
+    log_file.write_text("".join(json.dumps(r) + "\n" for r in lines))
+    key = lp.joint_key(template, unlisted)
+    row0 = lp.joint_key(template, sheet.candidates[0])
+    evaluator = tmp_path / "evaluator.json"
+    evaluator.write_text(json.dumps({"decisions": [{"match": "07a3cb1f", "state_version": first["state_version"], "forced": False,
+                                                     "values": {key: 12.5, row0: 40.0}, "rows": [{"key": row0}]}]}))
+    out = tmp_path / "rules.jsonl"
+    assert lp.main(["--logs", str(logs), "--audit", str(tmp_path / "no-audit"), "--evaluator", str(evaluator),
+                    "--tune", json.dumps(RULES), "--out", str(out)]) == 0
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    records, summary = rows[:-1], rows[-1]["summary"]
+    record = next(r for r in records if r["turn"] == 1)
+    assert record["override"] == "ignored" and record["final_key"] == row0 and record["live_key"] == key
+    assert record["override_ignored"] == {"key": key, "legal": True, "value": 12.5, "vs_final": -27.5, "vs_row0": -27.5}
+    assert all(r["override_ignored"] is None for r in records if r is not record)
+    assert summary["ignored_overrides"] == {"n": 1, "valued": 1, "vs_final": -27.5, "vs_row0": -27.5}
 
 
 def test_the_harness_spends_at_most_its_budget_and_logs_each_model_answer(tmp_path, monkeypatch):
@@ -963,6 +1000,9 @@ def test_the_harness_spends_at_most_its_budget_and_logs_each_model_answer(tmp_pa
 
         def complete_structured(self, messages, schema_name, schema, *, deadline=None, effort=None):
             self.calls += 1
+            # the first call falls back (the primary errs, the fallback answers; a skipped model sends nothing)
+            self.last_attempts = ([{"model": "primary", "outcome": "error"}, {"model": "fallback", "outcome": "ok"}] if self.calls == 1
+                                  else [{"model": "primary", "outcome": "ok"}, {"model": "fallback", "outcome": "skipped"}])
             return {"row": 0, "override": {"use": False, "slot_0": {"option": 0, "target": 0}, "slot_1": {"option": 0, "target": 0}},
                     "opponent_prediction": {"their_slot_1": "attack", "their_slot_2": "protect", "why": "w"},
                     "win_condition": "w", "reasoning_summary": "Scripted."}
@@ -976,7 +1016,9 @@ def test_the_harness_spends_at_most_its_budget_and_logs_each_model_answer(tmp_pa
     assert lp.main(["--logs", str(logs), "--audit", str(tmp_path / "no-audit"), "--model-on", "--max-calls", "2", "--out", str(out)]) == 0
     lines = [json.loads(line) for line in out.read_text().splitlines()]
     records, summary = lines[:-1], lines[-1]["summary"]
-    assert scripted.calls == 2 and summary["model_calls"] == 2
+    assert scripted.calls == 2 and summary["model_calls"] == 2 and summary["model_requests"] == 3  # N calls, up to 2N requests
+    assert [c["requests"] for r in records for c in r["calls"] if c["source"] == "model"] == [2, 1]
+    assert all("override_ignored" in r and r["override_ignored"] is None for r in records)
     model = [r for r in records if r["source"] == "model"]
     assert len(model) >= 1 and all(r["source"] == "replay" for r in records if r not in model)
     for r in model:

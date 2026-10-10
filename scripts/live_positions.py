@@ -19,12 +19,14 @@ was never logged).
 
 Model on (--model-on): the model answers the main positions instead (all of them, or --only), one call per position
 plus a second call when the recheck fires or the answer is invalid, up to --max-calls in all; once the budget is spent
-the remaining positions keep the live answer. Replacements always keep it. Without --max-calls it is a dry run: it
-prints the plan and the estimated cost and exits. Every answer is logged with the inputs the model audit's evaluator
-uses: the session, turn and state_version, the play's and row 0's option:target keys, the rows shown, the reply
-table, both predictions, the first and the rechecked answer, latency and usage. With the audit's skeptic replay
-(reply_mixture 1, seed 7, ruled-out variants dropped; --evaluator) each play's realised value against the opponent's
-actual action is looked up, against row 0's.
+the remaining positions keep the live answer. Replacements always keep it. A call goes through the agent's model chain:
+the primary model, then the fallback model when the primary fails or times out, so N calls are up to 2N requests with
+fallbacks (each call record counts its requests, and the summary both). Without --max-calls it is a dry run: it prints
+the plan and the estimated cost and exits. Every answer is logged with the inputs the model audit's evaluator uses: the
+session, turn and state_version, the play's and row 0's option:target keys, the rows shown, the reply table, both
+predictions, the first and the rechecked answer, latency and usage. With the audit's skeptic replay (reply_mixture 1,
+seed 7, ruled-out variants dropped; --evaluator) each play's realised value against the opponent's actual action is
+looked up, against row 0's, and so is an ignored override's (its key and value are in the record, override_ignored).
 
 The summary counts what the audit's measurement plan asks for: plays that stand, overrides proposed / ignored, rows
 sent back to row 0, added covers (a Protect or switch row 0 does not make) and those on DOUBLE-TARGET-only slots,
@@ -41,7 +43,7 @@ timeouts, and the realised value against always playing row 0, split into the do
 The audit's two arms (model-audit.md, measurement plan step 2), on the candidate's mixture with its replay seed. One
 call per main position plus a second sample on the 26 robust-labelled positions (--only robust) is about 150 first
 calls per arm, about $22 at the $0.15 per Opus call estimate of scripts/live_scenarios.py; rechecks and retries are
-second calls, and --max-calls caps them all:
+second calls, and --max-calls caps them all (N calls, up to 2N requests with fallbacks):
 
     # arm B: the R1 and R3 code (answer_rules_v2 brings the R1 row/override prompt lines with it on the mixture)
     B='{"reply_mixture": 1, "reply_seed": 7, "answer_rules_v2": 1, "recheck_v2": 1}'
@@ -325,6 +327,7 @@ class BudgetProvider:
     def __init__(self, model: Any, replay: ReplayProvider, max_calls: int) -> None:
         self.inner, self.replay, self.max_calls = model, replay, int(max_calls)
         self.spent = 0
+        self.requests = 0  # what the calls sent: a call is up to 2 requests (the fallback model after a failed primary)
         self.use_model = False
         self.model = getattr(model, "model", "model")
         self._last: Any = replay
@@ -346,11 +349,22 @@ class BudgetProvider:
         self.spent += 1
         self._last = self.inner
         started = time.monotonic()
-        answer = self.inner.complete_structured(messages, schema_name, schema, **kwargs)
+        try:
+            answer = self.inner.complete_structured(messages, schema_name, schema, **kwargs)
+        except ProviderError:
+            self.requests += self.sent()
+            raise
+        requests = self.sent()
+        self.requests += requests
         self.replay.calls.append({"source": "model", "digest": digest(messages), "answer": copy.deepcopy(answer),
-                                  "latency_ms": int((time.monotonic() - started) * 1000),
+                                  "latency_ms": int((time.monotonic() - started) * 1000), "requests": requests,
                                   "usage": getattr(self.inner, "last_usage", None), "model": getattr(self.inner, "last_model", None)})
         return answer
+
+    def sent(self) -> int:
+        """Requests the last call sent: the chain's attempts that were not skipped (1 for a provider without a chain)."""
+        attempts = getattr(self.inner, "last_attempts", None) or []
+        return sum(1 for a in attempts if isinstance(a, dict) and a.get("outcome") != "skipped") or 1
 
     def __getattr__(self, name: str) -> Any:  # last_model, last_latency_ms, last_usage, last_errors, last_attempts...
         if name.startswith("last_"):
@@ -416,15 +430,17 @@ def material(rec: dict, key: str) -> float | None:
     return sum(w * v for w, v in zip(rec["variant_w_m"], det.get("per_variant_m") or []))
 
 
-def value_block(ev: dict | None, final: str, row0: str, live: str) -> dict | None:
+def eval_value(ev: dict | None, key: str | None) -> float | None:
+    """The evaluator's realised value of the joint action ``key`` at this position (None: not there)."""
     values = (ev or {}).get("values") or {}
-    if not values:
+    return next((v for kk, v in values.items() if same_key(kk, key)), None) if key else None
+
+
+def value_block(ev: dict | None, final: str, row0: str, live: str) -> dict | None:
+    if not (ev or {}).get("values"):
         return None
-
-    def look(k: str | None) -> float | None:
-        return next((v for kk, v in values.items() if same_key(kk, k)), None) if k else None
-
-    out: dict[str, Any] = {"final": look(final), "row0": look(row0), "live": look(live), "eval_row1_key": ((ev.get("rows") or [{}])[0]).get("key")}
+    out: dict[str, Any] = {"final": eval_value(ev, final), "row0": eval_value(ev, row0), "live": eval_value(ev, live),
+                           "eval_row1_key": ((ev.get("rows") or [{}])[0]).get("key")}
     if out["final"] is not None and out["row0"] is not None:
         out["final_vs_row0"] = round(out["final"] - out["row0"], 3)
     if out["live"] is not None and out["row0"] is not None:
@@ -539,8 +555,25 @@ def replay_match(match: LiveMatch, params: dict, provider: Any, *, model_on: boo
             rec["verified_rule"] = {"name": scenario.name, "provisional": scenario.provisional, "ok": bool(scenario.accept(payload, template))}
         if not forced:
             rec["value"] = value_block(evaluator.get((match.session[:8], sv)), final_key, rec["row0_key"], live_key)
+        rec["override_ignored"] = ignored_override(resolution, template, None if forced else evaluator.get((match.session[:8], sv)),
+                                                   rec.get("value"))
         records.append(rec)
     return records
+
+
+def ignored_override(resolution: dict, template: dict, ev: dict | None, value: dict | None) -> dict | None:
+    """answer_rules_v2: the override the rows-only rules ignored, as an option:target key, with the evaluator's realised
+    value of it and its difference from the play made and from row 0 (what playing it would have changed); None when no
+    override was ignored."""
+    ignored = resolution.get("override_ignored")
+    if not isinstance(ignored, dict):
+        return None
+    key = joint_key(template, {"slot_0": ignored.get("slot_0"), "slot_1": ignored.get("slot_1")})
+    out: dict[str, Any] = {"key": key, "legal": ignored.get("legal"), "value": eval_value(ev, key)}
+    for name in ("final", "row0"):
+        base = (value or {}).get(name)
+        out[f"vs_{name}"] = round(out["value"] - base, 3) if out["value"] is not None and base is not None else None
+    return out
 
 
 def classify_override(resolution: dict) -> str | None:
@@ -606,6 +639,11 @@ def summarize(records: list[dict]) -> dict:
         "timeouts": sum(1 for r in records if any("timed out" in str(e).lower() or "timeout" in str(e).lower() for e in r["errors"] or [])),
         "model_answers": sum(1 for r in records if r["source"] == "model"),
     }
+    ignored = [r["override_ignored"] for r in main if r.get("override_ignored")]
+    valued_ignored = [i for i in ignored if i.get("vs_final") is not None]
+    out["ignored_overrides"] = {"n": len(ignored), "valued": len(valued_ignored),
+                                "vs_final": round(sum(i["vs_final"] for i in valued_ignored), 1),
+                                "vs_row0": round(sum(i["vs_row0"] for i in valued_ignored if i.get("vs_row0") is not None), 1)}
     rules = [r for r in records if r.get("verified_rule")]
     counted = [r for r in rules if not r["verified_rule"]["provisional"]]
     out["verified_rules"] = {"met": sum(r["verified_rule"]["ok"] for r in counted), "of": len(counted),
@@ -658,6 +696,10 @@ def print_summary(label: str, s: dict) -> None:
     print(f"  verified rules met: {v['met']}/{v['of']} (provisional {v['provisional_met']}/{v['provisional_of']}); predictions on "
           f"{p['observable_foe_slots']} observable foe slots: code's top column right {p['code_top_column_right']}, model right "
           f"{p['model_right']} of {p['model_predicted']} predicted")
+    ig = s.get("ignored_overrides") or {}
+    if ig.get("n"):
+        print(f"  ignored overrides {ig['n']} ({ig['valued']} valued): playing them instead would have changed the realised value by "
+              f"{ig['vs_final']:.1f} against the plays made ({ig['vs_row0']:.1f} against row 0)")
     if s.get("latency_ms"):
         lat = s["latency_ms"]
         print(f"  model latency over {lat['calls']} calls: p50 {lat['p50']} ms, p95 {lat['p95']} ms, max {lat['max']} ms")
@@ -703,7 +745,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--logs", default="", help="decision logs (default <audit>/synth/logs)")
     ap.add_argument("--evaluator", default="", help="the skeptic replay JSON (default <audit>/skeptic/sk_eval_cand_filtered.json)")
     ap.add_argument("--model-on", action="store_true", help="the model answers the main positions (needs --max-calls to spend)")
-    ap.add_argument("--max-calls", type=int, default=0, help="hard cap on model calls, rechecks and retries included")
+    ap.add_argument("--max-calls", type=int, default=0, help="hard cap on model calls, rechecks and retries included (N calls, "
+                    "up to 2N requests with fallbacks)")
     ap.add_argument("--repeat", type=int, default=1, help="model on: passes over the positions")
     ap.add_argument("--out", default="", help="output JSONL (default logs/live_positions/<time>-<label>.jsonl)")
     args = ap.parse_args(argv)
@@ -733,9 +776,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.model_on:
         repeat = max(1, args.repeat)
         planned = plan(matches, only, repeat)
+        cap = max(0, min(args.max_calls or 2 * planned, 2 * planned))  # the calls this run may make (never below 0)
         print(f"MODEL ON: {planned} main positions x 1 call = {planned} calls planned (up to {2 * planned} with rechecks and "
-              f"retries); estimated ${COST_PER_CALL * planned:.2f}, at most ${COST_PER_CALL * min(args.max_calls or 2 * planned, 2 * planned):.2f} "
-              f"(${COST_PER_CALL:.2f} per call); cap --max-calls {args.max_calls or 0}")
+              f"retries); cap --max-calls {args.max_calls or 0}: N calls, up to 2N requests with fallbacks (the fallback model "
+              f"answers a call the primary fails or times out)")
+        print(f"  estimated ${COST_PER_CALL * planned:.2f}, at most ${COST_PER_CALL * cap:.2f} for {cap} calls, "
+              f"${2 * COST_PER_CALL * cap:.2f} if every one falls back (${COST_PER_CALL:.2f} per request)")
         if args.max_calls <= 0:
             print("dry run: nothing was called. Add --max-calls N to spend at most N calls.")
             return 0
@@ -758,13 +804,14 @@ def main(argv: list[str] | None = None) -> int:
                                     documented=documented, actual=actual, rules=rules)
     summary = summarize(records)
     summary.update({"label": label, "tune": args.tune or None, "seconds": round(time.monotonic() - started, 1),
-                    "model_calls": getattr(provider, "spent", 0)})
+                    "model_calls": getattr(provider, "spent", 0), "model_requests": getattr(provider, "requests", 0)})
     with out_path.open("w", encoding="utf-8") as fh:
         for rec in records:
             fh.write(json.dumps({"label": label, **rec}, ensure_ascii=False, default=str) + "\n")
         fh.write(json.dumps({"summary": summary}, default=str) + "\n")
     print_summary(label, summary)
-    print(f"  wrote {out_path} ({len(records)} decisions, {summary['seconds']} s, model calls {summary['model_calls']})")
+    print(f"  wrote {out_path} ({len(records)} decisions, {summary['seconds']} s, model calls {summary['model_calls']}, "
+          f"requests {summary['model_requests']})")
     return 0
 
 
