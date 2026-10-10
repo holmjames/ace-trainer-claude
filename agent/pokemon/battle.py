@@ -2537,8 +2537,8 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
             continue
         if focus["slot"] == slot_number and focus["before_we_move"] and my_priority <= 0:
             factor *= 1.0 - P.get("focus_risk", 0.35) * focus["ko_chance"]
-    if my_priority < 3:
-        factor *= 1.0 - sheet.flinch_risk.get(slot_number, 0.0)  # a fresh Fake Out (+3) stops anything slower than it
+    # a fresh Fake Out (+3) stops anything slower than it: every move below +3, and our own Fake Out when theirs is faster
+    factor *= fake_out_spares(sheet, slot_number, my_priority)
     factor *= sheet.acts(slot_number)  # asleep: it acts only if it wakes (0, 1/3, 1/2, 1 by missed attempts)
     risk = sheet.sleep_risk.get(slot_number)
     if risk and my_priority <= risk[1]:
@@ -2550,8 +2550,8 @@ def fake_out_spares(sheet: "TurnSheet", slot_number: int, priority: int) -> floa
     """Chance a fresh opposing Fake Out (+3) does not stop our slot's move of this ``priority`` (``sheet.flinch_risk``):
     below +3 (Prankster's +1 Tailwind / Taunt / Encore, Follow Me / Rage Powder / Ally Switch +2, every speed setup) it
     moves after the Fake Out; at +3 (Wide Guard, Quick Guard) only a FRESH Fake Out user ahead of it in the speed order
-    goes first; Protect / Detect (+4) and Helping Hand (+5) come before it. ``survival_factor`` prices the same flinch
-    for an attack below +3."""
+    goes first; Protect / Detect (+4) and Helping Hand (+5) come before it. The same rule prices an attack's flinch
+    (``survival_factor``: our own +3 Fake Out is flinched first by a faster fresh one, as the Fake Out row says)."""
     risk = sheet.flinch_risk.get(slot_number, 0.0)
     if not risk or priority > 3:
         return 1.0
@@ -3513,7 +3513,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             can_remove_first = (my_best[0] and my_best[1] and my_best[1].get("target") == threat["position"]
                                 and my_best[1]["damage_pct_of_current_hp"][0] >= 100
                                 and acts_before(endangered_slot, threat["position"], my_prio, hit.get("priority", 0)))
-            flinch = sheet.flinch_risk.get(endangered_slot, 0.0) if my_prio < 3 else 0.0
+            flinch = 1.0 - fake_out_spares(sheet, endangered_slot, my_prio)
             if can_remove_first and not flinch:
                 continue  # we KO it before it moves (and nothing can stop us moving)
             if sheet.alone and not sheet.stall_reasons:
@@ -3734,9 +3734,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             pierces = data.to_id(theirs[target].ability) == "unseenfist"
             why += f"; its attack would KO one of our slots before it moves ({int(lethal_first * 100)}% chance), and the flinch stops that" + (" even though Unseen Fist goes through Protect" if pierces else "")
         # Fake Out vs Fake Out is decided by speed: a faster fresh Fake Out on their side can flinch ours first.
-        faster_fakers = [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")
-                         and speed_rank.get(("theirs", t["position"]), 99) < speed_rank.get(("mine", number), 99)]
-        lands = (1.0 - (sheet.flinch_risk.get(number, 0.0) if faster_fakers else 0.0)) * sheet.acts(number)
+        lands = fake_out_spares(sheet, number, 3) * sheet.acts(number)
         if lands < 1.0:
             why += f"; their faster Fake Out may flinch ours first ({int((1 - lands) * 100)}%)"
         add("fake_out_setup", answers[0], answers[1], why,

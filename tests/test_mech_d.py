@@ -899,6 +899,23 @@ def test_fake_out_spares_what_moves_before_it():
     assert battle.fake_out_spares(sheet, 0, 1) == 1.0  # no risk on that slot
 
 
+def test_our_fake_out_is_flinched_first_by_a_faster_fresh_one():
+    """Fake Out against Fake Out is decided by speed: their faster fresh Rillaboom (124) flinches our Incineroar (80,
+    80% of the risk) before its Fake Out moves, as the Fake Out row's own check says, so survival_factor prices our +3
+    attack with fake_out_spares like any other move: 0.2 at +3 as at +0, nothing at +4. The best attacks row stops
+    crediting a Fake Out into Rillaboom in full (it played one before). Our Rillaboom (124) beside Tornadus against
+    their slower Incineroar (80) keeps its Fake Out whole (its slot carries 0.2 of the risk, at +0 only)."""
+    sheet, _ = build(["Incineroar", "Tornadus"], ["Rillaboom", "Kingambit"], obs_extra={"turn": 1}, fresh=["Incineroar", "Tornadus"])
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2}, sheet.flinch_risk
+    assert [battle.survival_factor(0, sheet, p, rank) for p in (0, 3, 4)] == pytest.approx([0.2, 0.2, 1.0])
+    top = next(c for c in sheet.candidates if c["name"] == "best_attacks")
+    assert not top["why"].startswith("slot 0 fakeout"), top["why"]
+    sheet, _ = build(["Rillaboom", "Tornadus"], ["Incineroar", "Kingambit"], obs_extra={"turn": 1}, fresh=["Rillaboom", "Tornadus"])
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    assert sheet.flinch_risk[0] == 0.2 and [battle.survival_factor(0, sheet, p, rank) for p in (0, 3)] == pytest.approx([0.8, 1.0])
+
+
 def test_redirect_ignored_and_blocked_effects():
     rillaboom, hatterene = catalog_mon("Rillaboom", side="theirs", position=1), catalog_mon("Hatterene", side="theirs", position=2)
     gholdengo, scream_tail = catalog_mon("Gholdengo", side="theirs", position=1), catalog_mon("Scream Tail", side="theirs", position=2)
