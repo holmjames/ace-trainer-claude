@@ -2,8 +2,9 @@
 
 1. A reply-mixture exception costs the mixture for that turn, never the match: the scorer's rows play (readiness 2B.1).
 2. Our last Pokémon's Protect with nothing to wait for earns no override credit and never plays over a row (model
-   audit R1/R7; d9405f02 T8-T10). "Nothing to wait for" also checks what the sheet's stall reasons miss (a fresh Fake
-   Out, Black Sludge, a Wish, Leech Seed, Yawn, a Guts holder's orb): d9405f02 T7's fresh Fake Out keeps it allowed.
+   audit R1/R7; d9405f02 T7-T10). "Nothing to wait for" also checks what the sheet's stall reasons miss (a fresh Fake
+   Out, Black Sludge, a Wish, Leech Seed, Yawn, a Guts holder's orb), for a Protect that is not a repeat; the Fake Out
+   and the orb only when no sure KO lands first. d9405f02 T7's fresh Fake Out is neither: refused, as T8-T10.
 3. answer_rules_v2 (off by default): on the reply mixture the model chooses rows only; a lower row stands within
    max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1). Only on
    rows the mixture priced (a turn it did not price keeps E2); an override that repeats a listed row is that row; when
@@ -200,24 +201,42 @@ def test_a_lone_protect_with_nothing_to_wait_for_earns_nothing_and_never_plays_d
 
 
 @pytest.mark.parametrize("mixture", [0.0, 1.0])
-def test_d9405f02_t7s_lone_protect_waits_out_a_fresh_fake_out_and_stays_allowed(mixture):
-    """d9405f02 T7: Iron Hands has just come in, and its Fake Out (+3) flinches Cresselia 90% of the time (the sheet's
-    FAKE OUT warning). A Protect blocks it, and from T8 on that Fake Out fails (live it did, twice): this Protect waits
-    something out, so the rule does not refuse it. The sheet's stall reasons stay empty (battle._endgame is unchanged);
-    the reason is logged, and the margin judges the Protect as on 81c4591: credited 45 under LETHAL, it is accepted.
-    (Cresselia's T6 Protect had worked, so this one worked 1 time in 3; live it failed.)"""
+def test_d9405f02_t7s_lone_protect_is_a_repeat_under_a_ko_that_lands_first_and_is_refused(mixture, monkeypatch):
+    """d9405f02 T7: Iron Hands has just come in, and its Fake Out (+3) can flinch Cresselia (90%, the sheet's FAKE OUT
+    warning), but that is no reason to wait here (the M1 review). Cresselia Protected on T6, so this one works 1 time in 3
+    (the sheet's note; the prompt allows a Protect on a streak only with a listed stall reason), and Gholdengo's Shadow
+    Ball KOs Cresselia before it moves (116.9-137.7%), Fake Out or not: the Protect only delays the same KO. The audit
+    lists T7 robust worse (the harness evaluator: -53.6 against row 0). So it is refused, read or no read, and the attack
+    row plays, as on 3eaaada. Either condition alone drops the Fake Out reason; with neither, it is one."""
     agent, sheet, template, choice = _position("d9405f02", 0, 7, {"reply_mixture": mixture, "reply_seed": 7.0})
     assert sheet.alone and not sheet.stall_reasons and sheet.flinch_risk == {1: 0.9}
     assert any(w.startswith("FAKE OUT: ironhands can Fake Out this turn") for w in sheet.warnings)
-    waits = _waits_out(sheet, agent.memory)
-    assert waits == ["a fresh Fake Out can flinch our cresselia this turn (90%): Protect blocks it, and from next turn it fails"]
+    lethal = [w for w in sheet.warnings if w.startswith("LETHAL: gholdengo's shadowball hits slot 1 (cresselia) for 116.9-137.7% BEFORE it can move.")]
+    assert len(lethal) == 1 and agent.memory.protect_streak("cresselia", 1) == 1
+    assert any(n.startswith("Our cresselia used Protect LAST turn: another one works only 1 time in 3") for n in sheet.notes)
+    assert _waits_out(sheet, agent.memory) == []
     protect = _lone_protect(template)
     payload = choice.build(protect)
-    assert override_value(payload, sheet, agent.params, memory=agent.memory) == agent.params["protect_bonus_guaranteed"]
-    meta: dict = {}
-    value = agent._resolve_turn_answer(_answer(0, override=protect), sheet, choice, LONE_PROTECT_PREDICTION, meta)
-    assert value == payload and meta["resolution"] == "override accepted" and meta["lone_protect_waits"] == waits
-    assert agent.memory.protect_streak("cresselia", 1) == 1
+    assert override_value(payload, sheet, agent.params, memory=agent.memory) == 0.0
+    top = sheet.candidates[0]
+    for read in (None, ("attack", "attack")):  # no read (the live answer's format) and a read matching the code's column
+        meta: dict = {}
+        value = agent._resolve_turn_answer(_answer(0, override=protect, prediction=read), sheet, choice, LONE_PROTECT_PREDICTION, meta)
+        assert meta["resolution"].startswith("override rejected: our last Pokémon's Protect has nothing to wait for"), meta
+        assert value == choice.build({"slot_0": top["slot_0"], "slot_1": top["slot_1"]}) and "lone_protect_waits" not in meta
+    # a fresh Protect still meets the Shadow Ball first ...
+    monkeypatch.setattr(agent.memory, "protect_streak", lambda species, slot: 0)
+    assert _waits_out(sheet, agent.memory) == []
+    # ... without that KO, a fresh Protect waits out the Fake Out (logged; the margin judges it again) ...
+    fake_out = ["a fresh Fake Out can flinch our cresselia this turn (90%): Protect blocks it, and from next turn it fails"]
+    sheet.warnings = [w for w in sheet.warnings if w not in lethal]
+    assert _waits_out(sheet, agent.memory) == fake_out
+    meta = {}
+    assert agent._resolve_turn_answer(_answer(0, override=protect), sheet, choice, LONE_PROTECT_PREDICTION, meta) == payload
+    assert meta["resolution"] == "override accepted" and meta["lone_protect_waits"] == fake_out
+    # ... and a repeat does not
+    monkeypatch.setattr(agent.memory, "protect_streak", lambda species, slot: 1)
+    assert _waits_out(sheet, agent.memory) == []
 
 
 def _observed(lines: list[str]) -> MatchMemory:
@@ -298,21 +317,58 @@ def test_waits_out_names_each_reason_the_stall_list_misses_and_nothing_else():
     assert _waits_out(_alone(plain, foe), memory) == []
 
 
-def test_each_reason_to_wait_lets_a_lone_protect_be_judged_by_the_margin_d9405f02_t9():
-    """At T9 the lone Protect is refused; give the position one reason to wait at a time and the margin judges it again
-    (credited 45 under LETHAL: accepted). Remove it and the refusal is back."""
-    agent, sheet, template, choice = _position("d9405f02", 0, 9)
+def test_a_repeat_protect_waits_nothing_out_and_a_sure_ko_first_makes_fake_out_and_the_orb_moot():
+    """The M1 review on d9405f02 T7. A reason to wait counts only for a Protect that works: on a streak (the memory's)
+    none does, as the prompt allows a repeat only with a listed stall reason. The two that pay off only if we act next
+    turn (a fresh Fake Out, a Guts holder's orb) do not count under a sure KO on our slot that lands before we move,
+    this turn and the next; a heal (the Wish) still does. A KO that is not sure, one we can escape, a first-turn-only
+    hit, a warning on another slot or a HIGH RISK one leaves them standing."""
+    foe = _mon("Gholdengo", "theirs", 1, ["steel", "ghost"], item="Air Balloon")
+    me = _mon("Ursaluna", "mine", 1, ["ground", "normal"], item="Flame Orb", ability="Guts")
+    memory = MatchMemory()
+    memory.log_turn, memory.wishes = 6, {"mine:b": 5}
+    fake_out = "a fresh Fake Out can flinch our Ursaluna this turn (90%): Protect blocks it, and from next turn it fails"
+    orb = "our Ursaluna's Flame Orb activates at the end of this turn (Guts boosts its Attack from then on)"
+    wish = "our Wish from last turn heals Ursaluna at the end of this turn"
+    sheet = _alone(me, foe, flinch={1: 0.9})
+    assert memory.protect_streak("Ursaluna", 1) == 0 and _waits_out(sheet, memory) == [fake_out, orb, wish]
+    repeat = MatchMemory()
+    repeat.log_turn, repeat.wishes = 6, {"mine:b": 5}
+    repeat.protect_streak = lambda species, slot: 1
+    assert _waits_out(sheet, repeat) == []
+    assert _waits_out(sheet) == [fake_out, orb]  # no memory: no streak to read, the sheet's reasons only
+    lethal = ("LETHAL: gholdengo's shadowball hits slot 1 (ursaluna) for 116.9-137.7% BEFORE it can move. This is our last "
+              "Pokémon and nothing runs out in our favour: Protect only delays the same KO by a turn, so attack.")
+    sheet.warnings = [lethal]
+    assert _waits_out(sheet, memory) == [wish]
+    for text in (lethal.replace("BEFORE it can move.", "BEFORE it can move (62% KO chance)."),
+                 lethal.replace("BEFORE it can move.", "BEFORE it can move (this slot's extremespeed (+2) goes first and KOs it 75% of the time)."),
+                 lethal.replace("gholdengo's shadowball", "ironhands's fakeout with priority +3"),
+                 lethal.replace("slot 1 (ursaluna)", "slot 0 (ursaluna)"),
+                 lethal.replace("LETHAL:", "HIGH RISK:")):
+        sheet.warnings = [text]
+        assert _waits_out(sheet, memory) == [fake_out, orb, wish], text
+
+
+def test_each_reason_to_wait_lets_a_fresh_lone_protect_be_judged_by_the_margin_d9405f02_t8():
+    """At T8 Cresselia's Protect would be fresh (T7's failed) and it is refused: nothing to wait for. Give the position
+    one reason at a time and the margin judges it again (credited 45 under LETHAL: accepted); remove it and the refusal
+    is back. A fresh Fake Out or a Guts holder's orb stays moot there: Gholdengo's sure KOs land before Cresselia moves.
+    At T9 Cresselia had Protected again (live): a repeat, and no reason counts."""
+    agent, sheet, template, choice = _position("d9405f02", 0, 8)
     protect = _lone_protect(template)
     me = next(m for m in sheet.field.actives if m.side == "mine")
-    assert agent.memory.log_turn == 9 and me.position == 1
+    assert agent.memory.log_turn == 8 and me.position == 1 and agent.memory.protect_streak("cresselia", 1) == 0
 
     def resolution() -> dict:
         meta: dict = {}
         agent._resolve_turn_answer(_answer(0, override=protect), sheet, choice, LONE_PROTECT_PREDICTION, meta)
         return meta
 
-    assert resolution()["resolution"].startswith("override rejected: our last Pokémon's Protect has nothing to wait for")
-    for name, value in (("wishes", {"mine:b": 8}), ("seeded", {"theirs:gholdengo": "mine:b"}), ("drowsy", {"theirs:ironhands": 8})):
+    refused = "override rejected: our last Pokémon's Protect has nothing to wait for"
+    assert resolution()["resolution"].startswith(refused)
+    reasons = (("wishes", {"mine:b": 7}), ("seeded", {"theirs:gholdengo": "mine:b"}), ("drowsy", {"theirs:ironhands": 7}))
+    for name, value in reasons:
         setattr(agent.memory, name, value)
         meta = resolution()
         assert meta["resolution"] == "override accepted" and len(meta["lone_protect_waits"]) == 1, (name, meta)
@@ -321,7 +377,21 @@ def test_each_reason_to_wait_lets_a_lone_protect_be_judged_by_the_margin_d9405f0
     meta = resolution()
     assert meta["resolution"] == "override accepted" and meta["lone_protect_waits"] == ["our cresselia heals a little (Black Sludge)"]
     me.item, me.types = "Sitrus Berry", ["psychic"]
-    assert resolution()["resolution"].startswith("override rejected: our last Pokémon's Protect has nothing to wait for")
+    assert resolution()["resolution"].startswith(refused)
+    sheet.flinch_risk = {1: 0.9}
+    assert resolution()["resolution"].startswith(refused)
+    sheet.flinch_risk, me.item, me.ability = {}, "Flame Orb", "Guts"
+    assert resolution()["resolution"].startswith(refused)
+    me.item, me.ability = "Sitrus Berry", "Levitate"
+
+    agent, sheet, template, choice = _position("d9405f02", 0, 9)
+    protect = _lone_protect(template)
+    assert agent.memory.log_turn == 9 and agent.memory.protect_streak("cresselia", 1) == 1
+    for name, value in (("wishes", {"mine:b": 8}), ("seeded", {"theirs:gholdengo": "mine:b"}), ("drowsy", {"theirs:ironhands": 8})):
+        setattr(agent.memory, name, value)
+        meta = resolution()
+        assert meta["resolution"].startswith(refused) and "lone_protect_waits" not in meta, (name, meta)
+        setattr(agent.memory, name, {})
 
 
 # -- 3. answer_rules_v2: on the mixture the model chooses rows only (model audit R1) ----------------------------------------

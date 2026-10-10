@@ -834,9 +834,9 @@ class PokemonAgent:
                          "best_row_score": best, "margin": round(margin, 1), "prediction_matches_code": matches})
             # Safety: a Protect from our last Pokémon with nothing to wait for only delays the same position (the prompt
             # forbids it, both menus drop it). override_value credits it nothing, but nothing still passes the margin when
-            # row 0 is worth 0 or less (d9405f02 T9: 0 against 0.0 - 0.15), so it never plays over a row, read or not.
-            # Something to wait for that the sheet's stall reasons miss (_waits_out: d9405f02 T7's fresh Fake Out) lets
-            # the margin judge it as before, and is logged.
+            # row 0 is worth 0 or less (d9405f02 T7 and T9: 0 against 0.0 - 0.15), so it never plays over a row, read or
+            # not. Something to wait for that the sheet's stall reasons miss (_waits_out: a Wish about to land, a fresh Fake
+            # Out we would live to act after; never on a Protect streak) lets the margin judge it as before, and is logged.
             waits = _waits_out(sheet, self.memory) if rows and _protects(proposed) and not getattr(sheet, "stall_reasons", None) else []
             if waits:
                 meta["lone_protect_waits"] = waits
@@ -1253,7 +1253,7 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None, *, mem
     as the candidate generators for an attack row; a listed row keeps its own score. Replaced by the reply table's
     cell values once the core lane's mixture is on. A Protect from our last Pokémon with nothing to wait for (no stall
     reason on the sheet and none of ``_waits_out``'s, which reads ``memory``) earns nothing: it only delays the same
-    position (the prompt forbids it and both menus drop such rows; model audit R1/R7, d9405f02 T9 passed at 45)."""
+    position (the prompt forbids it and both menus drop such rows; model audit R1/R7, d9405f02 T7 and T9 passed at 45)."""
     P = params or DEFAULTS
     by_slot = {e.get("slot"): e for e in getattr(sheet, "our_options", None) or []}
     warnings = [str(w) for w in getattr(sheet, "warnings", None) or []]
@@ -1348,6 +1348,12 @@ def _waits_out(sheet: Any, memory: Any = None) -> list[str]:
     Guts' boost, start at the end of this turn). From the memory (the protocol log): our Wish from last turn at its
     position (it lands at the end of this turn); a foe whose Leech Seed drains into its position; a foe Yawn made
     drowsy last turn (it falls asleep at the end of this turn, unless a status or Electric / Misty Terrain stops it).
+    None of them while that Protect would be a repeat (``memory.protect_streak`` > 0): it works 1 time in 3, and as none
+    of them is a listed stall reason the system prompt already forbids it ("Never Protect on a streak without a listed
+    stall reason"; the scorer's own Protect rows discount by 0.33 ** streak). The fresh Fake Out and the orb pay off only
+    if we act next turn: under a sure KO on our slot that lands before we move, this turn and the next (``_ko_lands_first``)
+    the Protect only delays it, Fake Out or not. d9405f02 T7 is both (the M1 review): Cresselia Protected on T6, and
+    Gholdengo's Shadow Ball (116.9-137.7%) KOs it first whether or not Iron Hands' fresh Fake Out lands.
     Empty unless our last Pokémon stands alone; the sheet itself is never changed."""
     if not getattr(sheet, "alone", False):
         return []
@@ -1356,17 +1362,20 @@ def _waits_out(sheet: Any, memory: Any = None) -> list[str]:
     me = next((m for m in actives if getattr(m, "side", None) == "mine"), None)
     if me is None:
         return []
+    if memory is not None and memory.protect_streak(me.species, me.position) > 0:
+        return []  # a repeat Protect: no reason here makes it one the prompt allows
     out: list[str] = []
+    acts_next_turn = not _ko_lands_first(sheet, me.position)
     risk = float((getattr(sheet, "flinch_risk", None) or {}).get(me.position, 0.0) or 0.0)
-    if risk > 0:
+    if risk > 0 and acts_next_turn:
         out.append(f"a fresh Fake Out can flinch our {me.species} this turn ({round(risk * 100)}%): Protect blocks it, and from "
                    "next turn it fails")
     item, ability = data.to_id(me.item), data.to_id(me.ability)
     types = {str(t).lower() for t in me.types or []}
     if item == "blacksludge" and "poison" in types:
         out.append(f"our {me.species} heals a little (Black Sludge)")
-    if ability == "guts" and not me.status and (item == "flameorb" and "fire" not in types
-                                                or item == "toxicorb" and not types & {"poison", "steel"}):
+    if ability == "guts" and not me.status and acts_next_turn and (item == "flameorb" and "fire" not in types
+                                                                   or item == "toxicorb" and not types & {"poison", "steel"}):
         out.append(f"our {me.species}'s {'Flame Orb' if item == 'flameorb' else 'Toxic Orb'} activates at the end of this turn "
                    "(Guts boosts its Attack from then on)")
     if memory is None:
@@ -1387,6 +1396,24 @@ def _waits_out(sheet: Any, memory: Any = None) -> list[str]:
                 and not (terrain in ("electric", "misty") and foe.grounded)):
             out.append(f"their {foe.species} falls asleep at the end of this turn (Yawn)")
     return out
+
+
+_FIRST_TURN_ONLY = ("fakeout", "firstimpression")  # their hits that fail from the user's second turn out (battle.py's threats)
+
+
+def _ko_lands_first(sheet: Any, number: int) -> bool:
+    """A sure KO on our slot ``number`` that lands before it moves, this turn and the next: the sheet's LETHAL warning for
+    a guaranteed KO (no "KO chance" given) from a move that still works next turn (not Fake Out or First Impression),
+    with no escape listed (our priority move, or the partner, taking the threat out first)."""
+    for text in getattr(sheet, "warnings", None) or []:
+        text = str(text)
+        m = re.match(r"LETHAL: (.+?)'s (\S+?)( with priority \+\d)? hits slot (\d) \(", text)
+        if not m or int(m.group(4)) != number or _move_key(m.group(2)) in _FIRST_TURN_ONLY:
+            continue
+        if "% KO chance)" in text or "goes first and KOs it" in text or "can take it out first" in text:
+            continue
+        return True
+    return False
 
 
 MAX_ROWS_SHOWN = 8  # top rows only: the model chooses among the best; the rest is noise and tokens
