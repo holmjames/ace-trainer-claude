@@ -103,7 +103,10 @@ the 55 s decision clock have passed.
   `agent/pokemon/prompts.py`; the per-decision user message is the JSON payload
   built in `agent/agent.py` (`_lineup`, `_turn`). The `reasoning_summary`
   field the model returns is sent to the server as the public one-line
-  reasoning for the move.
+  reasoning for the move. In a battle turn where the code does not play
+  what the model proposed (an override rejected, a row sent back to row 0
+  by the margin), the played row's own `why` is sent instead, so the public
+  line describes the move that was made.
 
 ### Fixed reference materials and parameters
 
