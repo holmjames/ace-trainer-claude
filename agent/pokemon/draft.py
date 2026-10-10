@@ -571,10 +571,18 @@ def first_pick_adjust(path: str | None = None) -> FirstPickTable:
     return table
 
 
-def first_pick_table_note(params: dict) -> str:
+def first_pick_policy_w(memory: MatchMemory, params: dict) -> float:
+    """The first-pick policy's weight at this pick: draft_first_pick_w in full at our first pick, half at our second,
+    0 after, our picks counted as the search counts them (the drafted cards with a known set)."""
+    ours = sum(1 for c in memory.my_cards.values() if c.get("moves"))
+    return float(params.get("draft_first_pick_w", 0.0)) * max(0.0, 1.0 - ours / 2.0)
+
+
+def first_pick_table_note(params: dict, policy_w: float = 1.0) -> str:
     """The line our first two picks log (their notes are the decision log's draft row): which first-pick table is in
-    use, its entry count and weight, and a WARNING when the shipped file could not be read and counts as all zeros
-    (until Oct 10 nothing in the logs showed which table played). Never raises."""
+    use, its entry count, the weight it acts with (``policy_w`` x draft_first_adjust_w: half at our second pick), and a
+    WARNING when the shipped file could not be read and counts as all zeros (until Oct 10 nothing in the logs showed
+    which table played). Never raises."""
     chosen = os.environ.get(FIRST_PICK_ADJUST_ENV) or ""
     where = f"{FIRST_PICK_ADJUST_ENV}={chosen}" if chosen else f"shipped {FIRST_PICK_ADJUST_FILE.name}"
     try:
@@ -582,7 +590,8 @@ def first_pick_table_note(params: dict) -> str:
     except ValueError as exc:
         return f"first-pick table ({where}) UNUSABLE: {exc}"
     error = _ADJUST_ERRORS.get(chosen or str(FIRST_PICK_ADJUST_FILE))
-    return (f"first-pick table: {n} {'entry' if n == 1 else 'entries'} ({where}, weight {float(params.get('draft_first_adjust_w', 0.0))})"
+    weight = round(policy_w * float(params.get("draft_first_adjust_w", 0.0)), 3)
+    return (f"first-pick table: {n} {'entry' if n == 1 else 'entries'} ({where}, weight {weight})"
             + (f"; WARNING: the shipped table could not be read ({error}), so it counts as all zeros" if error else ""))
 
 
@@ -1037,7 +1046,7 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
                          robust=float(P.get("lineup_v2_robust", 0.25)), hole_w=float(P.get("draft_hole_w", 0.0)),
                          sleep_w=float(P.get("draft_sleep_w", 0.0)))
     # Our first two picks also read the pool itself (first_pick_bonus): full weight on the first, half on the second.
-    policy_w = float(P.get("draft_first_pick_w", 0.0)) * max(0.0, 1.0 - len(us) / 2.0)
+    policy_w = first_pick_policy_w(memory, P)
     team = tuple(board.units[k].species for k in us)  # for the first-pick table's pair entries
     scored: list[tuple[_Plan, LegalAction, int, float, dict]] = []
     for action, i in offered_idx:
@@ -1153,6 +1162,7 @@ def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params
         chosen.notes.append(f"exposure tie-break: {chosen.species} is beaten by {n} undrafted pool card{'' if n == 1 else 's'}, the fewest in the "
                             "window; set aside " + ", ".join(f"{s.species} ({s.exposure})" for s in set_aside)
                             + ("" if by_seed is chosen else f"; the seed alone would take {by_seed.species}"))
-    if float(P.get("draft_first_pick_w", 0.0)) > 0 and len(memory.my_cards) < 2:
-        chosen.notes.append(first_pick_table_note(P))  # our first two picks, where the table acts: the log names it
+    policy_w = first_pick_policy_w(memory, P)
+    if policy_w > 0:
+        chosen.notes.append(first_pick_table_note(P, policy_w))  # our first two picks, where the table acts: the log names it
     return chosen

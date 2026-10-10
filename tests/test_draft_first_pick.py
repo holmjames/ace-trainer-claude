@@ -190,7 +190,8 @@ def test_our_first_two_picks_name_the_table_and_warn_when_the_shipped_file_is_un
 
     monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", SHIPPED_FILE)
     assert table_notes() == ["first-pick table: 2 entries (shipped first_pick_adjust.json, weight 1.0)"]
-    assert table_notes(["Archaludon"], ["Iron Hands", "Sylveon"]) == table_notes()  # our second pick
+    # our second pick: the table acts at half weight there (was pinned as "weight 1.0", what the line said before Oct 10)
+    assert table_notes(["Archaludon"], ["Iron Hands", "Sylveon"]) == ["first-pick table: 2 entries (shipped first_pick_adjust.json, weight 0.5)"]
     assert table_notes(["Archaludon", "Rillaboom"], ["Iron Hands", "Sylveon"]) == []  # the table acts no more
     for name, text in (("gone.json", None), ("broken.json", "{not json")):
         path = tmp_path / name
@@ -200,6 +201,19 @@ def test_our_first_two_picks_name_the_table_and_warn_when_the_shipped_file_is_un
         monkeypatch.setattr(draft, "_ADJUST_TABLES", {})
         [line] = table_notes()
         assert line.startswith(f"first-pick table: 0 entries (shipped {name}, weight 1.0); WARNING: ") and "could not be read" in line, line
+
+
+def test_the_table_line_follows_the_policys_own_count_of_our_picks(monkeypatch):
+    """The line goes where the table acts, at the weight it acts with: the policy counts our picks as the drafted cards
+    with a known set, so a roster entry without one (a server auto-pick) leaves it at half weight, line included."""
+    monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", SHIPPED_FILE)
+    memory = memory_for(L3, ["Archaludon"], ["Iron Hands", "Sylveon"])
+    actions = offered(memory)
+    memory.my_cards["kingambit"] = {"species": "Kingambit", "card_id": "auto-pick-without-a-set"}
+    notes = draft.choose_pick(actions, memory, tuning.DEFAULTS).notes
+    assert [n for n in notes if n.startswith("first-pick table")] == ["first-pick table: 2 entries (shipped first_pick_adjust.json, weight 0.5)"]
+    assert draft.first_pick_policy_w(memory, tuning.DEFAULTS) == 0.5
+    assert draft.first_pick_policy_w(memory_for(L3, ["Archaludon", "Rillaboom"]), tuning.DEFAULTS) == 0.0
 
 
 def test_the_decision_log_draft_row_carries_the_table_line(tmp_path, monkeypatch):
