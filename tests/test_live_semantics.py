@@ -281,3 +281,18 @@ def test_the_tailwind_lead_stays_above_a_double_the_fresh_fake_out_can_stop(tmp_
     top = row["turn_sheet"]["candidate_turns"][0]
     assert (row["payload"].get("slot_1") or {}).get("move_id") == "tailwind", (row["payload"], top)
     assert top["name"] != "focus_fire", top
+
+
+def test_one_fresh_fake_out_does_not_make_a_double_worth_dropping_a_protect(tmp_path, monkeypatch):
+    # d74bfb88 turn 4 (we are seat 1, against the search bot): Baxcalibur (152) + the 35% Arcanine (116) vs a fresh
+    # Incineroar (80) + the 40% Amoonguss. Icicle Spear alone KOs Amoonguss (146-216%) before it moves; Incineroar's Knock
+    # Off KOs Arcanine (107-126%). flinch_risk (0.5 / 0.5) has that Fake Out always used, so averaging the double over
+    # fake_out_cases priced Icicle Spear + Flare Blitz a sure KO that one Fake Out "cannot stop" (97.5 over the Protect's
+    # 93.8). Live, Incineroar did not Fake Out: it Knocked Off into Arcanine's Protect, and Icicle Spear KO'd Amoonguss.
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)
+    _, rows = replay("d74bfb88", tmp_path, seat=1)
+    row = turn_row(rows, 4)
+    top = row["turn_sheet"]["candidate_turns"][0]
+    assert top["name"] == "protect_threatened", top
+    assert (row["payload"].get("slot_1") or {}).get("move_id") == "protect", (row["payload"], top)
+    assert (row["payload"].get("slot_0") or {}).get("move_id") == "iciclespear", (row["payload"], top)

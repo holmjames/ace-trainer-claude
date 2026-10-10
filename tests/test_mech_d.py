@@ -1082,18 +1082,20 @@ def test_our_faster_fake_out_stops_one_of_two_fresh_fake_outs():
     assert cases == {frozenset(): pytest.approx(0.8), frozenset({1}): pytest.approx(0.2)}, cases
 
 
-def test_a_double_that_needs_both_slots_is_priced_over_the_fake_out_cases(monkeypatch):
-    """Every two-slot row is averaged over fake_out_cases, the slot one Fake Out flinches. Iron Hands + Whimsicott vs a
-    fresh Incineroar + Sylveon (Incineroar aims at Iron Hands 0.8, Whimsicott 0.2): each row is 0.8 x (its value with Iron
-    Hands flinched) + 0.2 x (with Whimsicott flinched): best attacks (Close Combat + Prankster Tailwind: the status
-    move's own flinch chance comes out of its value first), focus fire, finish the other and the Fake Out row. The
-    independent product (both act 16% of the time, both flinched 16%) prices the focus fire differently."""
+def test_a_plain_two_slot_row_keeps_each_slots_own_flinch_chance(monkeypatch):
+    """Must-fix (fix4 reviews): the sheet's flinch_risk has a fresh Fake Out always used (one user's aims sum to 1), so
+    averaging a plain row over fake_out_cases left "both slots act" at 0 beside one user (the search bot used it on 8 of
+    16 first turns). Best attacks, focus fire and finish the other price each slot's own flinch chance
+    (survival_factor), whatever fake_out_cases says; the Fake Out row passes its cases (our Fake Out shapes them) and is
+    still 0.8 x (Iron Hands flinched) + 0.2 x (Whimsicott flinched). Iron Hands + Whimsicott vs a fresh Incineroar +
+    Sylveon, focus_fire_bonus 0 (the bonus for both hits reads all_act, its own test below)."""
     real_cases = battle.fake_out_cases
     names = ("best_attacks", "focus_fire", "finish_the_other", "fake_out_setup")
+    monkeypatch.setitem(tuning.DEFAULTS, "focus_fire_bonus", 0.0)
 
     def rows(cases=None):
         if cases is not None:
-            monkeypatch.setattr(battle, "fake_out_cases", lambda sheet, plan: cases)
+            monkeypatch.setattr(battle, "fake_out_cases", lambda sheet, plan, **kw: cases)
         sheet, _ = build(["Iron Hands", "Whimsicott"], ["Incineroar", "Sylveon"], obs_extra={"turn": 1}, fresh=["Iron Hands", "Whimsicott"])
         monkeypatch.setattr(battle, "fake_out_cases", real_cases)
         return sheet, {c["name"]: c["score"] for c in sheet.candidates if c["name"] in names}
@@ -1101,11 +1103,10 @@ def test_a_double_that_needs_both_slots_is_priced_over_the_fake_out_cases(monkey
     sheet, real = rows()
     assert sheet.flinch_risk == {0: 0.8, 1: 0.2} and set(real) == set(names), (sheet.flinch_risk, real)
     hands, whims = rows([(1.0, frozenset({0}))])[1], rows([(1.0, frozenset({1}))])[1]  # Iron Hands / Whimsicott flinched
-    for name in names:
-        assert real[name] == pytest.approx(0.8 * hands[name] + 0.2 * whims[name], abs=0.11), (name, real, hands, whims)
-    both, neither = rows([(1.0, frozenset())])[1], rows([(1.0, frozenset({0, 1}))])[1]
-    independent = 0.16 * both["focus_fire"] + 0.16 * neither["focus_fire"] + 0.64 * hands["focus_fire"] + 0.04 * whims["focus_fire"]
-    assert abs(real["focus_fire"] - independent) > 1.0, (real["focus_fire"], independent)
+    for name in ("best_attacks", "focus_fire", "finish_the_other"):
+        assert real[name] == pytest.approx(hands[name], abs=0.01) and real[name] == pytest.approx(whims[name], abs=0.01), (name, real, hands, whims)
+    assert abs(hands["fake_out_setup"] - whims["fake_out_setup"]) > 1.0, (hands, whims)
+    assert real["fake_out_setup"] == pytest.approx(0.8 * hands["fake_out_setup"] + 0.2 * whims["fake_out_setup"], abs=0.11), (real, hands, whims)
 
 
 def test_a_bonus_for_both_hits_needs_both_slots_to_act_past_one_fake_out(monkeypatch):

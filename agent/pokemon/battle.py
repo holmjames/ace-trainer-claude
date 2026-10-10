@@ -3364,15 +3364,15 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         when it can fall to it; nothing when ``partner`` is "protect", the ally's Protect blocking it). With
         ``protect_aware`` a target that can Protect (and didn't last turn) and is in KO range is discounted by the
         chance it does (the Oct 7 opponent Protected the threatened Pokémon three times in four games). A fresh Fake Out
-        flinches ONE of our Pokémon, not each slot on its own: with both slots acting under its risk (or ``cases``
-        given) the value is averaged over ``fake_out_cases``, which slot it flinches, if any, so a double that needs
-        both slots never gets the product of their two flinch chances (1aef9227 T1: Incineroar's one Fake Out stops Iron
-        Hands or Whimsicott, never both: Close Combat + Moonblast both land 0% of the time, not 16%)."""
+        is priced by each slot's own flinch chance (``survival_factor``). The sheet's ``flinch_risk`` has that Fake Out
+        always used (one user's aims sum to 1), so averaging a plain row over ``fake_out_cases`` makes "both slots act"
+        0 beside one user, where the search bot used it on 8 of 16 first turns: the fix4 reviews measured that averaging
+        worse than the independent product (the reply model: 432 of its 1,197 turn-1 probe changes better, 677 worse;
+        d74bfb88 s1 T4 dropped Arcanine's Protect for a double into Amoonguss that one Fake Out "cannot stop", and
+        Incineroar Knocked Off instead). Only a row that passes ``cases`` is averaged over them (the Fake Out row's
+        partner, whose cases our own Fake Out shapes); a bonus for both hits TOGETHER reads ``all_act``."""
         if cases is None:
-            plan = plan_of(picks)
-            if len(plan) < 2 or not any(sheet.flinch_risk.get(n) for n in plan):
-                return joint_value_in(picks, protect_aware, partner, None)
-            cases = fake_out_cases(sheet, plan)
+            return joint_value_in(picks, protect_aware, partner, None)
         return sum(p * joint_value_in(picks, protect_aware, partner, hit) for p, hit in cases if p > 0)
 
     def joint_value_in(picks: list[tuple[int, dict | None, dict | None, float]], protect_aware: bool, partner: str | None,
