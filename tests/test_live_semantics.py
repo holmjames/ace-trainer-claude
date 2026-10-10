@@ -18,6 +18,7 @@ from altruagent import DecisionContext
 from altruagent.models import GameState
 
 from agent.agent import PokemonAgent
+from agent.pokemon import battle, data
 from agent.pokemon.memory import species_key
 
 LIVE = Path(__file__).parent / "fixtures" / "live"
@@ -220,3 +221,47 @@ def test_psychic_terrain_blocks_their_priority_only_into_our_grounded_pokemon(tm
     assert [(species_key(h["species"]), h["ko"], h["priority"]) for h in shards] == [("landorustherian", "guaranteed", 1)], shards
     warnings = row["turn_sheet"]["WARNINGS"]
     assert [w for w in warnings if w.startswith("LETHAL") and "iceshard" in w and "landorustherian" in w], warnings
+
+
+def sheet_of(prefix: str, tmp_path: Path, seat: int, turn: int, monkeypatch) -> battle.TurnSheet:
+    """The first sheet the replayed agent builds on ``turn`` (the replay plays on to the end)."""
+    import agent.agent as agent_module
+    original, sheets = agent_module.battle_rules.build_sheet, {}
+
+    def spy(template, obs, memory, params=None):
+        sheet = original(template, obs, memory, params)
+        sheets.setdefault(obs.get("turn"), sheet)
+        return sheet
+
+    monkeypatch.setattr(agent_module.battle_rules, "build_sheet", spy)
+    replay(prefix, tmp_path, seat=seat)
+    return sheets[turn]
+
+
+@pytest.mark.parametrize("prefix, seat, turn, side, entry, now", [
+    ("15f6f540", 0, 5, "mine", 0, 1),  # ours came in on turn 4 before Indeedee fainted: no fallenN, no boost
+    ("6ce0b81e", 1, 5, "mine", 1, 2),  # came in at fallen1 on turn 3; its Iron Head into Baxcalibur did 95% (100 -> 5/100)
+    ("6ce0b81e", 0, 5, "theirs", 1, 2),  # the same Kingambit from the other seat
+])
+def test_supreme_overlord_keeps_the_count_kingambit_came_in_with(prefix, seat, turn, side, entry, now, tmp_path, monkeypatch):
+    # The boost is fixed on entry (the log's fallenN). The sheet counted the side's faints NOW: a guaranteed Iron Head
+    # KO on Baxcalibur (104.7-123.6%) that live did 95%.
+    sheet = sheet_of(prefix, tmp_path, seat, turn, monkeypatch)
+    kingambit = next(m for m in sheet.field.actives if m.side == side and species_key(m.species) == "kingambit")
+    foes = {m.position: m for m in sheet.field.actives if m.side != side}
+    assert sheet.field.fainted[side] == now
+    if side == "mine":
+        options = next(e for e in sheet.our_options if species_key(e["active"]) == "kingambit")["options"]
+        rows = [(r["damage_pct_of_current_hp"], o["move"], foes[r["target"]]) for o in options for r in o["targets"] if r["side"] == "theirs"]
+    else:
+        rows = [(h["damage_pct_of_current_hp"], h["move"], foes[h["into_slot"]])
+                for t in sheet.threats if species_key(t["species"]) == "kingambit" for h in t["hits"]]
+
+    def calc(move: str, defender: battle.Mon, fallen: int) -> list:
+        return list(battle.damage_percent(kingambit, {**data.move_info(move), "id": move}, defender, field=sheet.field, fallen=fallen))
+
+    assert rows and all(got == calc(move, d, entry) for got, move, d in rows), rows
+    assert any(got != calc(move, d, now) for got, move, d in rows), rows
+    if (prefix, side) == ("6ce0b81e", "mine"):
+        lo, hi = next(got for got, move, d in rows if move == "ironhead" and species_key(d.species) == "baxcalibur")
+        assert lo < 96 and hi >= 95, (lo, hi)  # the live hit, 95%, is inside the range

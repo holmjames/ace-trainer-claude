@@ -75,6 +75,7 @@ class Mon:
     boosted_stat: str | None = None  # Protosynthesis / Quark Drive: the stat the paradox boost raises (set by the sheet)
     paradox_stat: str | None = None  # the same, read from the battle log (-start protosynthesisatk): exact, and survives Booster Energy being used up
     unburden: bool = False  # Unburden active: its item was used up during this stint on the field (speed x2), from the log
+    overlord_fallen: int | None = None  # Supreme Overlord: allies fainted when it came in (memory.overlord_count); None: unknown
 
     def stat(self, name: str, *, min_stage: int | None = None, max_stage: int | None = None) -> float:
         """One stat with stages, status, item and paradox boosts applied. ``min_stage``/``max_stage`` clamp the
@@ -310,8 +311,10 @@ def effective_move(attacker: "Mon", move: dict, defender: "Mon", fs: "FieldState
         out["ate_boost"] = True
     if data.to_id(attacker.ability) == "supremeoverlord":
         # +10% power per ally that had fainted when Kingambit came in, up to +50% (Oct 8 review: Kowtow Cleave into
-        # Cresselia at fallen 3 is 77-91%, the sheet said 61-71%).
-        count = fallen if fallen is not None else (fs.fainted.get(attacker.side, 0) if fs is not None else 0)
+        # Cresselia at fallen 3 is 77-91%, the sheet said 61-71%). The count is fixed on entry: the sheet sets it for a
+        # Kingambit on the field (6ce0b81e T5: Iron Head at fallen 1 did 95% to Baxcalibur, the side's 2 faints said a KO).
+        count = fallen if fallen is not None else attacker.overlord_fallen if attacker.overlord_fallen is not None else \
+            (fs.fainted.get(attacker.side, 0) if fs is not None else 0)
         if count:
             out["supreme_overlord"] = min(5, int(count))
     return out
@@ -818,6 +821,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             mon.tailwind = my_tailwind
             mon.paradox_stat = memory.paradox_active.get("mine:" + key)
             mon.unburden = "mine:" + key in memory.unburden_active
+            mon.overlord_fallen = memory.overlord_count("mine", key)
             ours[slot.get("slot", 0)] = mon
 
     # Their active Pokémon by board position (from target_options when present).
@@ -833,6 +837,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                         mon.tailwind = their_tailwind
                         mon.paradox_stat = memory.paradox_active.get("theirs:" + key)
                         mon.unburden = "theirs:" + key in memory.unburden_active
+                        mon.overlord_fallen = memory.overlord_count("theirs", key)
                         theirs[int(t["target"])] = mon
     if not theirs:
         for index, summary in enumerate(_active_summaries(obs.get("opponent_team"))[:2], start=1):
@@ -841,6 +846,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             if mon:
                 mon.tailwind = their_tailwind
                 mon.paradox_stat = memory.paradox_active.get("theirs:" + key)
+                mon.overlord_fallen = memory.overlord_count("theirs", key)
                 theirs[index] = mon
 
     fs = field_from_obs(obs, ours, theirs, memory)

@@ -134,6 +134,18 @@ def test_fallen_matches_the_live_match():
     assert memory.fallen("mine") + memory.fallen("theirs") == len(faints) > 0
 
 
+def test_overlord_count_is_fixed_when_kingambit_comes_in():
+    # Supreme Overlord counts the allies fainted when Kingambit comes in, for its whole stay (Showdown prints fallenN on
+    # entry, nothing at 0): a faint after that does not raise it. Without its entry in the log the count is unknown.
+    memory = MatchMemory()
+    memory.observe_battle({**_log("|switch|p1a: Kingambit|Kingambit, L50, F|207/207", "|switch|p2a: Gholdengo|Gholdengo, L50|100/100",
+                                  "|turn|1", "|faint|p1b: Lucario", "|faint|p2a: Gholdengo", "|switch|p2a: Kingambit|Kingambit, L50, M|100/100",
+                                  "|-start|p2a: Kingambit|fallen1|[silent]", "|turn|2", "|faint|p2b: Amoonguss", "|turn|3"), "turn": 3})
+    assert memory.fallen("mine") == 1 and memory.fallen("theirs") == 2
+    assert memory.overlord_count("mine", "Kingambit") == 0 and memory.overlord_count("theirs", "Kingambit") == 1
+    assert MatchMemory().overlord_count("theirs", "Kingambit") is None
+
+
 # -- entry hazards ----------------------------------------------------------------------------------------------
 
 

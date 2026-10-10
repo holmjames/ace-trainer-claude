@@ -453,6 +453,15 @@ class MatchMemory:
         (Supreme Overlord: +10% per fallen ally when Kingambit enters; Last Respects: +50 power each)."""
         return int(self.fallen_by_side.get(side, 0))
 
+    def overlord_count(self, side: str, species: str) -> int | None:
+        """Supreme Overlord's count for ``side``'s ``species`` standing on the field now: the allies fainted when it came
+        in, fixed for its whole stay (the log's ``-start ... fallenN``; 0 when the log shows it coming in without one,
+        as Showdown prints nothing then). None when the log never showed it come in: then only today's count is known."""
+        key = species_key(species)
+        if f"{side}:{key}" in self.overlord_fallen:
+            return int(self.overlord_fallen[f"{side}:{key}"])
+        return 0 if any(tag == side and sp == key for entries in self.entered_by_turn.values() for tag, sp in entries) else None
+
     # -- the opponent's class, its clock, and what happened lately -------------------------------------------------
 
     def opponent_class(self) -> str:
