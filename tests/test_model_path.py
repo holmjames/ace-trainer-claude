@@ -9,6 +9,8 @@
    the message sends the model back to row 0 (model audit R3, readiness item 10).
 5. prompt_v2 and prompt_kb (off by default): the audit's R2 and R5 prompt text and its R4 knowledge base, checked
    against the mechanics data; the defaults send the Oct 10 deploy's prompt and payload byte for byte.
+6. scripts/live_positions.py: the live answers replayed through the agent (code only), a model-on mode that is a dry
+   run without --max-calls and never spends more than it.
 
 Positions are replayed from the live captures (tests/fixtures/live/) through a code-only agent; the model is a scripted
 fake or absent. No test calls a model.
@@ -557,3 +559,122 @@ def test_the_arms_prompts_are_identical_on_every_call_and_the_defaults_stay_the_
     text = system_prompt(tuning.merged(arm_c))
     assert first.calls[0][0] == second.calls[0][0] == {"role": "system", "content": text}
     assert KNOWLEDGE_BASE in text and "Lessons from live games:" in text and "This build plays only listed rows" in text
+
+
+# -- 6. the live-position harness (scripts/live_positions.py): no model call unless asked, on a budget ---------------------
+
+
+def _harness():
+    import importlib.util
+    import sys
+
+    module = sys.modules.get("live_positions")
+    if module is None:
+        spec = importlib.util.spec_from_file_location("live_positions", Path(__file__).resolve().parent.parent / "scripts" / "live_positions.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["live_positions"] = module
+        spec.loader.exec_module(module)
+    return module
+
+
+_TEMPLATE = {"slots": [
+    {"slot": 0, "options": [{"type": "move", "move_id": "wavecrash", "targets": [1, 2]}, {"type": "move", "move_id": "protect", "targets": [0]},
+                            {"type": "switch", "species": "ironhands"}]},
+    {"slot": 1, "options": [{"type": "move", "move_id": "followme", "targets": [0]}, {"type": "move", "move_id": "dazzlinggleam", "targets": [0]}]},
+]}
+
+
+def test_the_harness_translates_a_live_play_into_a_row_or_a_proposed_joint_action():
+    lp = _harness()
+    rows = [{"row": 0, "slot_0": {"option": 1, "target": 0}, "slot_1": {"option": 0, "target": 0}},
+            {"row": 1, "slot_0": {"option": 0, "target": 2}, "slot_1": {"option": 1, "target": 0}}]
+    played = {"slot_0": {"type": "move", "move_id": "wavecrash", "target": 2}, "slot_1": {"type": "move", "move_id": "dazzlinggleam"}}
+    assert lp.payload_to_answers(_TEMPLATE, played) == {"slot_0": {"option": 0, "target": 2}, "slot_1": {"option": 1, "target": 0}}
+    assert lp.joint_key(_TEMPLATE, rows[1]) == "0:2|1:0" and lp.same_key("0:2|-", "0:2|1:0") and not lp.same_key("0:1|1:0", "0:2|1:0")
+    assert lp.posture(_TEMPLATE, "1:0|0:0") == ["protect", "attack"] and lp.posture(_TEMPLATE, "2:0|1:0") == ["switch", "attack"]
+    old_format = {"payload": {"type": "doubles_turn", **played}, "answer": {"win_condition": "w", "reasoning_summary": "r",
+                                                                         "slot_0": {"option": 0, "target": 2}}}
+    assert lp.translate(old_format, _TEMPLATE, rows) == {"win_condition": "w", "reasoning_summary": "r", "row": 1,
+                                                         "override": {"use": False, "slot_0": {"option": 0, "target": 2}, "slot_1": {"option": 1, "target": 0}}}
+    switch = {"payload": {"slot_0": {"type": "switch", "species": "Iron Hands"}, "slot_1": {"type": "move", "move_id": "followme", "target": 0}},
+              "answer": {"row": 1, "override": {"use": True}, "opponent_prediction": {"their_slot_1": "attack"},
+                         "turn_sheet": {}}}
+    switch["turn_sheet"] = {"candidate_turns": [rows[0], rows[1]]}
+    out = lp.translate(switch, _TEMPLATE, rows)
+    # not listed: a proposed joint action; today's format keeps its own row (row 1's joint action is listed as row 1)
+    assert out["override"] == {"use": True, "slot_0": {"option": 2, "target": 0}, "slot_1": {"option": 0, "target": 0}} and out["row"] == 1
+    assert out["opponent_prediction"] == {"their_slot_1": "attack"}
+
+
+def _own_log(tmp_path: Path, prefix: str = "07a3cb1f", seat: int = 1) -> Path:
+    """A code-only agent plays a captured match and writes its own decision log: the 'live' answers to replay."""
+    folder = _folder(prefix)
+    logs = tmp_path / "logs"
+    agent = PokemonAgent(None, version="mpath", log_dir=logs, capture_dir="", log=lambda *_: None, params=tuning.merged(FAST))
+    for path in _sequence(folder, seat):
+        raw = json.loads(path.read_text())
+        state = GameState.from_mcp_state(raw)
+        if state.legal_actions:
+            agent.choose_action(state, _context(folder, raw, seat))
+    return logs
+
+
+def test_the_harness_replays_a_match_exactly_and_never_calls_a_model(tmp_path, monkeypatch, capsys):
+    """Replaying a code-only match's own decision log rebuilds every sheet: row 0 is the played move at every main
+    position, nothing falls back. Without --model-on, and with --model-on but no --max-calls, no provider is built."""
+    import agent.llm.anthropic_provider as anthropic_provider
+
+    monkeypatch.setattr(anthropic_provider, "provider_from_env", lambda **_: pytest.fail("a provider was built"))
+    lp = _harness()
+    logs = _own_log(tmp_path)
+    out = tmp_path / "replay.jsonl"
+    assert lp.main(["--logs", str(logs), "--audit", str(tmp_path / "no-audit"), "--out", str(out)]) == 0
+    lines = [json.loads(line) for line in out.read_text().splitlines()]
+    records, summary = lines[:-1], lines[-1]["summary"]
+    assert len(records) == 5 and summary["main"] == 4 and summary["replacements"] == 1  # 07a3cb1f: four turns, one replacement
+    assert summary["row0_is_live_play"] == 4 and summary["departures"] == 0
+    assert summary["fallbacks"] == 0 and summary["model_calls"] == 0 and summary["model_answers"] == 0
+    assert all(r["source"] == "replay" and r["stands"] and r["plays_row0"] and r["calls"] for r in records)
+    assert summary["verified_rules"]["of"] >= 1  # this match's documented positions are judged on the replayed plays
+    assert lp.main(["--logs", str(logs), "--audit", str(tmp_path / "no-audit"), "--model-on", "--out", str(tmp_path / "dry.jsonl")]) == 0
+    printed = capsys.readouterr().out
+    assert "MODEL ON: 4 main positions x 1 call = 4 calls planned" in printed and "estimated $0.60" in printed
+    assert "dry run: nothing was called" in printed and not (tmp_path / "dry.jsonl").exists()
+
+
+def test_the_harness_spends_at_most_its_budget_and_logs_each_model_answer(tmp_path, monkeypatch):
+    """--model-on --max-calls 2 with a scripted model: two calls are spent, the rest of the positions keep the live
+    answer, and each model answer is logged with the keys the audit's evaluator reads."""
+    import dotenv
+
+    import agent.llm.anthropic_provider as anthropic_provider
+
+    class Scripted:
+        model = "scripted"
+        last_model, last_latency_ms, last_usage, last_errors, last_attempts = "scripted", 5, {"input_tokens": 1}, [], []
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete_structured(self, messages, schema_name, schema, *, deadline=None, effort=None):
+            self.calls += 1
+            return {"row": 0, "override": {"use": False, "slot_0": {"option": 0, "target": 0}, "slot_1": {"option": 0, "target": 0}},
+                    "opponent_prediction": {"their_slot_1": "attack", "their_slot_2": "protect", "why": "w"},
+                    "win_condition": "w", "reasoning_summary": "Scripted."}
+
+    scripted = Scripted()
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(anthropic_provider, "provider_from_env", lambda **_: scripted)
+    lp = _harness()
+    logs = _own_log(tmp_path)
+    out = tmp_path / "model.jsonl"
+    assert lp.main(["--logs", str(logs), "--audit", str(tmp_path / "no-audit"), "--model-on", "--max-calls", "2", "--out", str(out)]) == 0
+    lines = [json.loads(line) for line in out.read_text().splitlines()]
+    records, summary = lines[:-1], lines[-1]["summary"]
+    assert scripted.calls == 2 and summary["model_calls"] == 2
+    model = [r for r in records if r["source"] == "model"]
+    assert len(model) >= 1 and all(r["source"] == "replay" for r in records if r not in model)
+    for r in model:
+        assert r["answers"][0]["opponent_prediction"]["their_slot_2"] == "protect" and r["row0_key"] and r["final_key"]
+        assert r["rows"] and all("key" in row for row in r["rows"]) and r["calls"][0]["source"] == "model"
+    assert summary["fallbacks"] == 0
