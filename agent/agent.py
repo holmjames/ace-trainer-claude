@@ -827,6 +827,7 @@ class PokemonAgent:
             meta["rules"] = "E2: the reply mixture did not price this turn's rows"  # answer_rules_v2 on, a scorer turn (R7)
         if row_ok:
             meta.update({"row": row, "row_name": rows[row].get("name"), "row_score": rows[row].get("score")})
+        rejected = None  # E2's rejection of the override, if any
         if override.get("use"):
             proposed = base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})  # InvalidChoice if illegal
             best = float(rows[0].get("score") or 0.0) if rows else 0.0
@@ -855,8 +856,9 @@ class PokemonAgent:
                    f"value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}")
             if not row_ok:
                 raise InvalidChoice(f"override rejected ({why}) and row {row!r} is not a candidate_turns row number 0..{len(rows) - 1}")
-            meta["resolution"] = f"override rejected: {why}; row {row} plays"
-            self._say(f"[agent] override rejected ({meta['resolution']})")
+            # "row k plays" is added once the margin below has let row k through (the M1b review: the log read "override
+            # rejected: ...; row 2 plays; row 2 rejected: ...; row 0 plays")
+            rejected = meta["resolution"] = f"override rejected: {why}"
         else:
             meta["resolution"] = "row"
         if not row_ok:
@@ -882,6 +884,10 @@ class PokemonAgent:
                     self._say(f"[agent] {meta['resolution']}")
                     return base.build({"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]})
                 meta["resolution"] = earlier + f"row {row} stands on the opponent read (the reply table rates it at least as well against the predicted column)"
+        if rejected is not None:
+            if meta["resolution"] == rejected:  # the margin passed row k (a row that stands on the read says so itself)
+                meta["resolution"] += f"; row {row} plays"
+            self._say(f"[agent] override rejected ({meta['resolution']})")
         return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
 
     def _opponent_class_view(self) -> dict:

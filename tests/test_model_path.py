@@ -598,6 +598,24 @@ def test_answer_rules_v2_leaves_the_scorer_path_alone():
     assert meta["resolution"].startswith("override rejected: value") and "override_ignored" not in meta and "rules" not in meta
 
 
+def test_e2_logs_the_row_that_plays_once_after_the_margin_bcbaabe2_t13():
+    """The deploy's scorer path at the defaults, bcbaabe2 T13 (rows 131.2 / 94.2 / 86.2; E2 margin 19.7). E2 rejects
+    the override for its value and the answer's row plays, unless the margin sends that row back too. The log said
+    "row 2 plays" before the margin did (the M1b review: "override rejected: ...; row 2 plays; row 2 rejected: ...; row 0
+    plays"); it now names the row that plays once. Log text only: the plays are the same."""
+    agent, sheet, template, choice = _position("bcbaabe2", 0, 13)
+    rows = sheet.candidates
+    weak = {"slot_0": {"option": _index(template, 0, "flashcannon"), "target": 2}, "slot_1": {"option": _index(template, 1, "snarl"), "target": 0}}
+    rejected = "override rejected: value 42.8 trails the best row 131.2 by more than 19.7"
+    for row, text in ((0, rejected + "; row 0 plays"),
+                      (1, rejected + "; row 1 rejected: 94.2 trails the best row 131.2 by more than 19.7; row 0 plays"),
+                      (2, rejected + "; row 2 rejected: 86.2 trails the best row 131.2 by more than 19.7; row 0 plays")):
+        meta: dict = {}
+        played = agent._resolve_turn_answer(_answer(row, override=weak, prediction=("protect", "switch")), sheet, choice, TOP, meta)
+        assert played == _plays(choice, rows[0]) and meta["resolution"] == text, meta["resolution"]
+        assert meta.get("row_played") == (0 if row else None) and meta["row"] == row
+
+
 def _raising(*args, **kwargs):
     raise KeyError("injected mixture bug")
 
