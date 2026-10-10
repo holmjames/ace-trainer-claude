@@ -278,8 +278,12 @@ SUPREME_OVERLORD_MODS = (4096, 4506, 4915, 5325, 5734, 6144)  # x1.0 .. x1.5 for
 
 def effective_move(attacker: "Mon", move: dict, defender: "Mon", fs: "FieldState | None", *, fallen: int | None = None) -> dict:
     """The move as it will actually resolve: type/power/category changes from weather, terrain, HP, status, weight,
-    and the Supreme Overlord count. ``fallen`` is how many allies had fainted when the attacker came in (the protocol
-    log's ``fallenN``, via the memory); None reads the attacker's side's fainted count from the field instead."""
+    and the Supreme Overlord count (Grassy Glide's priority too; Gale Wings' is ``gale_wings``'s). That count is the
+    allies that had fainted when the attacker came in, fixed for its stay: ``fallen`` when given, else the attacker's
+    ``overlord_fallen`` (build_sheet sets it for a Pokémon on the field from the protocol log's ``fallenN``,
+    memory.overlord_count; 0 when the log shows it coming in without one), else, when that is None (the log never
+    showed it come in: no log, a bench Pokémon coming in now), its side's fainted count on the field now (0 with no
+    field)."""
     mid = move.get("id")
     out = dict(move)
     weather = fs.weather if fs else None
