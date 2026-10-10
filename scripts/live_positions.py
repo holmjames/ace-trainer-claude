@@ -547,6 +547,8 @@ def classify_override(resolution: dict) -> str | None:
     text = str(resolution.get("resolution") or "")
     if resolution.get("override_ignored") is not None:
         return "ignored"
+    if resolution.get("override_as_row") is not None:
+        return "as_row"  # answer_rules_v2: a proposed joint action that repeats a listed row plays as that row
     if text.startswith("override accepted"):
         return "accepted"
     if text.startswith("override rejected"):
@@ -594,7 +596,7 @@ def summarize(records: list[dict]) -> dict:
         "answers": {"row0": sum(1 for a in first if not (a.get("override") or {}).get("use") and a.get("row") == 0),
                     "lower_row": sum(1 for a in first if not (a.get("override") or {}).get("use") and isinstance(a.get("row"), int) and a.get("row") > 0),
                     "override": sum(1 for a in first if (a.get("override") or {}).get("use"))},
-        "overrides": {k: sum(1 for r in main if r["override"] == k) for k in ("accepted", "rejected", "ignored")},
+        "overrides": {k: sum(1 for r in main if r["override"] == k) for k in ("accepted", "rejected", "ignored", "as_row")},
         "rows_sent_back_to_row0": sum(1 for r in main if r["row_sent_back"]),
         "final_plays_row0": sum(1 for r in main if r["plays_row0"]),
         "added_covers": added, "added_covers_double_target_only": dt_only, "attacks_where_row0_covers": attacks_where_row0_covers,
@@ -645,7 +647,8 @@ def print_summary(label: str, s: dict) -> None:
           f"not listed {s['stand_unlisted']}/{s['departures_unlisted']}); final play is row 0 at {s['final_plays_row0']} of {s['main']}")
     a, o = s["answers"], s["overrides"]
     print(f"  first answers: row 0 {a['row0']}, a lower row {a['lower_row']}, a proposed override {a['override']}; overrides accepted "
-          f"{o['accepted']}, rejected {o['rejected']}, ignored {o['ignored']}; rows sent back to row 0 {s['rows_sent_back_to_row0']}")
+          f"{o['accepted']}, rejected {o['rejected']}, ignored {o['ignored']}, played as the listed row they repeat {o['as_row']}; "
+          f"rows sent back to row 0 {s['rows_sent_back_to_row0']}")
     print(f"  added covers {s['added_covers']} (DOUBLE-TARGET-only slots {s['added_covers_double_target_only']}); attacks where row 0 "
           f"covers {s['attacks_where_row0_covers']}")
     print(f"  recheck firings: {s['rechecks_main']} on main positions ({s['rechecks_all']} in all), flips {s['recheck_flips']}; "

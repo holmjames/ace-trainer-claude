@@ -425,6 +425,32 @@ def test_rows_only_ignores_an_override_logs_it_and_plays_the_chosen_row(t6_rules
         sheet.candidates = saved
 
 
+def test_rows_only_an_override_that_repeats_a_listed_row_is_that_row_with_its_margin(t6_rules):
+    """bcbaabe2 T6: an override whose joint action is listed row k plays as row k (not ignored for the answer's own row),
+    judged by the same margin; both values are logged (the M1 review)."""
+    agent, sheet, template, choice = t6_rules
+    rows = sheet.candidates
+
+    def as_override(k: int) -> dict:
+        return {"slot_0": dict(rows[k]["slot_0"]), "slot_1": dict(rows[k]["slot_1"])}
+
+    meta: dict = {}
+    assert agent._resolve_turn_answer(_answer(0, override=as_override(1)), sheet, choice, TOP, meta) == _plays(choice, rows[1])
+    assert meta["override_as_row"] == {"row": 1, "value": 28.2, "answer_row": 0, "answer_row_value": 61.5}
+    assert meta["resolution"] == "override = row 1 (a listed row); row 1 plays" and "override_ignored" not in meta
+    assert meta["row"] == 1 and meta["row_value"] == 28.2 and meta["margin"] == 50.0 and "row_played" not in meta
+    # row 4 (the live play, -6.2) trails by 67.7: the same margin sends it back to row 0
+    meta = {}
+    assert agent._resolve_turn_answer(_answer(1, override=as_override(4)), sheet, choice, TOP, meta) == _plays(choice, rows[0])
+    assert meta["override_as_row"] == {"row": 4, "value": -6.2, "answer_row": 1, "answer_row_value": 28.2} and meta["row_played"] == 0
+    assert meta["resolution"].startswith("override = row 4 (a listed row)") and "; row 4 rejected: -6.2 trails" in meta["resolution"]
+    # the answer's own row need not be valid: the override names the row
+    meta = {}
+    assert agent._resolve_turn_answer(_answer(9, override=as_override(1)), sheet, choice, TOP, meta) == _plays(choice, rows[1])
+    assert meta["override_as_row"]["answer_row"] is None and meta["override_as_row"]["answer_row_value"] is None
+    assert _harness().classify_override(meta) == "as_row"
+
+
 def test_rows_only_has_no_read_bypass(t6_rules):
     """The old hook let a trailing row stand when the read matched the code's column and the reply table (keyed by row
     name, which the mixture repeats) rated it at least as well. Under answer_rules_v2 the margin alone decides."""

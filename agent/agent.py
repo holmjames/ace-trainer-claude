@@ -746,7 +746,9 @@ class PokemonAgent:
         off-menu plays lost to its row 1 out of sample, -375, while listed lower rows were even). A lower row stands
         when its value is within max(row_margin_points, 15% of |row 0's value|) of row 0's, else row 0 plays: the old
         margin, 15% of max(row 0, 1), is 0.15 points on the mixture's scale whenever row 0 is 1 or less (57 of 121
-        live positions). No read bypass: the mixture already prices the replies a read names. With no rows at all, a
+        live positions). No read bypass: the mixture already prices the replies a read names. A proposed joint action
+        that repeats a listed row is that row: it counts as row k (the margin judges it like a pick of row k), and both
+        values are logged (``meta["override_as_row"]``: row k's and the answer's own row's). With no rows at all, a
         proposed joint action plays once it validates."""
         rows = list(sheet.candidates)
         row = answer.get("row")
@@ -759,13 +761,18 @@ class PokemonAgent:
                 meta["resolution"] = "override accepted (no rows)"
                 return proposed
             raise InvalidChoice("this position has no rows: propose a joint action with override.use=true")
+        same = next((i for i, r in enumerate(rows) if r.get("slot_0") == override.get("slot_0") and r.get("slot_1") == override.get("slot_1")),
+                    None) if override.get("use") else None
+        if same is not None:
+            # the proposed joint action IS row `same`: play it as that row (the margin below judges it), log both values
+            meta["override_as_row"] = {"row": same, "value": rows[same].get("score"), "answer_row": row if row_ok else None,
+                                       "answer_row_value": rows[row].get("score") if row_ok else None}
+            row, row_ok = same, True
         if row_ok:
             meta.update({"row": row, "row_name": rows[row].get("name"), "row_score": rows[row].get("score")})
-        meta["resolution"] = "row"
-        if override.get("use"):
-            ignored = {"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1"),
-                       "same_as_row": next((i for i, r in enumerate(rows) if r.get("slot_0") == override.get("slot_0")
-                                            and r.get("slot_1") == override.get("slot_1")), None)}
+        meta["resolution"] = "row" if same is None else f"override = row {same} (a listed row); row {same} plays"
+        if override.get("use") and same is None:
+            ignored = {"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1"), "same_as_row": None}
             try:
                 base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})
                 ignored["legal"] = True
