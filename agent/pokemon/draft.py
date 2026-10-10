@@ -802,6 +802,181 @@ def _board_for(cards: list[dict], card_weight: float = 1.0, tier_adjust: float =
     return board
 
 
+# -- support-blunted answers (``draft_support_w``) ----------------------------------------------------------------------
+#
+# The Oct 9 support-counter analysis (buildout support-counter-analysis.md, pre-registrations #1 and #2): an answer Y
+# (board margin >= BEATS_MARGIN) to a card X is blunted by two kinds of support on X's side, and only these two
+# improved the prediction of simulator results (sleep, speed control, redirection and screens made it worse; Fake Out
+# and priority did not help):
+# - Intimidate: a partner of X has it, Y leans on a physical attack that one Attack stage down needs one more hit
+#   (Body Press and Foul Play excepted; Intimidate-immune and Defiant / Guard Dog cards excepted);
+# - a safe switch-in: a partner of X resists Y's attack (or is immune to it) and Y does not beat that partner;
+# and in both cases only when Y cannot afford a free hit from X (margin - X's best hit / 100 < BEATS_MARGIN).
+# With the key on, the draft's search (DraftSearch, through ``SupportView``) scales each blunted answer's effective
+# margin by 1 - min(1, w * n), n = how many of the two the holder supplies, in both directions: their support blunts
+# our answers, ours blunts theirs. That is where Board.margins already scales margins for speed control, so it reaches
+# every margin-based team term the search reads (answers, backup, mean, top4). Exposure, the first-pick policy and the
+# counter-picker's reply model (the opponent's own scorer) keep the raw margins; Team Preview builds its own boards
+# (lineup.py) and never sees any of it. 0 = the shipped search, bit for bit.
+
+SUPPORT_ATTACK_FREE = frozenset({"bodypress", "foulplay"})  # Defense / the target's Attack: Intimidate does not weaken them
+_SUPPORT_PAIRS: dict[tuple[str, str], tuple[bool, dict | None]] = {}  # (Y key, X key) -> (Intimidate blunts, Y's attack)
+_SUPPORT_RESIST: dict[tuple[str, str, str], bool] = {}  # (Y key, move id, P key) -> P resists or is immune to it
+
+
+def _hits_to_ko(hit: float) -> int:
+    return math.ceil(100.0 / hit - 1e-9)
+
+
+def _stage_mult(stage: int) -> float:
+    return (2 + stage) / 2 if stage >= 0 else 2 / (2 - stage)
+
+
+def support_pair(board, y: int, x: int) -> tuple[bool, dict | None]:
+    """For Y = board card ``y`` answering X = ``x``: (an Intimidate partner of X blunts it, Y's race attack when a
+    resisting partner would blunt it, else None). Pure functions of the two sets, cached by fingerprint."""
+    from . import matchup
+
+    Y, X = board.units[y], board.units[x]
+    key = (Y.key, X.key)
+    cached = _SUPPORT_PAIRS.get(key)
+    if cached is None:
+        h_yx = board.hit[y][x]
+        tempo = board.base[y][x] - board.hit[x][y] / 100.0 < BEATS_MARGIN  # Y cannot afford a free hit from X
+        move = next((m for m in Y.attacks if m["id"] == matchup.duel(Y, X).a_move), None)
+        intimidate = False
+        if tempo and move and move.get("category") == "Physical" and move["id"] not in SUPPORT_ATTACK_FREE and h_yx > 0:
+            delta = matchup.intimidated(Y).get("atk", 0)
+            if delta < 0:
+                stage = matchup.entry_stages(Y, X).get("atk", 0)
+                mu = _stage_mult(max(-6, stage + delta)) / _stage_mult(stage)
+                intimidate = _hits_to_ko(mu * h_yx) > _hits_to_ko(h_yx)
+        cached = _SUPPORT_PAIRS[key] = (intimidate, move if tempo else None)
+    return cached
+
+
+def support_resists(Y, move: dict, P) -> bool:
+    """Partner ``P`` takes ``move`` from ``Y`` resisted or not at all (the race calculator, effective move type)."""
+    from . import battle, matchup
+
+    key = (Y.key, move["id"], P.key)
+    cached = _SUPPORT_RESIST.get(key)
+    if cached is None:
+        race = matchup._Race(Y, P)
+        side_y = matchup._Side(Y, stages=matchup.entry_stages(Y, P), item=Y.item)
+        side_p = matchup._Side(P, stages=matchup.entry_stages(P, Y), item=P.item)
+        weather, terrain = matchup.pair_field(Y, P)
+        fs = battle.FieldState(weather=weather, terrain=terrain, actives=[Y.mon, P.mon])
+        kind = battle.effective_move(Y.mon, move, P.mon, fs).get("type")
+        cached = _SUPPORT_RESIST[key] = race.hit(side_y, move, side_p)[0] <= 0 or data.effectiveness(kind, P.types) < 1
+    return cached
+
+
+def support_table(board) -> list[list[tuple[int, int] | None]]:
+    """Per answer pair [y][x] of ``board``: (bitmask of the cards that blunt it as a resisting switch-in, bitmask of
+    those that blunt it with Intimidate), or None. Built once per board (a match's pool) and kept on it."""
+    table = board.__dict__.get("_draft_support")
+    if table is None:
+        n, units = board.n, board.units
+        table = [[None] * n for _ in range(n)]
+        for y in range(n):
+            for x in range(n):
+                if x == y or board.base[y][x] < BEATS_MARGIN:
+                    continue
+                intimidate, move = support_pair(board, y, x)
+                switch = intim = 0
+                for p in range(n):
+                    if p == x or p == y:
+                        continue
+                    if intimidate and units[p].ability == "intimidate":
+                        intim |= 1 << p
+                    if move is not None and board.base[y][p] < BEATS_MARGIN and support_resists(units[y], move, units[p]):
+                        switch |= 1 << p
+                if switch or intim:
+                    table[y][x] = (switch, intim)
+        board.__dict__["_draft_support"] = table
+    return table
+
+
+class SupportView:
+    """``board`` as the draft's search sees it with ``draft_support_w`` = ``w`` > 0: the same cards, races and weights,
+    with ``margins`` scaling each blunted answer (``support_table``) by 1 - min(1, w * n). ``features``, ``score`` and
+    ``score4`` are Board's own code run on this view; everything else is the board's."""
+
+    def __init__(self, board, w: float) -> None:
+        from types import MethodType
+
+        from . import matchup
+
+        self.__dict__.update(board.__dict__)  # plain attributes, read at full speed by Board's code
+        self._board, self._w, self._blunt = board, float(w), support_table(board)
+        self._board_margins = board.margins
+        n = board.n
+        # per card: the cards whose answer pair with it can be blunted (it answering them, or them answering it)
+        self._touch = [sum(1 << j for j in range(n) if self._blunt[i][j] or self._blunt[j][i]) for i in range(n)]
+        # the two kinds as plain int matrices (0 = nothing blunts it); a pair's own two cards are never in its masks
+        self._sw = [[pair[0] if pair else 0 for pair in row] for row in self._blunt]
+        self._im = [[pair[1] if pair else 0 for pair in row] for row in self._blunt]
+        self._memo: dict[tuple, tuple[list[list[float]], float, float]] = {}  # one view per decision: the search repeats team pairs
+        for name in ("features", "score", "score4"):  # Board's own code, run on this view (no wrapper call)
+            setattr(self, name, MethodType(getattr(matchup.Board, name), self))
+        self.holes, self.sleep_reach = board.holes, board.sleep_reach  # the board's own, read once per finished draft
+
+    def __getattr__(self, name: str):  # methods this view does not override (holes, sleep_reach, ...)
+        return getattr(self._board, name)
+
+    def margins(self, us: list[int], them: list[int]) -> tuple[list[list[float]], float, float]:
+        key = (tuple(us), tuple(them))
+        cached = self._memo.get(key)
+        if cached is None:
+            cached = self._memo[key] = self._scaled(us, them)
+        return cached  # Board's features() only reads the rows
+
+    def _scaled(self, us: list[int], them: list[int]) -> tuple[list[list[float]], float, float]:
+        rows, tw_gain, tr_gain = self._board_margins(us, them)
+        them_bits = 0
+        for j in them:
+            them_bits |= 1 << j
+        touch = self._touch
+        hit = [a for a, i in enumerate(us) if touch[i] & them_bits]
+        if not hit:
+            return rows, tw_gain, tr_gain
+        us_bits = 0
+        for i in us:
+            us_bits |= 1 << i
+        sw, im, w = self._sw, self._im, self._w
+        for a in hit:
+            i = us[a]
+            row, sw_i, im_i = rows[a], sw[i], im[i]
+            for b, j in enumerate(them):
+                m = row[b]
+                if m > 0:  # our i answers their j: their other cards may blunt it
+                    n = (sw_i[j] & them_bits != 0) + (im_i[j] & them_bits != 0)
+                elif m < 0:  # their j answers our i: our other cards may blunt it
+                    n = (sw[j][i] & us_bits != 0) + (im[j][i] & us_bits != 0)
+                else:
+                    continue
+                if n:
+                    row[b] = m * max(0.0, 1.0 - w * n)
+        return rows, tw_gain, tr_gain
+
+
+def support_notes(board, i: int, us: list[int], them: list[int]) -> list[str]:
+    """What ``draft_support_w`` sees for candidate ``i``: their answers to our cards it would blunt, and its answers to
+    their cards that their other cards blunt."""
+    table, units = support_table(board), board.units
+    theirs = sum(1 << p for p in them)
+    shields = sorted({f"{units[j].species} vs our {units[k].species}" for j in them for k in us
+                      if table[j][k] and (table[j][k][0] | table[j][k][1]) >> i & 1})
+    blunted = sorted({units[j].species for j in them if table[i][j] and (table[i][j][0] | table[i][j][1]) & theirs & ~(1 << j)})
+    out = []
+    if shields:
+        out.append("support: blunts their " + ", ".join(shields[:3]))
+    if blunted:
+        out.append("support: their partners blunt its answer to " + ", ".join(blunted[:3]))
+    return out
+
+
 def _drafted_ids(memory: MatchMemory) -> set[str]:
     return {str(c.get("card_id")) for c in (*memory.my_cards.values(), *memory.opp_cards.values()) if c.get("card_id")}
 
@@ -834,7 +1009,9 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
     picks_made = len(memory.my_cards) + len(memory.opp_cards)
     we_first = picks_made in FIRST_SLOTS  # it is our turn, so the slot says which drafter we are
     order = pick_order(picks_made, we_first)
-    search = DraftSearch(board, lookahead=int(P.get("draft_lookahead", 3)), minimax=P.get("draft_minimax", 0.5),
+    support_w = float(P.get("draft_support_w", 0.0))  # > 0: the search sees support-blunted answers (SupportView)
+    search = DraftSearch(SupportView(board, support_w) if support_w > 0 else board,
+                         lookahead=int(P.get("draft_lookahead", 3)), minimax=P.get("draft_minimax", 0.5),
                          reply_depth=int(P.get("draft_reply_depth", 1)), counter_replies=int(P.get("draft_counter_replies", 3)),
                          counter_prior=float(P.get("draft_counter_prior", 0.0)),
                          four_eval=bool(P.get("draft_four_eval", 1)), their_fours=int(P.get("draft_their_fours", 3)),
@@ -865,6 +1042,8 @@ def rank_picks_v2(legal_actions: list[LegalAction], memory: MatchMemory, params:
         answered = [board.units[j].species for j in them if board.base[i][j] >= 0.2]
         if answered:
             notes.append(f"beats {answered[:3]}")
+        if support_w > 0:
+            notes.extend(support_notes(board, i, us, them))
         # Sleep (Board.sleep_reach; draft_sleep_w): their sleep-move users this card cannot be slept by, and ours.
         proof_vs = [board.units[j].species for j in them if board.sleep_r[j] and board.proof[j][i]]
         if proof_vs:
