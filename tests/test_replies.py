@@ -496,3 +496,44 @@ def test_the_search_bot_priors_come_from_the_pooled_tally():
     assert replies._p_switch("search", streak=1, ko_one=1.0, has_absorber=True, has_protect=True) == replies.SEEDS["spent_protect_ko_switch"]
     assert replies._p_switch("search", streak=0, ko_one=0.0, ko_two=1.0, has_absorber=True) < 0.1  # it stays when only a double KOs it
     assert replies._p_fakeout("search", turn=1) == replies.SEEDS["fakeout_first_turn"]
+
+
+_SEEDS_PROBE = """
+import json, os, sys
+opened = []
+sys.addaudithook(lambda e, a: opened.append(os.fsdecode(a[0])) if e == "open" and a and isinstance(a[0], (str, bytes, os.PathLike)) else None)
+from agent.pokemon import replies
+home = os.path.realpath(os.environ["HOME"])
+print(json.dumps({"file": replies.__file__, "equal": replies.SEEDS == replies.SEARCH_BOT_SEEDS, "copy": replies.SEEDS is not replies.SEARCH_BOT_SEEDS,
+                  "under_home": [p for p in opened if os.path.realpath(p).startswith(home + os.sep)]}))
+"""
+
+
+def test_the_search_bot_seeds_are_the_repositorys_own_and_nothing_outside_it_is_read(tmp_path):
+    """SEEDS is SEARCH_BOT_SEEDS alone. Until deploy #4 replies laid a tally file's suggested seeds over them at import:
+    ACE_OPPONENT_TALLIES, else a file under the home directory (~/projects/ace-trainer-data/). A fresh interpreter whose
+    HOME holds such a file with other seeds, and whose ACE_OPPONENT_TALLIES names another, imports replies with the
+    repository's seeds and opens nothing under that HOME (on the old code both checks fail)."""
+    import os
+    import subprocess
+    import sys
+
+    from agent.pokemon import replies
+
+    home = tmp_path / "home"
+    planted = home / "projects" / "ace-trainer-data" / "opponent-tallies-2026-10-08.json"
+    planted.parent.mkdir(parents=True)
+    other = {"events": [{"event": "protect_after_protect", "suggested_seed": 0.99}, {"event": "fresh_protect_ko50", "suggested_seed": 0.01}]}
+    planted.write_text(json.dumps(other))
+    named = home / "named-tallies.json"
+    named.write_text(json.dumps(other))
+    root = Path(__file__).resolve().parent.parent
+    for env in ({"HOME": str(home), "ACE_OPPONENT_TALLIES": str(named)}, {"HOME": str(home)}):
+        child_env = {k: v for k, v in os.environ.items() if k != "ACE_OPPONENT_TALLIES"}
+        out = subprocess.run([sys.executable, "-c", _SEEDS_PROBE], cwd=root, env={**child_env, **env}, capture_output=True, text=True,
+                             timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        result = json.loads(out.stdout.strip().splitlines()[-1])
+        assert Path(result.pop("file")).resolve().is_relative_to(root)  # the repository's replies, not another checkout's
+        assert result == {"equal": True, "copy": True, "under_home": []}, (env, result)
+    assert replies.SEEDS == replies.SEARCH_BOT_SEEDS and not hasattr(replies, "TALLIES_PATH") and not hasattr(replies, "_load_seeds")

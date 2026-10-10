@@ -39,7 +39,8 @@ FLINCH_IMMUNE_ABILITIES = ("innerfocus", "shielddust")
 
 # The search-bot class's starting rates: (k+1)/(n+2) from the Oct 8 pooled tally of the class's 130 decisions over the
 # eight live games (Oct 7-8; Oct 8 alone where the two days differ at Fisher p < 0.1). The in-game tallies (A4) move
-# them; a tally file outside the repository overrides them at import time when it is present.
+# them. They live here only: the runtime reads nothing outside the repository (until deploy #4 a tally file outside it
+# was laid over them at import; on Oct 10 its suggested seeds equalled these, 14 of the 18 keys, the rest absent).
 SEARCH_BOT_SEEDS = {
     "protect_after_protect": 0.05,       # 0/17: never twice in a row
     "fresh_protect_ko50": 0.47,          # 6/13: a fresh Protect against our one-move KO
@@ -60,27 +61,7 @@ SEARCH_BOT_SEEDS = {
     "sleep_unthreatened": 0.6,           # a sleep user with an awake target uses its sleep move (start value; Oct 8 evening loss: 6 of 7 turns)
     "sleep_threatened": 0.4,             # the same while our one-move KO threatens it
 }
-TALLIES_PATH = os.environ.get("ACE_OPPONENT_TALLIES", os.path.expanduser("~/projects/ace-trainer-data/opponent-tallies-2026-10-08.json"))
-
-
-def _load_seeds(path: str) -> dict[str, float]:
-    """The tally file's suggested seeds over the dictionary above; the dictionary alone when the file is missing."""
-    seeds = dict(SEARCH_BOT_SEEDS)
-    try:
-        import json
-
-        with open(path) as f:
-            doc = json.load(f)
-        for event in doc.get("events") or []:
-            name, seed = event.get("event"), event.get("suggested_seed")
-            if name in seeds and seed is not None:
-                seeds[name] = float(seed)
-    except Exception:
-        pass
-    return seeds
-
-
-SEEDS = _load_seeds(TALLIES_PATH)
+SEEDS = dict(SEARCH_BOT_SEEDS)
 
 
 # -- the opponent class and its priors ------------------------------------------------------------------------------
