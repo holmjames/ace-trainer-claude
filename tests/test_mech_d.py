@@ -733,6 +733,30 @@ def test_our_priority_attack_is_blocked_per_target():
         assert bool(es.get("fails")) is (not reached), (opp, es)
 
 
+def test_their_priority_attack_is_blocked_per_target():
+    """The threat side of the same rule: Psychic Terrain shields our GROUNDED Pokémon only, so beside our grounded
+    Indeedee-F a fresh Incineroar's Fake Out and Baxcalibur's Ice Shard still reach the Flying Tornadus (the LETHAL and
+    FAKE OUT warnings with them); Armor Tail on our side shields both of our slots."""
+    terrain = {"fields": {"PSYCHIC_TERRAIN": 3}, "turn": 1}
+    sheet, _ = build(["Indeedee-F", "Tornadus"], ["Incineroar", "Baxcalibur"], hp={"Tornadus": 0.3}, obs_extra=terrain)
+    prio = sorted((h["move"], h["into_slot"]) for t in sheet.threats for h in t["hits"] if (h.get("priority") or 0) > 0)
+    assert prio == [("fakeout", 1), ("iceshard", 1)], prio
+    tornadus = next(m for m in sheet.field.actives if m.side == "mine" and m.position == 1)
+    baxcalibur = next(m for m in sheet.field.actives if m.side == "theirs" and m.species == "Baxcalibur")
+    shard = threat_hit(sheet, "Baxcalibur", "iceshard", 1)
+    expected = battle.damage_percent(baxcalibur, {**data.move_info("iceshard"), "id": "iceshard"}, tornadus, field=sheet.field)
+    assert shard["damage_pct_of_current_hp"] == list(expected) and expected[0] >= 100, (shard, expected)
+    assert [w for w in sheet.warnings if w.startswith("LETHAL: Baxcalibur's iceshard") and "slot 1 (Tornadus)" in w], sheet.warnings
+    incineroar = next(t for t in sheet.threats if t["species"] == "Incineroar")
+    assert incineroar["note"].startswith("FRESH") and "Tornadus" in incineroar["note"], incineroar["note"]
+    assert sheet.flinch_risk == {1: 0.9} and [w for w in sheet.warnings if w.startswith("FAKE OUT: Incineroar")], sheet.warnings
+    for mine, extra in ((["Farigiraf", "Tornadus"], {"turn": 1}), (["Indeedee-F", "Farigiraf"], terrain)):
+        sheet, _ = build(mine, ["Incineroar", "Baxcalibur"], obs_extra=extra)
+        assert not [h for t in sheet.threats for h in t["hits"] if (h.get("priority") or 0) > 0], mine
+        incineroar = next(t for t in sheet.threats if t["species"] == "Incineroar")
+        assert "blocks it" in incineroar["note"] and not sheet.flinch_risk, (mine, incineroar["note"])
+
+
 def test_redirect_ignored_and_blocked_effects():
     rillaboom, hatterene = catalog_mon("Rillaboom", side="theirs", position=1), catalog_mon("Hatterene", side="theirs", position=2)
     gholdengo, scream_tail = catalog_mon("Gholdengo", side="theirs", position=1), catalog_mon("Scream Tail", side="theirs", position=2)

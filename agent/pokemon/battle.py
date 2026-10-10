@@ -1009,7 +1009,10 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
                     frac = (summary.get("current_hp") or 0) / summary["max_hp"]
                 sheet.bench_hp[species_key(summary["species"])] = float(frac if frac is not None else 1.0)
 
-    # Opponent threats from their KNOWN sets.
+    # Opponent threats from their KNOWN sets. Their priority attack fails into one of ours on an Armor Tail / Dazzling /
+    # Queenly Majesty side (both slots) and, in Psychic Terrain, into a GROUNDED one only: our Flying type, Levitate or
+    # Air Balloon is still hit (priority_move_blocked, per target, as for our own priority attacks).
+    shielded = {number for number, me in ours.items() if priority_move_blocked(sheet, me)}
     for position, opp in sorted(theirs.items()):
         threat = {"position": position, "species": opp.species, "hp_pct": round(opp.hp_fraction * 100), "status": opp.status,
                   "item": opp.item, "ability": opp.ability, "known_moves": [m["id"] for m in opp.moves], "hits": []}
@@ -1019,8 +1022,6 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         if locked:
             threat["locked_move"] = locked
             threat["note"] = f"Choice-locked into {locked} until it switches out: its other moves cannot be used this turn."
-        our_priority_block = any(data.to_id(m.ability) in ("armortail", "dazzling", "queenlymajesty") for m in ours.values()) \
-            or (fs.terrain == "psychic" and any(m.grounded for m in ours.values()))
         for move in opp.moves:
             if locked and move["id"] != locked:
                 continue  # Choice-locked: only the locked move can come out
@@ -1029,9 +1030,9 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             if move["id"] in ("fakeout", "firstimpression") and not opp_fresh:
                 continue  # only works on the user's first turn out
             eff = effective_move(opp, move, opp, fs)
-            if (eff.get("priority") or 0) > 0 and our_priority_block:
-                continue  # our Armor Tail (or Psychic Terrain) blocks their priority attacks
             for number, me in sorted(ours.items()):
+                if (eff.get("priority") or 0) > 0 and number in shielded:
+                    continue  # our Armor Tail, or Psychic Terrain under this grounded one, blocks their priority attack
                 prof = hit_profile(opp, move, me, field=fs, spread=is_spread(move, foes=len(ours), allies=len(theirs) - 1))
                 if prof is None:
                     continue
@@ -1056,8 +1057,12 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
             threat["protect"] = ("can Protect this turn" if not streak else
                                  f"Protected last turn: another works only 1 in {3 ** streak} (good turn to attack it)")
         if "fakeout" in threat["known_moves"] and not locked:
-            if opp_fresh and not our_priority_block:
+            open_slots = [n for n in sorted(ours) if n not in shielded]
+            if opp_fresh and (open_slots or not ours):
                 threat["note"] = "FRESH: its Fake Out works THIS turn (priority +3): expect a flinch on one of our slots, so a setup move (Trick Room/Tailwind) from the slot it targets fails."
+                if shielded and open_slots:
+                    threat["note"] += (f" Only into slot {open_slots[0]} ({ours[open_slots[0]].species}): Psychic Terrain shields our "
+                                       f"grounded {', '.join(ours[n].species for n in sorted(shielded))}.")
             elif opp_fresh:
                 threat["note"] = "has Fake Out but our Armor Tail / Psychic Terrain blocks it."
             else:

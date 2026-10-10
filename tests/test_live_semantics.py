@@ -208,3 +208,15 @@ def test_a_priority_attack_with_only_a_grounded_foe_left_stays_blocked(tmp_path)
     _, rows = replay("6ce0b81e", tmp_path, seat=0)
     row = option(turn_row(rows, 6), 1, "iceshard")
     assert row.get("fails") and "BLOCKED" in row["note"] and not row["targets"], row
+
+
+def test_psychic_terrain_blocks_their_priority_only_into_our_grounded_pokemon(tmp_path):
+    # 6ce0b81e seat 1 turn 5, the other side of the position above: Baxcalibur's Ice Shard KOs our Flying Scarf
+    # Landorus-Therian before it moves. The sheet dropped every priority attack of theirs (and so the LETHAL warning)
+    # because our Kingambit beside it stands on the ground; into Kingambit the Ice Shard still fails.
+    _, rows = replay("6ce0b81e", tmp_path, seat=1)
+    row = turn_row(rows, 5)
+    shards = [h for h in threat(row, "baxcalibur")["hits"] if h["move"] == "iceshard"]
+    assert [(species_key(h["species"]), h["ko"], h["priority"]) for h in shards] == [("landorustherian", "guaranteed", 1)], shards
+    warnings = row["turn_sheet"]["WARNINGS"]
+    assert [w for w in warnings if w.startswith("LETHAL") and "iceshard" in w and "landorustherian" in w], warnings
