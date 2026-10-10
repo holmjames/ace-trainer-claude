@@ -124,7 +124,8 @@ DEFAULTS: dict[str, float] = {
     "sleep_use_prior": 0.6,        # Part 3: chance a sleep user with a target uses its sleep move this turn (aimed 0.8 at the slot that loses most)
     # model layer (ops lane)
     "override_margin": 0.15,       # E2: a free-form override whose value trails the best row by more than this share of the top value is rejected, unless the model's opponent prediction matches the code's top column
-    # model path (lane M1): the model audit's recommendations (Oct 9), each off by default (0 = the Oct 10 deploy, bit for bit)
+    # model path (lane M1): the model audit's recommendations (Oct 9), each off by default (0 = the Oct 10 deploy's rules and
+    # prompt, bit for bit; the public summary of the row that played and the sorted foe status order apply at any setting)
     "answer_rules_v2": 0.0,        # 1 = on the reply mixture (reply_mixture 1) the model chooses rows only: an override is logged (resolution override_ignored), never played while rows exist (one that repeats listed row k plays as row k: resolution override_as_row); a lower row stands within row_margin_points of row 0, no read bypass; the prompt's row/override bullets say so (model audit R1). Only on turns whose rows the mixture priced (sheet.reply set): a turn it did not price (a replacement, a mixture failure) keeps the E2 rules and its answer format says so (R7). The scorer path is unchanged at any setting
     "row_margin_points": 50.0,     # answer_rules_v2: a lower row stands if its value >= row 0's - max(this, 0.15 x |row 0's value|), else row 0 plays (25 is the audit's cautious alternative)
     "recheck_v2": 0.0,             # 1 = the lethal recheck drops DOUBLE-TARGET triggers and fires only for a LETHAL/EXPOSED slot that row 0 Protects or switches, and sends the model back to row 0 (model audit R3, readiness item 10). Both paths

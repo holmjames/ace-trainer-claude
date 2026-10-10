@@ -14,10 +14,12 @@
    the message sends the model back to row 0 (model audit R3, readiness item 10).
 5. prompt_v2 and prompt_kb (off by default): the audit's R2 and R5 prompt text (with the sheet's DOUBLE-TARGET warnings
    ending neutrally) and its R4 knowledge base, general mechanics checked against the mechanics data; every variant is
-   built at import and system_prompt never raises; the defaults send the Oct 10 deploy's prompt and payload byte for byte.
+   built at import and system_prompt never raises; the defaults send the Oct 10 deploy's system prompt and payload texts
+   (answer format, instructions) byte for byte.
 6. scripts/live_positions.py: the live answers replayed through the agent (code only), a model-on mode that is a dry
    run without --max-calls and never spends more than it (N calls, up to 2N requests with fallbacks); an ignored
    override is recorded with its key and the evaluator's value.
+7. The user message's bytes do not depend on the interpreter's hash seed: the foe status dict's on-field keys are sorted.
 
 Positions are replayed from the live captures (tests/fixtures/live/) through a code-only agent; the model is a scripted
 fake or absent. No test calls a model.
@@ -1186,3 +1188,36 @@ def test_the_harness_spends_at_most_its_budget_and_logs_each_model_answer(tmp_pa
         assert r["answers"][0]["opponent_prediction"]["their_slot_2"] == "protect" and r["row0_key"] and r["final_key"]
         assert r["rows"] and all("key" in row for row in r["rows"]) and r["calls"][0]["source"] == "model"
     assert summary["fallbacks"] == 0
+
+
+# -- 7. the user message's bytes do not depend on the interpreter's hash seed (the M1b review) ---------------------------
+
+_ROSTER_PROBE = """
+import json
+from agent.agent import battle_roster
+from agent.pokemon.memory import MatchMemory
+
+obs = {"opponent_active_pokemon": [{"species": "Iron Hands", "current_hp_fraction": 1.0}, {"species": "Gholdengo", "current_hp_fraction": 0.5}],
+       "opponent_team": {"p2: Iron Hands": {"species": "Iron Hands"}, "p2: Gholdengo": {"species": "Gholdengo"},
+                         "p2: Rillaboom": {"species": "Rillaboom"}, "p2: Amoonguss": {"species": "Amoonguss", "fainted": True}}}
+print(json.dumps(battle_roster(obs, {"slots": []}, MatchMemory())))
+"""
+
+
+def test_the_foe_status_order_does_not_depend_on_the_hash_seed():
+    """battle_roster built theirs["status"] from a set of the on-field species, so its key order, and with it the user
+    message's bytes, followed PYTHONHASHSEED: 59 of the 138 live decisions' message digests varied from run to run (on
+    81c4591 as well; the M1b review). The on-field keys are sorted now. Four interpreters with different hash seeds build
+    the same roster (on the parent, seed 2 put Iron Hands first and seeds 0, 1 and 3 Gholdengo)."""
+    import os
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parent.parent
+    outs = {seed: subprocess.run([sys.executable, "-c", _ROSTER_PROBE], cwd=root, env={**os.environ, "PYTHONHASHSEED": str(seed)},
+                                 capture_output=True, text=True, timeout=120) for seed in (0, 1, 2, 3)}
+    assert all(r.returncode == 0 for r in outs.values()), {s: r.stderr[-500:] for s, r in outs.items()}
+    assert len({r.stdout for r in outs.values()}) == 1, {s: r.stdout for s, r in outs.items()}
+    status = json.loads(outs[0].stdout)["theirs"]["status"]
+    assert list(status.items()) == [("gholdengo", "on_field"), ("ironhands", "on_field"), ("rillaboom", "in_back"),
+                                    ("amoonguss", "fainted")]

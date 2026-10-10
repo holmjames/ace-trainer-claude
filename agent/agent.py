@@ -1628,7 +1628,9 @@ def battle_roster(obs: dict, template: dict, memory: MatchMemory) -> dict:
     opp_back = sorted(k for k in seen if k not in opp_field_keys and k not in opp_fainted)
     unseen = max(0, 4 - len(seen))
     could_be = sorted(k for k in memory.opp_cards if k not in seen) if unseen else []
-    status = {k: "on_field" for k in opp_field_keys}
+    # sorted: a set's order follows PYTHONHASHSEED, and this dict goes into the user message (the M1b review: 59 of the 138
+    # live decisions' message digests varied from run to run)
+    status = {k: "on_field" for k in sorted(opp_field_keys)}
     status.update({k: "in_back" for k in opp_back})
     status.update({k: "fainted" for k in opp_fainted})
     for k in memory.opp_cards:
