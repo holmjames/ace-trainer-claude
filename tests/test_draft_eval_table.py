@@ -86,7 +86,8 @@ def test_a_card_the_catalog_does_not_hold_stops_the_run(match, monkeypatch, tmp_
 def test_the_table_in_use_is_the_first_line_of_the_log(match, monkeypatch, tmp_path, capsys):
     run, played, bridges, out = match
     assert run() == 0
-    assert capsys.readouterr().out.splitlines()[0] == "first-pick table: shipped (0 non-zero entries)"
+    shipped = draft.first_pick_adjust().entries()  # the shipped table's own count (non-zero since Oct 10)
+    assert capsys.readouterr().out.splitlines()[0] == f"first-pick table: shipped ({shipped} non-zero entries)"
     assert len(played) == 2 and bridges == [1]
     path = _table(tmp_path, "tf.json", {"adjust_they_first": {"Archaludon": 0.7, "Gyarados": 0.0}, "pairs": {"Archaludon + Gyarados": -0.2}})
     monkeypatch.setenv(draft.FIRST_PICK_ADJUST_ENV, path)

@@ -515,7 +515,7 @@ class FirstPickTable:
         return v
 
     def entries(self) -> int:
-        """How many non-zero entries the table holds (0 for the shipped table)."""
+        """How many non-zero entries the table holds."""
         return sum(1 for section in (self.adjust, self.we_first, self.they_first, self.pairs) for v in section.values() if v)
 
 

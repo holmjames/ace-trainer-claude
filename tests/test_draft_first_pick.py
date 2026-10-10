@@ -22,10 +22,17 @@ L3 = ["Amoonguss", "Archaludon", "Dondozo", "Garchomp", "Great Tusk", "Grimmsnar
       "Iron Hands", "Rillaboom", "Sableye", "Sylveon", "Ting-Lu", "Tornadus", "Ursaluna", "Whimsicott", "Wo-Chien"]
 
 
+SHIPPED_FILE = draft.FIRST_PICK_ADJUST_FILE
+
+
 @pytest.fixture(autouse=True)
-def _shipped_table(monkeypatch):
-    """Every test starts from the shipped table and an empty cache (the table is read once per process)."""
+def _zero_table(monkeypatch, tmp_path):
+    """Every test starts from the all-zeros table (the stage2 draft) and an empty cache (the table is read once per
+    process). The shipped table's own entries (non-zero since Oct 10) are pinned by the first test below."""
     monkeypatch.delenv(draft.FIRST_PICK_ADJUST_ENV, raising=False)
+    zero = tmp_path / "zero_first_pick_adjust.json"
+    zero.write_text(json.dumps({"adjust": {}, "adjust_we_first": {}, "adjust_they_first": {}, "pairs": {}}))
+    monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", zero)
     monkeypatch.setattr(draft, "_ADJUST_TABLES", {})
 
 
@@ -66,13 +73,16 @@ def write_table(tmp_path, entries: dict | None = None, **sections) -> str:
     return str(path)
 
 
-def test_the_shipped_table_is_all_zeros_and_names_only_catalog_cards():
-    raw = json.loads(draft.FIRST_PICK_ADJUST_FILE.read_text())
+def test_the_shipped_table_names_only_catalog_cards_and_holds_the_archaludon_entries(monkeypatch):
+    raw = json.loads(SHIPPED_FILE.read_text())
     assert raw["adjust"] and set(raw["adjust"]) <= set(CATALOG)  # a misspelt card would silently adjust nothing
-    assert all(v == 0.0 for v in raw["adjust"].values())
-    assert raw["adjust_we_first"] == raw["adjust_they_first"] == raw["pairs"] == {}
+    assert all(v == 0.0 for v in raw["adjust"].values()) and raw["pairs"] == {}
+    # Oct 10, from paired simulator A/Bs: Archaludon when we draft first (+1.5) and when they draft first (+0.7)
+    assert raw["adjust_we_first"] == {"Archaludon": 1.5} and raw["adjust_they_first"] == {"Archaludon": 0.7}
+    monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", SHIPPED_FILE)
     table = draft.first_pick_adjust()
-    assert table.entries() == 0 and set(table.adjust.values()) == {0.0}
+    assert table.entries() == 2 and set(table.adjust.values()) == {0.0}
+    assert table.value("Archaludon", we_first=True) == 1.5 and table.value("Archaludon", we_first=False) == 0.7
     assert tuning.DEFAULTS["draft_first_adjust_w"] == 1.0  # a filled-in table counts as written
 
 
