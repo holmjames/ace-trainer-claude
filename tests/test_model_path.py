@@ -5,13 +5,17 @@
    audit R1/R7; d9405f02 T8-T10). "Nothing to wait for" also checks what the sheet's stall reasons miss (a fresh Fake
    Out, Black Sludge, a Wish, Leech Seed, Yawn, a Guts holder's orb): d9405f02 T7's fresh Fake Out keeps it allowed.
 3. answer_rules_v2 (off by default): on the reply mixture the model chooses rows only; a lower row stands within
-   max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1).
+   max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1). Only on
+   rows the mixture priced (a turn it did not price keeps E2); an override that repeats a listed row is that row; when
+   the proposal does not play, the public summary is the played row's why.
 4. recheck_v2 (off by default): no DOUBLE-TARGET triggers; LETHAL / EXPOSED fire only where row 0 covers that slot;
    the message sends the model back to row 0 (model audit R3, readiness item 10).
-5. prompt_v2 and prompt_kb (off by default): the audit's R2 and R5 prompt text and its R4 knowledge base, checked
-   against the mechanics data; the defaults send the Oct 10 deploy's prompt and payload byte for byte.
+5. prompt_v2 and prompt_kb (off by default): the audit's R2 and R5 prompt text (with the sheet's DOUBLE-TARGET warnings
+   ending neutrally) and its R4 knowledge base, general mechanics checked against the mechanics data; every variant is
+   built at import and system_prompt never raises; the defaults send the Oct 10 deploy's prompt and payload byte for byte.
 6. scripts/live_positions.py: the live answers replayed through the agent (code only), a model-on mode that is a dry
-   run without --max-calls and never spends more than it.
+   run without --max-calls and never spends more than it (N calls, up to 2N requests with fallbacks); an ignored
+   override is recorded with its key and the evaluator's value.
 
 Positions are replayed from the live captures (tests/fixtures/live/) through a code-only agent; the model is a scripted
 fake or absent. No test calls a model.
