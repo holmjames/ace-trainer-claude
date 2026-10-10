@@ -721,12 +721,19 @@ class PokemonAgent:
         forced = any(slot.get("force_switch") for slot in template.get("slots") or [])
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced,
                                 threatened=_threatened_by_us(sheet), doubled=list(getattr(sheet, "focus_threats", None) or []))
+        summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
+        if answer and self._answer_rules_v2():
+            played = _played_row_instead(answer, value, sheet, base)
+            if played is not None:
+                # the model's proposal did not play (an override ignored or rejected, a row sent back to row 0): the
+                # public summary describes the row that did, not the move the model proposed (the M1 review)
+                meta["summary_from_row"] = played
+                summary = sheet.candidates[played].get("why") or summary
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
                   win_condition=(answer or {}).get("win_condition"), opponent_prediction=(answer or {}).get("opponent_prediction"),
                   resolution=meta, code_prediction=prediction, battle_roster=roster, turn_sheet=sheet.as_prompt(),
                   last_turns=payload["last_turns"], tendencies=payload["tendencies"], opponent_class=klass,
                   wall_ms=self._wall_ms(), recheck_outcome=recheck_info.get("recheck_outcome"), **info)
-        summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
         return value, str(summary)
 
     def _answer_rules_v2(self) -> bool:
@@ -1284,6 +1291,33 @@ def override_value(payload: dict, sheet: Any, params: dict | None = None, *, mem
         lo, hi = sum(h[0] for h in hits), sum(h[1] for h in hits)
         total += min((lo + hi) / 2, 100.0) + (float(P.get("ko_bonus_guaranteed", 25.0)) if lo >= 100 else (float(P.get("ko_bonus_possible", 10.0)) if hi >= 100 else 0.0))
     return total
+
+
+def _played_row_instead(answer: dict, value: Any, sheet: Any, base: Choice) -> int | None:
+    """The row that played when it is not what the model proposed (its override, or the row it named), else None: an
+    override ignored (rows only) or rejected (E2), or a row sent back to row 0 by the margin. Compares the payloads, so a
+    first answer kept after a failed recheck is judged on what it proposed."""
+    rows = list(getattr(sheet, "candidates", None) or [])
+    override = answer.get("override") if isinstance(answer.get("override"), dict) else {}
+    row = answer.get("row")
+    try:
+        if override.get("use"):
+            proposed = base.build({"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1")})
+        elif isinstance(row, int) and not isinstance(row, bool) and 0 <= row < len(rows):
+            proposed = base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
+        else:
+            proposed = None
+    except InvalidChoice:
+        proposed = None  # an illegal proposal never plays
+    if proposed is not None and proposed == value:
+        return None
+    for index, cand in enumerate(rows):
+        try:
+            if base.build({"slot_0": cand["slot_0"], "slot_1": cand["slot_1"]}) == value:
+                return index
+        except InvalidChoice:
+            continue
+    return None
 
 
 def _alone_with_nothing_to_wait_for(sheet: Any, memory: Any = None) -> bool:

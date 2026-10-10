@@ -564,10 +564,10 @@ class _Recorder:
         return dict(self.answer)
 
 
-def _ask_at(prefix: str, seat: int, turn: int, params: dict, answer: dict) -> tuple[_Recorder, dict]:
+def _ask_at(prefix: str, seat: int, turn: int, params: dict, answer: dict, log_dir: Path | None = None) -> tuple[_Recorder, dict]:
     """Replay code-only up to a battle decision, then let a recording fake model answer it: (recorder, decision)."""
     folder = _folder(prefix)
-    agent = PokemonAgent(None, version="mpath", log_dir=Path(tempfile.mkdtemp()), capture_dir="", log=lambda *_: None,
+    agent = PokemonAgent(None, version="mpath", log_dir=log_dir or Path(tempfile.mkdtemp()), capture_dir="", log=lambda *_: None,
                          params=tuning.merged({**FAST, **params}))
     for path in _sequence(folder, seat):
         raw = json.loads(path.read_text())
@@ -615,6 +615,38 @@ def test_rows_only_prompt_and_payload_say_the_rule_in_force():
     assert payload["answer_format"].startswith("Answer with row") and "Leave override.use=false" in payload["answer_format"]
     assert payload["instructions"].endswith("(override only when there are no rows).")
     assert payload["turn_sheet"]["reply_table"] and decision.action["type"] == "doubles_turn"
+
+
+def test_the_public_summary_describes_the_row_that_played_when_the_proposal_did_not(tmp_path):
+    """answer_rules_v2 on the mixture, bcbaabe2 T6 (rows 61.5 / 28.2 / 10.8 / -2.6 / -6.2). The model's
+    reasoning_summary describes what it proposed; when that does not play (an override ignored, a row sent back to row
+    0) the public summary is the played row's why, and the log names the row. A proposal that plays keeps the model's
+    summary. On the scorer path at the defaults nothing changes: a rejected override keeps the model's summary."""
+    from agent.agent import clean_reason
+
+    _, sheet, template, choice = _position("bcbaabe2", 0, 6, RULES)
+    unlisted = _unlisted(template, sheet.candidates, choice.build)
+    listed_1 = {"slot_0": dict(sheet.candidates[1]["slot_0"]), "slot_1": dict(sheet.candidates[1]["slot_1"])}
+    cases = (("ignored", _answer(1, override=unlisted), 1), ("sent back", _answer(4), 0), ("stands", _answer(1), None),
+             ("override = row 1", _answer(0, override=listed_1), None))
+    for name, answer, row in cases:
+        logs = tmp_path / name.replace(" ", "_")
+        recorder, decision = _ask_at("bcbaabe2", 0, 6, RULES, answer, log_dir=logs)
+        shown = json.loads(recorder.calls[0][-1]["content"])["turn_sheet"]["candidate_turns"]
+        turn = [r for r in _rows(logs) if r["kind"] == "turn"][-1]
+        if row is None:
+            assert decision.reasoning_summary == "Test answer." and "summary_from_row" not in turn["resolution"], name
+        else:
+            assert decision.reasoning_summary == clean_reason(shown[row]["why"]) != "Test answer.", name
+            assert turn["resolution"]["summary_from_row"] == row, name
+    # the scorer path (the deploy): an override rejected by E2 keeps the model's summary, as on 81c4591
+    _, sheet, template, choice = _position("bcbaabe2", 0, 13)
+    weak = {"slot_0": {"option": _index(template, 0, "flashcannon"), "target": 2}, "slot_1": {"option": _index(template, 1, "snarl"), "target": 0}}
+    logs = tmp_path / "scorer"
+    recorder, decision = _ask_at("bcbaabe2", 0, 13, {}, _answer(0, override=weak, prediction=("protect", "switch")), log_dir=logs)
+    turn = [r for r in _rows(logs) if r["kind"] == "turn"][-1]
+    assert turn["resolution"]["resolution"].startswith("override rejected: value") and decision.reasoning_summary == "Test answer."
+    assert "summary_from_row" not in turn["resolution"]
 
 
 # -- 4. recheck_v2: a recheck only where the answer leaves row 0's cover (model audit R3, readiness item 10) ---------------
