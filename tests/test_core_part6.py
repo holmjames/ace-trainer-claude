@@ -12,7 +12,7 @@ import json
 import pytest
 
 from agent.agent import PokemonAgent
-from agent.pokemon import battle, data
+from agent.pokemon import battle, data, tuning
 from agent.pokemon.memory import observation_dict, species_key
 from altruagent import DecisionContext
 from altruagent.models import GameState
@@ -38,8 +38,9 @@ def hit(sheet: battle.TurnSheet, species: str, move: str, into_slot: int) -> tup
     return threat["position"], next(h for h in threat["hits"] if h["move"] == move and h["into_slot"] == into_slot)
 
 
-def sheet_at(name: str, log_dir) -> battle.TurnSheet:
-    """The sheet a code-only agent builds at 07a3cb1f's capture ``name``, after playing the captures before it."""
+def sheet_at(name: str, log_dir, overrides: dict | None = None) -> battle.TurnSheet:
+    """The sheet a code-only agent builds at 07a3cb1f's capture ``name``, after playing the captures before it
+    (``overrides``: tuning keys for that sheet only)."""
     folder = _folder(M9)
     agent = PokemonAgent(None, version="core6", log_dir=log_dir, capture_dir="", log=lambda *_: None)
     for path in _sequence(folder, 1):
@@ -50,7 +51,8 @@ def sheet_at(name: str, log_dir) -> battle.TurnSheet:
         if path.name == name:
             obs = observation_dict(state)
             agent.memory.observe_battle(obs)
-            return battle.build_sheet(state.legal_actions[0].input.get("action") or {}, obs, agent.memory, agent.params)
+            return battle.build_sheet(state.legal_actions[0].input.get("action") or {}, obs, agent.memory,
+                                      {**agent.params, **(overrides or {})})
         agent.choose_action(state, DecisionContext(session_id=folder.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
                                                    agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=1))
     raise AssertionError(f"{name} not captured")
@@ -60,6 +62,12 @@ def sheet_at(name: str, log_dir) -> battle.TurnSheet:
 def t2(tmp_path_factory) -> battle.TurnSheet:
     """Turn 2: Basculegion 158/196 + Indeedee-F 78/177 vs Rillaboom + Archaludon, Psychic Terrain."""
     return sheet_at("moving-00002-seat1.json", tmp_path_factory.mktemp("m9t2"))
+
+
+@pytest.fixture(scope="module")
+def t2_scorer(tmp_path_factory) -> battle.TurnSheet:
+    """Turn 2 ranked by the default scorer (reply_mixture 0): the Helping Hand test is about the scorer's code #1."""
+    return sheet_at("moving-00002-seat1.json", tmp_path_factory.mktemp("m9t2s"), {"reply_mixture": 0.0})
 
 
 # -- the live position ------------------------------------------------------------------------------------------------
@@ -94,7 +102,8 @@ def test_t2_draco_meteor_after_the_recoil_is_a_warning_naming_the_faster_wood_ha
     assert [n for n in t2.notes if n.startswith("EXPOSED AFTER wavecrash") and "grassyglide" in n]
 
 
-def test_t2_helping_hand_is_worth_the_ko_it_creates_before_rillaboom_moves(t2):
+def test_t2_helping_hand_is_worth_the_ko_it_creates_before_rillaboom_moves(t2_scorer):
+    t2 = t2_scorer  # core-5 pin: the default scorer's code #1
     ours, theirs = sides(t2)
     pos = next(p for p, m in theirs.items() if species_key(m.species) == "rillaboom")
     wave_crash = next(o for e in t2.our_options if e["slot"] == 0 for o in e["options"] if o["move"] == "wavecrash")
@@ -163,7 +172,8 @@ def test_a_faster_plus_two_hit_lands_before_the_redirection_is_up():
         assert battle.redirect_cover(sheet, 1, pos, extreme_speed, sides(sheet)[1])["covers"] is covered
 
 
-def test_status_value_and_the_redirect_row_read_the_same_check():
+def test_status_value_and_the_redirect_row_read_the_same_check(monkeypatch):
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)  # core-5 pin: the default scorer's redirect row
     # tests/test_mech_d.py's position: behind our Reflect, Rage Powder Amoonguss survives the Flare Blitz it draws
     from tests.test_mech_d import CATALOG
 
