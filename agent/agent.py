@@ -778,7 +778,9 @@ class PokemonAgent:
             row, row_ok = same, True
         if row_ok:
             meta.update({"row": row, "row_name": rows[row].get("name"), "row_score": rows[row].get("score")})
-        meta["resolution"] = "row" if same is None else f"override = row {same} (a listed row); row {same} plays"
+        # "row k plays" is said only once the margin below has let row k through (the M1b review: the log read "override =
+        # row 4 (a listed row); row 4 plays; row 4 rejected: ...; row 0 plays")
+        meta["resolution"] = "row" if same is None else f"override = row {same} (a listed row)"
         if override.get("use") and same is None:
             ignored = {"slot_0": override.get("slot_0"), "slot_1": override.get("slot_1"), "same_as_row": None}
             try:
@@ -787,8 +789,7 @@ class PokemonAgent:
             except InvalidChoice:
                 ignored["legal"] = False
             meta["override_ignored"] = ignored
-            meta["resolution"] = f"override ignored (this build plays only listed rows); row {row} plays"
-            self._say(f"[agent] {meta['resolution']}")
+            meta["resolution"] = "override ignored (this build plays only listed rows)"
         if not row_ok:
             raise InvalidChoice(f"row must be a candidate_turns row number 0..{len(rows) - 1}, got {row!r} (this build plays only "
                                 "listed rows: leave override.use=false)")
@@ -803,6 +804,10 @@ class PokemonAgent:
                 meta["row_played"] = 0
                 self._say(f"[agent] {meta['resolution']}")
                 return base.build({"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]})
+        if meta["resolution"] != "row":
+            meta["resolution"] += f"; row {row} plays"
+            if "override_ignored" in meta:
+                self._say(f"[agent] {meta['resolution']}")
         return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
 
     def _resolve_turn_answer(self, answer: dict, sheet: Any, base: Choice, prediction: dict, meta: dict) -> Any:

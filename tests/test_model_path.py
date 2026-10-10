@@ -505,7 +505,7 @@ def test_rows_only_ignores_an_override_logs_it_and_plays_the_chosen_row(t6_rules
     proposed = _unlisted(template, rows, choice.build)
     meta: dict = {}
     played = agent._resolve_turn_answer(_answer(1, override=proposed, prediction=("attack", "attack")), sheet, choice, TOP, meta)
-    assert played == _plays(choice, rows[1]) and meta["resolution"].startswith("override ignored")
+    assert played == _plays(choice, rows[1]) and meta["resolution"] == "override ignored (this build plays only listed rows); row 1 plays"
     assert meta["override_ignored"] == {**proposed, "same_as_row": None, "legal": True}
     # an illegal override is ignored as well: no retry is spent on it
     meta = {}
@@ -515,7 +515,9 @@ def test_rows_only_ignores_an_override_logs_it_and_plays_the_chosen_row(t6_rules
     # an override with a row that trails too far: ignored, then the row goes back to row 0
     meta = {}
     assert agent._resolve_turn_answer(_answer(4, override=proposed), sheet, choice, TOP, meta) == _plays(choice, rows[0])
-    assert meta["resolution"].startswith("override ignored") and "; row 4 rejected" in meta["resolution"] and meta["row_played"] == 0
+    # the log says which row plays once, after the margin (the M1b review: it read "...; row 4 plays; row 4 rejected: ...")
+    assert meta["resolution"] == ("override ignored (this build plays only listed rows); row 4 rejected: -6.2 trails the best row "
+                                  "61.5 by more than 50.0; row 0 plays") and meta["row_played"] == 0
     # with a row number that is not a row, the answer is invalid (retried); the override never plays
     with pytest.raises(InvalidChoice, match="plays only listed rows"):
         agent._resolve_turn_answer(_answer(7, override=proposed), sheet, choice, TOP, {})
@@ -549,7 +551,8 @@ def test_rows_only_an_override_that_repeats_a_listed_row_is_that_row_with_its_ma
     meta = {}
     assert agent._resolve_turn_answer(_answer(1, override=as_override(4)), sheet, choice, TOP, meta) == _plays(choice, rows[0])
     assert meta["override_as_row"] == {"row": 4, "value": -6.2, "answer_row": 1, "answer_row_value": 28.2} and meta["row_played"] == 0
-    assert meta["resolution"].startswith("override = row 4 (a listed row)") and "; row 4 rejected: -6.2 trails" in meta["resolution"]
+    # "row 4 plays" only if the margin let it through (the M1b review: the log read "...; row 4 plays; row 4 rejected: ...")
+    assert meta["resolution"] == "override = row 4 (a listed row); row 4 rejected: -6.2 trails the best row 61.5 by more than 50.0; row 0 plays"
     # the answer's own row need not be valid: the override names the row
     meta = {}
     assert agent._resolve_turn_answer(_answer(9, override=as_override(1)), sheet, choice, TOP, meta) == _plays(choice, rows[1])
