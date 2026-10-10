@@ -722,11 +722,12 @@ class PokemonAgent:
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced,
                                 threatened=_threatened_by_us(sheet), doubled=list(getattr(sheet, "focus_threats", None) or []))
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
-        if answer and self._answer_rules_v2():
+        if answer:
             played = _played_row_instead(answer, value, sheet, base)
             if played is not None:
-                # the model's proposal did not play (an override ignored or rejected, a row sent back to row 0): the
-                # public summary describes the row that did, not the move the model proposed (the M1 review)
+                # the model's proposal did not play (an override ignored or rejected, our last Pokémon's Protect refused,
+                # a row sent back to row 0 by the margin): the public summary describes the row that did, not the move
+                # the model proposed (the M1 review), on every path: the deploy's scorer path (E2) as well as the mixture
                 meta["summary_from_row"] = played
                 summary = sheet.candidates[played].get("why") or summary
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),

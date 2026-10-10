@@ -8,8 +8,8 @@
    is neither: refused, as T8-T10.
 3. answer_rules_v2 (off by default): on the reply mixture the model chooses rows only; a lower row stands within
    max(row_margin_points, 15% of |row 0|); no read bypass; the prompt and the payload say so (model audit R1). Only on
-   rows the mixture priced (a turn it did not price keeps E2); an override that repeats a listed row is that row; when
-   the proposal does not play, the public summary is the played row's why.
+   rows the mixture priced (a turn it did not price keeps E2); an override that repeats a listed row is that row. When
+   the proposal does not play, the public summary is the played row's why, on the deploy's scorer path as well.
 4. recheck_v2 (off by default): no DOUBLE-TARGET triggers; LETHAL / EXPOSED fire only where row 0 covers that slot;
    the message sends the model back to row 0 (model audit R3, readiness item 10).
 5. prompt_v2 and prompt_kb (off by default): the audit's R2 and R5 prompt text (with the sheet's DOUBLE-TARGET warnings
@@ -727,7 +727,8 @@ def test_the_public_summary_describes_the_row_that_played_when_the_proposal_did_
     """answer_rules_v2 on the mixture, bcbaabe2 T6 (rows 61.5 / 28.2 / 10.8 / -2.6 / -6.2). The model's
     reasoning_summary describes what it proposed; when that does not play (an override ignored, a row sent back to row
     0) the public summary is the played row's why, and the log names the row. A proposal that plays keeps the model's
-    summary. On the scorer path at the defaults nothing changes: a rejected override keeps the model's summary."""
+    summary. The same on the deploy's scorer path at the defaults (the M1b review): bcbaabe2 T13 (rows 131.2 / 94.2 /
+    86.2, E2 margin 19.7) and d9405f02 T8 below."""
     from agent.agent import clean_reason
 
     _, sheet, template, choice = _position("bcbaabe2", 0, 6, RULES)
@@ -745,14 +746,35 @@ def test_the_public_summary_describes_the_row_that_played_when_the_proposal_did_
         else:
             assert decision.reasoning_summary == clean_reason(shown[row]["why"]) != "Test answer.", name
             assert turn["resolution"]["summary_from_row"] == row, name
-    # the scorer path (the deploy): an override rejected by E2 keeps the model's summary, as on 81c4591
+
+    # the scorer path at the defaults (the deploy, reply_mixture 0): on 81c4591 and up to M1b every case below published
+    # "Test answer.", the model's own summary, whatever played
     _, sheet, template, choice = _position("bcbaabe2", 0, 13)
     weak = {"slot_0": {"option": _index(template, 0, "flashcannon"), "target": 2}, "slot_1": {"option": _index(template, 1, "snarl"), "target": 0}}
-    logs = tmp_path / "scorer"
-    recorder, decision = _ask_at("bcbaabe2", 0, 13, {}, _answer(0, override=weak, prediction=("protect", "switch")), log_dir=logs)
+    row0_why = clean_reason(sheet.candidates[0]["why"])
+    cases = (("E2 rejects the override; its row 0 plays", _answer(0, override=weak, prediction=("protect", "switch")), 0, "override rejected: value"),
+             ("E2 rejects the override, the margin its row 2", _answer(2, override=weak, prediction=("protect", "switch")), 0, "override rejected: value"),
+             ("the margin sends row 1 back", _answer(1), 0, "row 1 rejected: 94.2 trails the best row 131.2"),
+             ("the override stands on the read", _answer(0, override=weak, prediction=("attack", "attack")), None, "override accepted on the opponent read"),
+             ("row 0 stands", _answer(0), None, "row"))
+    for name, answer, row, resolution in cases:
+        logs = tmp_path / ("scorer " + name).replace(" ", "_").replace(",", "").replace(";", "")
+        recorder, decision = _ask_at("bcbaabe2", 0, 13, {}, answer, log_dir=logs)
+        turn = [r for r in _rows(logs) if r["kind"] == "turn"][-1]
+        assert turn["resolution"]["resolution"].startswith(resolution), (name, turn["resolution"])
+        if row is None:
+            assert decision.reasoning_summary == "Test answer." and "summary_from_row" not in turn["resolution"], name
+        else:
+            assert decision.reasoning_summary == row0_why != "Test answer." and turn["resolution"]["summary_from_row"] == row, name
+            assert decision.action == choice.build({"slot_0": sheet.candidates[0]["slot_0"], "slot_1": sheet.candidates[0]["slot_1"]})
+    # our last Pokémon's Protect refused (d9405f02 T8, nothing to wait for): the row the answer named plays, and is described
+    _, sheet, template, choice = _position("d9405f02", 0, 8)
+    logs = tmp_path / "scorer_lone_protect"
+    recorder, decision = _ask_at("d9405f02", 0, 8, {}, _answer(0, override=_lone_protect(template), prediction=("attack", "attack")),
+                                 log_dir=logs)
     turn = [r for r in _rows(logs) if r["kind"] == "turn"][-1]
-    assert turn["resolution"]["resolution"].startswith("override rejected: value") and decision.reasoning_summary == "Test answer."
-    assert "summary_from_row" not in turn["resolution"]
+    assert turn["resolution"]["resolution"].startswith("override rejected: our last Pokémon's Protect has nothing to wait for")
+    assert decision.reasoning_summary == clean_reason(sheet.candidates[0]["why"]) and turn["resolution"]["summary_from_row"] == 0
 
 
 # -- 4. recheck_v2: a recheck only where the answer leaves row 0's cover (model audit R3, readiness item 10) ---------------
