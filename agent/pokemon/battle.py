@@ -2172,6 +2172,19 @@ def status_value(move_id: str, me: "Mon", theirs: dict[int, "Mon"], sheet: "Turn
     return (0.0, 0)
 
 
+def setup_spent(sheet: "TurnSheet", move_id: str, memory: "MatchMemory | None" = None) -> bool:
+    """Would our ``move_id`` set nothing this turn: our Tailwind is already up, or the Trick Room that is up is ours, so a
+    second one ENDS it (ours: the last Trick Room the protocol log shows is ours, or the log shows none). The redirect
+    and Fake Out rows then pair their move with an attack, not with this "setup"."""
+    if move_id == "tailwind":
+        return any("Our Tailwind" in n for n in sheet.notes)
+    if move_id != "trickroom" or not sheet.trick_room:
+        return False
+    used = {side: max((t for by in ((getattr(memory, "moves_by_turn", None) or {}).get(side) or {}).values()
+                       for t, mv in by.items() if mv == "trickroom"), default=0) for side in ("mine", "theirs")}
+    return used["mine"] >= used["theirs"]
+
+
 def priority_move_blocked(sheet: "TurnSheet", target: "Mon") -> bool:
     """Does a priority move of ours (Prankster's +1 status moves included) fail into ``target``: Psychic Terrain with the
     target grounded, or Armor Tail / Dazzling / Queenly Majesty on the target's side (the check build_sheet makes for
@@ -3544,7 +3557,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             partner_slot = slot_template(endangered_slot)
             partner_action = None
             for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
-                idx = _option_index(partner_slot, "move", move_id=setup) if partner_slot else None
+                idx = _option_index(partner_slot, "move", move_id=setup) if partner_slot and not setup_spent(sheet, setup, memory) else None
                 if idx is not None:
                     partner_action = ({"option": idx, "target": 0}, f"sets {setup}")
                     break
@@ -3593,7 +3606,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         setup_name = None
         if other_slot:
             for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
-                idx = _option_index(other_slot, "move", move_id=setup)
+                idx = None if setup_spent(sheet, setup, memory) else _option_index(other_slot, "move", move_id=setup)
                 if idx is not None:
                     partner, setup_name = {"option": idx, "target": 0}, setup
                     break
