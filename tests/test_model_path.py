@@ -736,7 +736,7 @@ def test_a_turn_the_mixture_did_not_price_says_the_scorers_rule_in_its_answer_fo
 # -- the prompt and the payload say the rule in force; all keys at 0 send the Oct 10 deploy's texts byte for byte -------
 
 SYSTEM_PROMPT_SHA256 = "ac6102af4c7648bc20ccbe6400b69ee875de6586f11cd63c41c5bbea904d4763"  # 81c4591's SYSTEM_PROMPT (8,593 chars)
-SYSTEM_PROMPT_V2_SHA256 = "09fc44b384ac735c88a00b65fd44d273ae1ae191e4510f7d005d26fe067b4211"  # deploy #4's default: prompt_v2 (9,651 chars)
+SYSTEM_PROMPT_V2_SHA256 = "34872649de6b563562180611e50599ed77bbf760affe4b868f5ef6f0c9a59bb2"  # deploy #4's default: prompt_v2 (9,782 chars)
 ANSWER_FORMAT_81C4591 = (
     "Answer with row (a candidate_turns row number) plus opponent_prediction and win_condition. To propose a joint "
     "action that is not a row, set override.use=true and give both slots as {option: <index from that slot's "
@@ -797,7 +797,7 @@ def test_keys_at_0_send_the_oct_10_prompt_and_payload_texts_and_the_defaults_sen
     # same answer format and instructions
     text = system_prompt(dict(tuning.DEFAULTS))
     assert text is VARIANTS[(False, True, False)] and text == system_prompt(tuning.merged({**OFF, "prompt_v2": 1.0})) != SYSTEM_PROMPT
-    assert hashlib.sha256(text.encode()).hexdigest() == SYSTEM_PROMPT_V2_SHA256 and len(text) == 9651
+    assert hashlib.sha256(text.encode()).hexdigest() == SYSTEM_PROMPT_V2_SHA256 and len(text) == 9782
     assert system_prompt({**tuning.DEFAULTS, "answer_rules_v2": 1.0}) == text
     recorder, _ = _ask_at("bcbaabe2", 0, 13, {}, _answer(0))
     messages = recorder.calls[0]
@@ -1004,7 +1004,9 @@ def test_prompt_v2_makes_double_target_a_risk_leads_with_the_live_lessons_and_de
             "doubles); it sets up rarely") in search_line
     old_line = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith("- search_bot"))
     assert search_line == old_line.replace("it doubles our biggest threat about half the time;", "it sometimes sends both attacks into "
-                                           "one of our Pokémon, but not into a predictable slot (the rows already price doubles);")
+                                           "one of our Pokémon, but not into a predictable slot (the rows already price doubles);").replace(
+        "it Fake Outs on turn one only.", "it uses Fake Out on a Pokémon's first turn out (a threat marked FRESH: a lead on turn one "
+        "or any later switch-in) about half the time, and never after that turn.")  # the Fake Out clause: the next test
     # the code's prediction gives one kind per slot and no target, so it is not what prices doubles (the M1b review); at
     # prompt_v2 0 the line is the deploy's, with neither clause
     assert "prediction already prices" not in text and "price doubles" not in SYSTEM_PROMPT and "prices doubles" not in SYSTEM_PROMPT
@@ -1020,6 +1022,32 @@ def test_prompt_v2_makes_double_target_a_risk_leads_with_the_live_lessons_and_de
     named = {"tailwind", "trickroom", "icywind", "electroweb", "snarl", "reflect", "lightscreen", "nastyplot", "calmmind",
              "swordsdance", "dragondance", "bulkup", "quiverdance"}
     assert named == set(SETUP_MOVES)
+
+
+def test_prompt_v2_says_the_search_bot_fakes_out_with_any_fresh_pokemon_as_the_code_predicts():
+    """The class line said "it Fake Outs on turn one only". That contradicts the sheet ("A threat marked FRESH can Fake Out
+    this turn", FAKE OUT warnings on later switch-ins), prompt_v2's own "fakeout = Fake Out on its first turn out" and the
+    code's prediction (the Oct 10 behaviour review: 18 of the 266 live turns vs the search bot after turn one carry a FAKE
+    OUT warning on a FRESH threat). prompt_v2 now says what the code predicts; at prompt_v2 0 the line is the deploy's."""
+    from agent.pokemon import replies
+    from agent.pokemon.opponent import predict
+    from agent.pokemon.prompts import SYSTEM_PROMPT, system_prompt
+
+    text = system_prompt(dict(tuning.DEFAULTS))  # deploy #4's prompt (prompt_v2)
+    search_line = next(line for line in text.splitlines() if line.startswith("- search_bot"))
+    assert "turn one only" not in search_line
+    assert ("; it uses Fake Out on a Pokémon's first turn out (a threat marked FRESH: a lead on turn one or any later switch-in) "
+            "about half the time, and never after that turn. Prefer the play") in search_line
+    assert "A threat marked FRESH can Fake Out this turn." in text and "fakeout = Fake Out on its first turn out." in text
+    assert replies.SEEDS["fakeout_first_turn"] == 0.5  # "about half the time": the code's seed for a fresh Fake Out
+    # the code predicts it after turn one: d9405f02 T7, Iron Hands has just come in (FRESH) against the search bot
+    agent, sheet, _, _ = _position("d9405f02", 0, 7)
+    prediction = predict(sheet, agent.memory, turn=7)
+    assert prediction["class"] == "search" and prediction["per_slot"][1]["species"] == "ironhands"
+    assert prediction["per_slot"][1]["p"]["fakeout"] == replies.SEEDS["fakeout_first_turn"]
+    assert any(w.startswith("FAKE OUT: ironhands can Fake Out this turn") for w in sheet.warnings)
+    # prompt_v2 0 keeps the deploy's line (SYSTEM_PROMPT is pinned by its sha256)
+    assert "it Fake Outs on turn one only." in SYSTEM_PROMPT and system_prompt(tuning.merged({"prompt_v2": 0})) == SYSTEM_PROMPT
 
 
 def test_prompt_v2_ends_the_sheets_double_target_warnings_neutrally_and_changes_nothing_else_07a3cb1f_t1():
@@ -1093,7 +1121,7 @@ def test_every_prompt_variant_is_built_at_import_and_a_broken_anchor_fails_the_i
     assert set(prompts.VARIANTS) == {(r, v, k) for r in (False, True) for v in (False, True) for k in (False, True)}
     assert prompts.VARIANTS[(False, False, False)] is prompts.SYSTEM_PROMPT
     assert len({text for key, text in prompts.VARIANTS.items()}) == 8
-    for anchor in (prompts._ROW_BULLETS, prompts._PROTECT_LINE, prompts._DOUBLES_CLAUSE, prompts._LESSONS_HEADER,
+    for anchor in (prompts._ROW_BULLETS, prompts._PROTECT_LINE, prompts._DOUBLES_CLAUSE, prompts._FAKEOUT_CLAUSE, prompts._LESSONS_HEADER,
                    prompts._PREDICTION_BULLET, prompts._LAST_LINE):
         with pytest.raises(ValueError, match="anchor not found exactly once"):
             prompts.build_variants(prompts.SYSTEM_PROMPT.replace(anchor, "", 1))

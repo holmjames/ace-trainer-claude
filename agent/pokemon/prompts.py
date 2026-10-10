@@ -103,6 +103,13 @@ _LESSONS_HEADER_V2 = (
 _DOUBLES_CLAUSE = "it doubles our biggest threat about half the time;"
 _DOUBLES_CLAUSE_V2 = ("it sometimes sends both attacks into one of our Pokémon, but not into a predictable slot (the rows already "
                       "price doubles);")
+# prompt_v2: the class line's Fake Out says what the sheet and the code say (the Oct 10 behaviour review). "On turn one
+# only" contradicted the sheet's FAKE OUT warnings and FRESH notes on later switch-ins, this variant's "fakeout = Fake Out
+# on its first turn out" and the code's prediction (replies._p_fakeout: SEEDS["fakeout_first_turn"] 0.5 for any fresh
+# Pokémon with Fake Out, 0 otherwise).
+_FAKEOUT_CLAUSE = "it Fake Outs on turn one only."
+_FAKEOUT_CLAUSE_V2 = ("it uses Fake Out on a Pokémon's first turn out (a threat marked FRESH: a lead on turn one or any later "
+                      "switch-in) about half the time, and never after that turn.")
 # prompt_v2 (model audit R5): opponent_prediction in the code's own words (agent/pokemon/opponent.py SETUP_MOVES).
 _PREDICTION_BULLET = ("- opponent_prediction: what you expect each of their slots to do this turn (their_slot_1 / their_slot_2: "
                       "attack, protect, switch, setup, fakeout, none) and why, in one clause.\n")
@@ -153,16 +160,17 @@ _MARGIN = "{margin}"  # the rows-only bullets' placeholder, filled with row_marg
 def build_variant(base: str, *, rows_only: bool = False, v2: bool = False, kb: bool = False) -> str:
     """``base`` (SYSTEM_PROMPT) with the variants switched on. ``rows_only`` (answer_rules_v2 with reply_mixture): the row
     and override bullets of model audit R1, the lower-row margin left as ``{margin}``. ``v2`` (prompt_v2): R2's Protect
-    procedure line and lessons from live games, the search bot's doubles no longer a forecast for one slot, R5's
-    opponent_prediction vocabulary (with it the sheet's DOUBLE-TARGET warnings end neutrally, battle.py). ``kb``
-    (prompt_kb): R4's battle reference (KNOWLEDGE_BASE) before the last line. Raises ValueError when an anchor is not
-    found exactly once."""
+    procedure line and lessons from live games, the search bot's doubles no longer a forecast for one slot and its Fake
+    Out on any fresh Pokémon's first turn out (not on turn one only), R5's opponent_prediction vocabulary (with it the
+    sheet's DOUBLE-TARGET warnings end neutrally, battle.py). ``kb`` (prompt_kb): R4's battle reference (KNOWLEDGE_BASE)
+    before the last line. Raises ValueError when an anchor is not found exactly once."""
     text = base
     if rows_only:
         text = _swap(text, _ROW_BULLETS, _ROW_BULLETS_ROWS_ONLY)
     if v2:
         text = _swap(text, _PROTECT_LINE, _PROTECT_LINE_V2)
         text = _swap(text, _DOUBLES_CLAUSE, _DOUBLES_CLAUSE_V2)
+        text = _swap(text, _FAKEOUT_CLAUSE, _FAKEOUT_CLAUSE_V2)
         text = _swap(text, _LESSONS_HEADER, _LESSONS_HEADER_V2)
         text = _swap(text, _PREDICTION_BULLET, _PREDICTION_BULLET_V2)
     if kb:
