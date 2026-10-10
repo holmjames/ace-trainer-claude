@@ -153,8 +153,9 @@ def test_key_zero_never_consults_the_cut_and_keeps_the_shipped_pick_and_notes(mo
             memory.tiebreak_seed = seed
             pick = draft.choose_pick_v2(state.legal_actions, memory, tuning.DEFAULTS)
             shipped = ranked[draft.tiebreak([s.score for s in ranked], EPS, seed, f"pick:{n}")]
-            assert (pick.card_id, pick.score, pick.notes[:-1]) == (shipped.card_id, shipped.score, shipped.notes)
-            assert pick.notes[-1].startswith(f"tie-break seed {seed:#x}") and note(pick) is None
+            notes = [x for x in pick.notes if not x.startswith("first-pick table")]  # our first two picks also log the table
+            assert (pick.card_id, pick.score, notes[:-1]) == (shipped.card_id, shipped.score, shipped.notes)
+            assert notes[-1].startswith(f"tie-break seed {seed:#x}") and note(pick) is None
 
 
 @needs_data

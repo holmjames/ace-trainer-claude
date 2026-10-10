@@ -493,7 +493,8 @@ BEATS_MARGIN = 0.2
 # DRAFT_FIRST_PICK_ADJUST=<path to a file of the same shape> swaps in another table for one process (a simulator A/B
 # arm); that file must read cleanly or first_pick_adjust raises. choose_pick answers that error, like any other in
 # choose_pick_v2, with the old scorer's pick, so sim/draft_eval.py match loads the table before its first game and
-# stops on a bad one. A missing or unreadable shipped table counts as all zeros.
+# stops on a bad one. A missing or unreadable shipped table counts as all zeros, and our first two picks' notes (the
+# decision log's draft row) name the table in use, its entry count and that WARNING (first_pick_table_note).
 FIRST_PICK_ADJUST_FILE = data.DATA_DIR / "first_pick_adjust.json"
 FIRST_PICK_ADJUST_ENV = "DRAFT_FIRST_PICK_ADJUST"
 
@@ -521,6 +522,7 @@ class FirstPickTable:
 
 
 _ADJUST_TABLES: dict[str, FirstPickTable] = {}
+_ADJUST_ERRORS: dict[str, str] = {}  # shipped table path -> why it could not be read (it then counts as all zeros)
 
 
 def _table_section(raw: dict, key: str) -> dict[str, float]:
@@ -563,9 +565,25 @@ def first_pick_adjust(path: str | None = None) -> FirstPickTable:
         except (OSError, ValueError, TypeError) as exc:
             if chosen:
                 raise ValueError(f"first-pick table {source!r} ({FIRST_PICK_ADJUST_ENV} or path) unusable: {exc}") from exc
+            _ADJUST_ERRORS[source] = f"{type(exc).__name__}: {exc}"
             table = FirstPickTable()
         _ADJUST_TABLES[source] = table
     return table
+
+
+def first_pick_table_note(params: dict) -> str:
+    """The line our first two picks log (their notes are the decision log's draft row): which first-pick table is in
+    use, its entry count and weight, and a WARNING when the shipped file could not be read and counts as all zeros
+    (until Oct 10 nothing in the logs showed which table played). Never raises."""
+    chosen = os.environ.get(FIRST_PICK_ADJUST_ENV) or ""
+    where = f"{FIRST_PICK_ADJUST_ENV}={chosen}" if chosen else f"shipped {FIRST_PICK_ADJUST_FILE.name}"
+    try:
+        n = first_pick_adjust().entries()
+    except ValueError as exc:
+        return f"first-pick table ({where}) UNUSABLE: {exc}"
+    error = _ADJUST_ERRORS.get(chosen or str(FIRST_PICK_ADJUST_FILE))
+    return (f"first-pick table: {n} {'entry' if n == 1 else 'entries'} ({where}, weight {float(params.get('draft_first_adjust_w', 0.0))})"
+            + (f"; WARNING: the shipped table could not be read ({error}), so it counts as all zeros" if error else ""))
 
 
 def first_pick_terms(board, c: int, pool: list[int], *, we_first: bool | None = None,
@@ -1135,4 +1153,6 @@ def choose_pick_v2(legal_actions: list[LegalAction], memory: MatchMemory, params
         chosen.notes.append(f"exposure tie-break: {chosen.species} is beaten by {n} undrafted pool card{'' if n == 1 else 's'}, the fewest in the "
                             "window; set aside " + ", ".join(f"{s.species} ({s.exposure})" for s in set_aside)
                             + ("" if by_seed is chosen else f"; the seed alone would take {by_seed.species}"))
+    if float(P.get("draft_first_pick_w", 0.0)) > 0 and len(memory.my_cards) < 2:
+        chosen.notes.append(first_pick_table_note(P))  # our first two picks, where the table acts: the log names it
     return chosen

@@ -177,3 +177,44 @@ def test_a_pair_entry_charges_the_second_card_of_the_pair_at_our_second_pick(tmp
     monkeypatch.setattr(draft, "_ADJUST_TABLES", {})  # the table is read once per path and process
     with pytest.raises(ValueError, match="two different species"):
         draft.first_pick_adjust(write_table(tmp_path, pairs={"Incineroar": -1.0}))
+
+
+def test_our_first_two_picks_name_the_table_and_warn_when_the_shipped_file_is_unreadable(tmp_path, monkeypatch):
+    """A missing or broken shipped table still drafts (as all zeros), but no longer silently: at our first two picks,
+    where the table acts, the pick's notes (the decision log's draft row) name the table and its entry count."""
+    monkeypatch.setattr(draft, "_ADJUST_ERRORS", {})
+
+    def table_notes(mine: list[str] = (), theirs: list[str] = ()) -> list[str]:
+        memory = memory_for(L3, mine, theirs)
+        return [n for n in draft.choose_pick(offered(memory), memory, tuning.DEFAULTS).notes if n.startswith("first-pick table")]
+
+    monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", SHIPPED_FILE)
+    assert table_notes() == ["first-pick table: 2 entries (shipped first_pick_adjust.json, weight 1.0)"]
+    assert table_notes(["Archaludon"], ["Iron Hands", "Sylveon"]) == table_notes()  # our second pick
+    assert table_notes(["Archaludon", "Rillaboom"], ["Iron Hands", "Sylveon"]) == []  # the table acts no more
+    for name, text in (("gone.json", None), ("broken.json", "{not json")):
+        path = tmp_path / name
+        if text is not None:
+            path.write_text(text)
+        monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", path)
+        monkeypatch.setattr(draft, "_ADJUST_TABLES", {})
+        [line] = table_notes()
+        assert line.startswith(f"first-pick table: 0 entries (shipped {name}, weight 1.0); WARNING: ") and "could not be read" in line, line
+
+
+def test_the_decision_log_draft_row_carries_the_table_line(tmp_path, monkeypatch):
+    from altruagent import DecisionContext
+    from altruagent.models import GameState
+
+    from agent.agent import PokemonAgent
+
+    monkeypatch.setattr(draft, "FIRST_PICK_ADJUST_FILE", SHIPPED_FILE)
+    live = data.DATA_DIR.parent / "tests" / "fixtures" / "live"
+    path = next(live.glob("d74bfb88*/draft-00000-seat1.json"))  # our first pick: we drafted first
+    raw = json.loads(path.read_text())
+    agent = PokemonAgent(None, version="table-line", log_dir=tmp_path, capture_dir="", log=lambda *_: None)
+    agent.choose_action(GameState.from_mcp_state(raw), DecisionContext(
+        session_id=path.parent.name, tournament_id=None, game_type="pokemon_vgc_doubles_draft",
+        agent_id=(raw.get("current_actor") or {}).get("agent_id") or "me", seat_position=1))
+    rows = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines() if line.strip()]
+    assert "first-pick table: 2 entries (shipped first_pick_adjust.json, weight 1.0)" in next(r for r in rows if r.get("kind") == "draft")["notes"]
