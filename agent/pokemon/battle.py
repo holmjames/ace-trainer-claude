@@ -3825,20 +3825,31 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             # flinch the redirector (Note C), and one Fake Out flinches the redirector or the partner, not both
             # (fake_out_cases). The partner's turn is the redirect's to give when a likely KO lands before its move; a
             # move that comes before every one of them (faster, or Prankster's +1 Tailwind) is made, redirect or not.
+            # Both slots' turns count, so each fresh user Fakes Out fake_out_use of the time (as all_act), not always:
+            # always left "redirect up and partner unflinched" at 0 beside one user and two flinchable slots (the fix4
+            # decision review: Rage Powder + attack fell to Protect + Spore). When the covered attacker is the only fresh
+            # user, its Fake Out and this hit exclude each other: a flinch is its Fake Out, so there is no hit to cover
+            # (the cover counts, as protect_threatened counts it) and the partner moves unless it is the one flinched.
             redirect_move = data.to_id(slot_r["options"][redirect].get("move_id"))
             cover = (P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25
+            use = float(P.get("fake_out_use", DEFAULTS["fake_out_use"]))
+            exclusive = [t["position"] for t in _fresh_fake_out_users(sheet)] == [threat["position"]]
             priced = []
             for answer, move_id, prio, tgt, credit, setup in options:
                 cases = fake_out_cases(sheet, {redirector: {"priority": move_priority(me_r, redirect_move), "move": redirect_move, "target": 0},
-                                               endangered_slot: {"priority": prio, "move": move_id, "target": tgt}})
+                                               endangered_slot: {"priority": prio, "move": move_id, "target": tgt}}, use=use)
                 first = all(acts_before(endangered_slot, t["position"], prio, h.get("priority", 0) or 0) for t in sheet.threats for h in t["hits"]
                             if h["into_slot"] == endangered_slot and ko_probability(h, with_accuracy=True) >= LIKELY_KO)
                 value = covered = spared = 0.0
                 for p, hit_ in cases:
-                    up = sheet.acts(redirector) * (redirector not in hit_)  # the redirect is up: the redirector acts, unflinched
-                    moves = sheet.acts(endangered_slot) * (endangered_slot not in hit_) * (up + (1.0 - up) * first)
+                    if exclusive:
+                        up = sheet.acts(redirector)
+                        moves = sheet.acts(endangered_slot) * (endangered_slot not in hit_) * (1.0 if hit_ else up + (1.0 - up) * first)
+                    else:
+                        up = sheet.acts(redirector) * (redirector not in hit_)  # the redirect is up: the redirector acts, unflinched
+                        moves = sheet.acts(endangered_slot) * (endangered_slot not in hit_) * (up + (1.0 - up) * first)
                     value += p * (cover * up + credit * moves)
-                    covered += p * (redirector not in hit_)
+                    covered += p * (exclusive or redirector not in hit_)
                     spared += p * (endangered_slot not in hit_)
                 priced.append((value, answer, setup, covered, spared))
             score, answer, setup_name, covered, spared = max(priced, key=lambda x: x[0])  # the setup first on a tie
