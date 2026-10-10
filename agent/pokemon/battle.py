@@ -2546,6 +2546,28 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
     return max(0.0, factor)
 
 
+def fake_out_spares(sheet: "TurnSheet", slot_number: int, priority: int) -> float:
+    """Chance a fresh opposing Fake Out (+3) does not stop our slot's move of this ``priority`` (``sheet.flinch_risk``):
+    below +3 (Prankster's +1 Tailwind / Taunt / Encore, Follow Me / Rage Powder / Ally Switch +2, every speed setup) it
+    moves after the Fake Out; at +3 (Wide Guard, Quick Guard) only a FRESH Fake Out user ahead of it in the speed order
+    goes first; Protect / Detect (+4) and Helping Hand (+5) come before it. ``survival_factor`` prices the same flinch
+    for an attack below +3."""
+    risk = sheet.flinch_risk.get(slot_number, 0.0)
+    if not risk or priority > 3:
+        return 1.0
+    if priority == 3:
+        rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+        if not any("fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")
+                   and rank.get(("theirs", t["position"]), 99) < rank.get(("mine", slot_number), 99) for t in sheet.threats):
+            return 1.0
+    return 1.0 - risk
+
+
+def _flinch_clause(spared: float) -> str:
+    """What a row says of its partner's setup that a fresh Fake Out may flinch (``fake_out_spares`` below 1)."""
+    return f" ({int(round(100 * (1.0 - spared)))}% that their Fake Out flinches it first)" if spared < 1.0 else ""
+
+
 def doomed_after_priority(slot_number: int, sheet: "TurnSheet", my_priority: int, speed_rank: dict, my_attack_row: dict | None,
                           removed: dict[int, float] | None = None) -> float:
     """Chance this slot is KO'd right after acting first ONLY through its priority move: the threat is faster, our hit
@@ -3029,7 +3051,10 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     sv = 0.0  # a Prankster-boosted status move fails on a Dark-type target
                 if prio > 0 and info.get("target") in ("normal", "any", "adjacentFoe") and target in theirs and priority_move_blocked(sheet, theirs[target]):
                     sv = 0.0  # a +1 status move into Psychic Terrain (grounded target) or an Armor Tail side fails
-                sv *= survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else sheet.acts(number)
+                # below +3 a fresh Fake Out still goes first: its flinch counts at +1 (Prankster) and +2 (Follow Me / Rage
+                # Powder) as survival_factor counts it at prio <= 0; Protect (+4) and Helping Hand (+5) move before it
+                sv *= survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else \
+                    sheet.acts(number) * fake_out_spares(sheet, number, prio)
                 if move_id == "taunt":
                     sv *= 1.0 - secondary_flinch(sheet, number, ours, speed_rank, prio)  # Icicle Crash first: no Taunt
                 if sv > 0 and sv > choice[2]:
@@ -3626,11 +3651,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 continue  # it would just die instead
             partner_slot = slot_template(endangered_slot)
             partner_action = None
+            spared = 1.0  # the partner's setup still meets a fresh Fake Out: the +2 redirect cannot draw a +3 Fake Out
             for setup in ("tailwind", "trickroom", "icywind", "electroweb"):
                 idx = _option_index(partner_slot, "move", move_id=setup) if partner_slot and not (
                     setup_spent(sheet, setup, memory) or setup_backfires(sheet, setup, memory)) else None
                 if idx is not None:
-                    partner_action = ({"option": idx, "target": 0}, f"sets {setup}")
+                    # every setup is below +3 (Prankster's +1 included): Tailwind 0, Trick Room -7, Icy Wind, Electroweb 0
+                    spared = fake_out_spares(sheet, endangered_slot, (data.move_info(setup) or {}).get("priority", 0) or 0)
+                    partner_action = ({"option": idx, "target": 0}, f"sets {setup}" + _flinch_clause(spared))
                     break
             raw_partner = _best_attack(by_slot.get(endangered_slot, {}), P=P, threats=weights, protect=protect_p)
             if partner_action is None and raw_partner[0]:
@@ -3640,7 +3668,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             answers = {redirector: {"option": redirect, "target": 0}, endangered_slot: partner_action[0]}
             add("redirect_to_protect_partner", answers[0], answers[1],
                 f"{threat['species']}'s {hit['move']} would KO slot {endangered_slot}; slot {redirector} redirects it ({est[0]}-{est[1]}% to itself) while slot {endangered_slot} {partner_action[1]}",
-                ((P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25 + (50 if "sets" in partner_action[1] else raw_partner[2] * 0.8))
+                ((P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25 + (50 * spared if "sets" in partner_action[1] else raw_partner[2] * 0.8))
                 * sheet.acts(redirector),
                 covers=endangered_slot)
 
@@ -3687,7 +3715,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         if partner is None:
             continue
         answers = {number: {"option": fake, "target": target}, other: partner}
-        why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (f"sets {setup_name}" if setup_name else "attacks")
+        # the partner's setup (below +3) meets their fresh Fake Out, unless ours flinches it first: their only fresh Fake
+        # Out user is our target and our Fake Out moves before its own (the speed order decides between two +3 moves)
+        users = [t for t in sheet.threats if "fakeout" in t["known_moves"] and "FRESH" in (t.get("note") or "")]
+        stopped = len(users) == 1 and users[0]["position"] == target and acts_before(number, target, 3, 3)
+        spared = fake_out_spares(sheet, other, (data.move_info(setup_name) or {}).get("priority", 0) or 0) \
+            if setup_name and not stopped else 1.0
+        why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (
+            f"sets {setup_name}" + _flinch_clause(spared) if setup_name else "attacks")
         attacks_ko = any(kos_a_foe(b[1]) for b in best.values())  # per foe: a spread's summed range is not a KO (D1j)
         lethal_first = lethal_by_target.get(target, 0.0)  # chance this target KOs one of our slots before it moves
         base = P["fakeout_base"] if (not attacks_ko or lethal_first) else 15
@@ -3706,7 +3741,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             why += f"; their faster Fake Out may flinch ours first ({int((1 - lands) * 100)}%)"
         add("fake_out_setup", answers[0], answers[1], why,
             (base + (P["fakeout_threat_bonus"] if threatens_us else 0) + P["protect_bonus_guaranteed"] * lethal_first) * lands
-            + (solo_value(other) * 0.6 if not setup_name else P["fakeout_setup_value"]))
+            + (solo_value(other) * 0.6 if not setup_name else P["fakeout_setup_value"] * spared))
 
     # 4b. Taunt the support (Part 3; the Oct 8 evening loss, turn 1: Gyarados's Taunt on Amoonguss stops Spore and Rage
     #     Powder for three turns, and no generator built it): Taunt a foe whose status moves (sleep, redirection, Trick
@@ -3727,7 +3762,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         prio = 1 if data.to_id(me.ability) == "prankster" else 0
         legal = (slot.get("options") or [])[idx].get("targets") or []
         flinch = secondary_flinch(sheet, number, ours, speed_rank, prio)
-        acts = survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else sheet.acts(number)
+        acts = survival_factor(number, sheet, prio, speed_rank, None, P) if prio <= 0 else sheet.acts(number) * fake_out_spares(sheet, number, prio)
         for pos, foe in sorted(theirs.items()):
             if legal and pos not in legal:
                 continue
