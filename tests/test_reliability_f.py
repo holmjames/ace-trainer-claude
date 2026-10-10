@@ -33,7 +33,7 @@ from altruagent.models import GameState
 from agent.agent import PokemonAgent, battle_roster
 from agent.pokemon import data, tuning
 from agent.pokemon.memory import observation_dict, species_key
-from test_live_semantics import LIVE, _sequence
+from test_live_semantics import LIVE, _folder, _sequence
 
 # -- F1: restart rebuild -----------------------------------------------------------------------------------------
 
@@ -190,6 +190,44 @@ def test_a_fresh_agent_knows_every_drafted_set_from_the_catalog(tmp_path):
     assert len(memory.my_lineup) == 4, memory.my_lineup
     assert set(memory.last_active) <= set(memory.my_lineup)
     assert memory.log_turn == obs.get("turn")
+
+
+@pytest.mark.skipif(not CASES, reason="no live captures")
+@pytest.mark.parametrize("prefix", ["d74bfb88", "da9c168e", "8e3a639c"])
+def test_a_restarted_agent_reads_the_same_opponent_class(prefix, tmp_path):
+    """A worker restarted mid-battle never saw the draft, so the draft's read (templated reasons, quick picks) is gone.
+    Two voluntary switches were then the only sign left and read the search bot as an LLM (d74bfb88 turns 2-3,
+    da9c168e turn 3; the other entrant's 8e3a639c turns 5-8 likewise, where the draft read it as the search bot)."""
+    folder = _folder(prefix)
+    for seat in _seats(folder):
+        full = _agent(tmp_path / f"full{seat}", "full-replay")
+        diffs, compared = [], 0
+        for path in _sequence(folder, seat):
+            raw = json.loads(path.read_text())
+            state = GameState.from_mcp_state(raw)
+            if not state.legal_actions:
+                continue
+            full.choose_action(state, _context(folder, raw, seat))
+            if state.phase != "moving":
+                continue
+            fresh = _agent(tmp_path / f"fresh-{path.stem}", "fresh")
+            fresh.choose_action(state, _context(folder, raw, seat))
+            compared += 1
+            if full.memory.opponent_class() != fresh.memory.opponent_class():
+                diffs.append(f"{path.name}: {full.memory.opponent_class()} != {fresh.memory.opponent_class()}")
+        assert compared and not diffs, diffs
+
+
+def test_two_voluntary_switches_are_no_llm_sign_without_the_draft():
+    from agent.pokemon.memory import MatchMemory
+
+    restarted = MatchMemory(their_voluntary_switches=[1, 2], log_turn=3)
+    assert restarted.opponent_evidence()["scores"]["generic_llm"] == 0 and restarted.opponent_class() == "search_bot"
+    # next to the draft's read the sign still counts (a constant reason, which is no read of its own, leaves it decisive)
+    picks = [{"pick_number": n, "species": "Incineroar", "public_reason": "Move submitted.", "mine": False, "auto": False, "seconds": None}
+             for n in (2, 3)]
+    drafted = MatchMemory(their_voluntary_switches=[1, 2], log_turn=3, draft_picks=picks)
+    assert drafted.opponent_evidence()["scores"]["generic_llm"] == 1 and drafted.opponent_class() == "generic_llm"
 
 
 def test_catalog_knowledge_never_overwrites_a_drafted_card():

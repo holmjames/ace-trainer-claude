@@ -460,7 +460,7 @@ class MatchMemory:
         ``opponent_evidence()`` has the numbers) from name-free signals: draft reason length (free
         text 177-216 chars vs 28-42-char templates), pick timing (tiebreak), their ``|inactive|`` warnings (the LLM
         was slow on 6 of 7 turns, the search bot on 0 of 16), repeated Protect attempts (LLM 1 of 2, search bot 0 of
-        9), voluntary switches (LLM 1 of 14), auto picks and timeouts (dead/random). Default: search_bot, the field's
+        9), voluntary switches (LLM 1 of 14; only next to the draft's read), auto picks and timeouts (dead/random). Default: search_bot, the field's
         strongest class, until the evidence says otherwise."""
         return self.opponent_evidence()["class"]
 
@@ -498,7 +498,9 @@ class MatchMemory:
             llm += 1
         elif self.their_protect_attempts >= 2:
             search += 1
-        if len(self.their_voluntary_switches) >= 2:
+        if len(self.their_voluntary_switches) >= 2 and theirs:
+            # Only next to the draft's read: the search bot switches too, and a worker restarted mid-battle (no draft
+            # memory) read it as an LLM on this sign alone (d74bfb88 and da9c168e, turns 2-3).
             llm += 1
         secs = profile.get("mean_seconds_per_pick")
         if isinstance(secs, (int, float)):
