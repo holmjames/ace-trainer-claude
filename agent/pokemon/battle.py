@@ -337,6 +337,14 @@ def gale_wings(attacker: "Mon", move: dict) -> dict:
     return move
 
 
+def move_priority(me: "Mon", move_id: str) -> int:
+    """The priority ``me`` uses ``move_id`` at: the move table's, Gale Wings' +1 (a full-HP Talonflame's Flying moves:
+    ``gale_wings``) and Prankster's +1 on a status move (Tailwind before their attacks land)."""
+    info = {**(data.move_info(move_id) or {}), "id": data.to_id(move_id)}
+    prio = gale_wings(me, info).get("priority", 0) or 0
+    return prio + (1 if data.to_id(me.ability) == "prankster" and info.get("category") == "Status" else 0)
+
+
 def _field_arg(weather: str | None, field: "FieldState | None") -> "FieldState | None":
     if field is not None:
         return field
@@ -2658,7 +2666,8 @@ def fake_out_cases(sheet: "TurnSheet", plan: dict[int, dict]) -> list[tuple[floa
 
 
 def _flinch_clause(spared: float) -> str:
-    """What a row says of its partner's setup that a fresh Fake Out may flinch (``fake_out_spares`` below 1)."""
+    """What a row says of a move of ours that a fresh Fake Out may flinch first, given the chance it is spared
+    (``fake_out_spares`` or ``fake_out_cases`` below 1): the partner's setup or attack, the redirector's Follow Me."""
     return f" ({int(round(100 * (1.0 - spared)))}% that their Fake Out flinches it first)" if spared < 1.0 else ""
 
 
@@ -3136,10 +3145,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     continue
                 if not allow_ally_only and move_id in ALLY_ONLY:
                     continue
-                # Gale Wings: a full-HP Talonflame's Tailwind is +1 (gale_wings, as its Brave Bird on the sheet)
-                prio = gale_wings(me, {**info, "id": move_id}).get("priority", 0) or 0
-                if data.to_id(me.ability) == "prankster" and info.get("category") == "Status":
-                    prio += 1  # Prankster: status moves get +1 priority (Tailwind before their attacks land)
+                prio = move_priority(me, move_id)  # Prankster +1 on status moves; Gale Wings +1 on a full-HP Talonflame's Tailwind
                 sv, target = status_value(move_id, me, theirs, sheet, number, has_ally=len(ours) > 1)
                 if data.to_id(me.ability) == "prankster" and info.get("target") in ("normal", "any", "adjacentFoe") \
                         and target in theirs and "dark" in theirs[target].types:
@@ -3797,7 +3803,9 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     setup_spent(sheet, setup, memory) or setup_backfires(sheet, setup, memory)) else None
                 if idx is not None:
                     # every setup is below +3 (Prankster's +1 included): Tailwind 0, Trick Room -7, Icy Wind, Electroweb 0
-                    options.append(({"option": idx, "target": 0}, setup, (data.move_info(setup) or {}).get("priority", 0) or 0, 0, 50.0, setup))
+                    mate = ours.get(endangered_slot)
+                    prio = move_priority(mate, setup) if mate is not None else (data.move_info(setup) or {}).get("priority", 0) or 0
+                    options.append(({"option": idx, "target": 0}, setup, prio, 0, 50.0, setup))
                     break
             raw_partner = _best_attack(by_slot.get(endangered_slot, {}), P=P, threats=weights, protect=protect_p)
             if raw_partner[0]:
@@ -3806,19 +3814,25 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if not options:
                 continue
             # The cover needs the redirect up: Follow Me / Rage Powder (+2) move after a fresh Fake Out (+3), which can
-            # flinch the redirector (Note C), and the partner's turn is the redirect's to give. One Fake Out flinches the
-            # redirector or the partner, not both (fake_out_cases): the partner's credit counts when neither is flinched.
+            # flinch the redirector (Note C), and one Fake Out flinches the redirector or the partner, not both
+            # (fake_out_cases). The partner's turn is the redirect's to give when a likely KO lands before its move; a
+            # move that comes before every one of them (faster, or Prankster's +1 Tailwind) is made, redirect or not.
             redirect_move = data.to_id(slot_r["options"][redirect].get("move_id"))
             cover = (P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25
             priced = []
             for answer, move_id, prio, tgt, credit, setup in options:
-                cases = fake_out_cases(sheet, {redirector: {"priority": (data.move_info(redirect_move) or {}).get("priority", 2), "move": redirect_move, "target": 0},
+                cases = fake_out_cases(sheet, {redirector: {"priority": move_priority(me_r, redirect_move), "move": redirect_move, "target": 0},
                                                endangered_slot: {"priority": prio, "move": move_id, "target": tgt}})
-                covered = sum(p for p, hit_ in cases if redirector not in hit_)
-                together = sum(p for p, hit_ in cases if redirector not in hit_ and endangered_slot not in hit_)
-                spared = sum(p for p, hit_ in cases if endangered_slot not in hit_)
-                priced.append(((cover * covered + credit * sheet.acts(endangered_slot) * together) * sheet.acts(redirector),
-                               answer, setup, covered, spared))
+                first = all(acts_before(endangered_slot, t["position"], prio, h.get("priority", 0) or 0) for t in sheet.threats for h in t["hits"]
+                            if h["into_slot"] == endangered_slot and ko_probability(h, with_accuracy=True) >= LIKELY_KO)
+                value = covered = spared = 0.0
+                for p, hit_ in cases:
+                    up = sheet.acts(redirector) * (redirector not in hit_)  # the redirect is up: the redirector acts, unflinched
+                    moves = sheet.acts(endangered_slot) * (endangered_slot not in hit_) * (up + (1.0 - up) * first)
+                    value += p * (cover * up + credit * moves)
+                    covered += p * (redirector not in hit_)
+                    spared += p * (endangered_slot not in hit_)
+                priced.append((value, answer, setup, covered, spared))
             score, answer, setup_name, covered, spared = max(priced, key=lambda x: x[0])  # the setup first on a tie
             answers = {redirector: {"option": redirect, "target": 0}, endangered_slot: answer}
             add("redirect_to_protect_partner", answers[0], answers[1],

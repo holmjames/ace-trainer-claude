@@ -896,17 +896,27 @@ def test_a_fresh_fake_out_flinches_our_plus_one_and_plus_two_moves_too():
 
 def test_the_redirectors_own_flinch_discounts_the_cover():
     """Note C (fix3 review): Follow Me / Rage Powder are +2, so a fresh Fake Out (+3) flinches the redirector too, and a
-    flinched redirector covers nothing. With no terrain Indeedee-F carries 0.2 of Incineroar's Fake Out and the 30%
-    Tornadus 0.8: the redirect row's cover (the Protect bonus for Knock Off's KO + 25) counts 80% of the time, and its
-    Tailwind credit needs both slots past the one Fake Out, which never happens (50edd01 credited the cover in full
-    and 20% of the setup)."""
-    sheet, _ = build(["Indeedee-F", "Tornadus"], ["Incineroar", "Baxcalibur"], obs_extra={"turn": 1}, hp={"Tornadus": 0.3})
+    flinched redirector covers nothing; one Fake Out flinches the redirector or the partner, not both. With no terrain
+    Indeedee-F carries 0.2 of Incineroar's Fake Out and the 30% Tornadus 0.8: the cover (the Protect bonus for Knock
+    Off's KO + 25) counts 80% of the time. Tornadus's Prankster Tailwind (+1) goes up before every likely KO into it,
+    redirect or not, so it counts whenever Tornadus is not flinched (20%; 50edd01: the cover in full + 20% of the
+    setup). Ursaluna is slower than the Weather Ball that KOs it: its turn is the redirect's to give, so its attack
+    counts only with both of ours past the one Fake Out, which never happens: the row is the cover x 0.8."""
+    def row(mine, opp, extra, hit, **kw):
+        sheet, _ = build(mine, opp, obs_extra=extra, **kw)
+        got = next(c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner")
+        h = threat_hit(sheet, *hit)
+        return sheet, got, (tuning.DEFAULTS["protect_bonus_guaranteed"] if h["ko"] == "guaranteed" else tuning.DEFAULTS["protect_bonus_possible"]) + 25
+
+    sheet, got, cover = row(["Indeedee-F", "Tornadus"], ["Incineroar", "Baxcalibur"], {"turn": 1}, ("Incineroar", "knockoff", 1), hp={"Tornadus": 0.3})
     assert sheet.flinch_risk == {0: 0.2, 1: 0.8}, sheet.flinch_risk
-    row = next(c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner")
-    assert "to itself) (20% that their Fake Out flinches it first) while slot 1 sets tailwind (80% that their Fake Out flinches it first)" in row["why"], row["why"]
-    knock_off = threat_hit(sheet, "Incineroar", "knockoff", 1)
-    bonus = tuning.DEFAULTS["protect_bonus_guaranteed"] if knock_off["ko"] == "guaranteed" else tuning.DEFAULTS["protect_bonus_possible"]
-    assert row["score"] == pytest.approx((bonus + 25) * 0.8, abs=0.11), (row, knock_off["ko"])
+    assert "to itself) (20% that their Fake Out flinches it first) while slot 1 sets tailwind (80% that their Fake Out flinches it first)" in got["why"], got["why"]
+    assert got["score"] == pytest.approx(cover * 0.8 + 50 * 0.2, abs=0.11), (got, cover)
+    sheet, got, cover = row(["Ursaluna", "Amoonguss"], ["Incineroar", "Pelipper"], {"turn": 1, "weather": "RainDance"}, ("Pelipper", "weatherball", 0),
+                            fresh=["Ursaluna", "Amoonguss"])
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2}, sheet.flinch_risk
+    assert "(20% that their Fake Out flinches it first) while slot 0 attacks freely (80% that their Fake Out flinches it first)" in got["why"], got["why"]
+    assert got["score"] == pytest.approx(cover * 0.8, abs=0.11), (got, cover)
 
 
 def test_the_redirect_rows_free_attack_needs_the_partner_to_act():
