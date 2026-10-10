@@ -123,8 +123,9 @@ class _Info:
 
 
 class Calc:
-    """Damage ranges, speeds and accuracies for the rollouts, memoized for a whole search and across searches (keys
-    are card fingerprints and field state, so the next preview with the same cards starts warm)."""
+    """Damage ranges, speeds and accuracies for the rollouts, memoized for a whole search and across a match's searches
+    (keys are card fingerprints and field state). A new match starts cold (``reset_match_state``), as a fresh process
+    does."""
 
     LIMIT = 400_000
 
@@ -147,8 +148,22 @@ class Calc:
         if len(self.speeds) > self.LIMIT:
             self.speeds.clear()
 
+    def clear(self) -> None:
+        self.hits.clear()
+        self.speeds.clear()
+        self.accuracy.clear()
+        self.infos.clear()
+        self.misses = 0
+
 
 _CALC = Calc()
+
+
+def reset_match_state() -> None:
+    """A new match starts (agent/pokemon/match_state.py): the module memo starts cold, as in the fresh process the
+    runtime gives each match. Its values are pure; a warm memo only lets the deadline-bound search run more
+    rollouts."""
+    _CALC.clear()
 
 
 class _Mon:

@@ -51,6 +51,7 @@ from agent.pokemon import battle as battle_rules
 from agent.pokemon import data
 from agent.pokemon import draft as draft_rules
 from agent.pokemon import lineup as lineup_rules
+from agent.pokemon import match_state
 from agent.pokemon.log import DecisionLog, git_commit
 from agent.pokemon import opponent as opponent_model
 from agent.pokemon.memory import MatchMemory, observation_dict, species_key
@@ -411,6 +412,7 @@ class PokemonAgent:
         self._log_dir = log_dir
         self._capture_dir = capture_dir if capture_dir is not None else os.environ.get("AGENT_CAPTURE_DIR")
         self._print = log if log is not None else _stderr
+        match_state.new_match()  # a long-lived process plays this match as the runtime's fresh worker would
         self.memory = MatchMemory()
         self.decision_log: DecisionLog | None = None
         self._all_failed = 0  # decisions on which every model failed (the ALL MODELS FAILED banner)

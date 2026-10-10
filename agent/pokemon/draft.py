@@ -840,6 +840,14 @@ _SUPPORT_PAIRS: dict[tuple[str, str], tuple[bool, dict | None]] = {}  # (Y key, 
 _SUPPORT_RESIST: dict[tuple[str, str, str], bool] = {}  # (Y key, move id, P key) -> P resists or is immune to it
 
 
+def reset_match_state() -> None:
+    """A new match starts (agent/pokemon/match_state.py): forget the last match's Boards and the support facts read
+    off their races, which follow the direction a speed-tied race was first computed in. _SUPPORT_RESIST is a pure
+    function of its key and stays; the tie-break seed registry answers only for its own match's cards."""
+    _BOARDS.clear()
+    _SUPPORT_PAIRS.clear()
+
+
 def _hits_to_ko(hit: float) -> int:
     return math.ceil(100.0 / hit - 1e-9)
 
