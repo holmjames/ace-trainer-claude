@@ -129,7 +129,7 @@ DEFAULTS: dict[str, float] = {
     "row_margin_points": 50.0,     # answer_rules_v2: a lower row stands if its value >= row 0's - max(this, 0.15 x |row 0's value|), else row 0 plays (25 is the audit's cautious alternative)
     "recheck_v2": 0.0,             # 1 = the lethal recheck drops DOUBLE-TARGET triggers and fires only for a LETHAL/EXPOSED slot that row 0 Protects or switches, and sends the model back to row 0 (model audit R3, readiness item 10). Both paths
     "prompt_v2": 0.0,              # 1 = the system prompt treats DOUBLE-TARGET as a risk, not a forecast (the sheet's DOUBLE-TARGET warnings end neutrally, the search bot's doubles are no forecast for one slot), leads its lessons with three from live games (model audit R2) and defines opponent_prediction in the code's words (R5)
-    "prompt_kb": 0.0,              # 1 = the system prompt carries the battle reference (prompts.KNOWLEDGE_BASE: nine general mechanics facts, under 400 words, no base rates from reviewed games; model audit R4)
+    "prompt_kb": 0.0,              # 1 = the system prompt carries the battle reference (prompts.KNOWLEDGE_BASE: nine facts of general mechanics and rules, 335 words, nothing learned from reviewed games; model audit R4)
 }
 
 

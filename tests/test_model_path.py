@@ -937,9 +937,12 @@ def test_prompt_kb_is_the_audits_mechanics_facts_checked_against_the_mechanics_d
     text = system_prompt(tuning.merged({"prompt_kb": 1}))
     assert text.endswith("\n\n" + KNOWLEDGE_BASE + "\n\nAnswer only in the required JSON.")
     assert text.replace("\n\n" + KNOWLEDGE_BASE, "") == SYSTEM_PROMPT  # nothing else moves
-    assert len(KNOWLEDGE_BASE.split()) < 400 and [line[:3] for line in KNOWLEDGE_BASE.splitlines()[1:]] == [f"{i}. " for i in range(1, 10)]
+    assert len(KNOWLEDGE_BASE.split()) == 335 and [line[:3] for line in KNOWLEDGE_BASE.splitlines()[1:]] == [f"{i}. " for i in range(1, 10)]
     # general mechanics only: the audit's tenth item, a base rate learned from reviewed matches, is out (the M1 review)
     assert not re.search(r"reviewed|in \d+|times in|LETHAL|DOUBLE-TARGET", KNOWLEDGE_BASE)
+    # ... and so is item 1's closing sentence, how a fresh Fake Out user tends to aim (the M1b review): no tendencies
+    assert KNOWLEDGE_BASE.splitlines()[1].endswith("Psychic Terrain blocks it into a grounded target.")
+    assert not re.search(r"\b(tends?|tendency|usually|often|likely|aims?)\b", KNOWLEDGE_BASE, re.IGNORECASE)
     # the facts against the repo's mechanics data
     priority = {m: (data.move_info(m) or {}).get("priority") for m in ("fakeout", "extremespeed", "suckerpunch", "iceshard", "aquajet")}
     assert priority == {"fakeout": 3, "extremespeed": 2, "suckerpunch": 1, "iceshard": 1, "aquajet": 1}
