@@ -22,7 +22,8 @@ from agent.pokemon.memory import MatchMemory, observation_dict
 
 W = 0.5  # the gate's weight
 BOTH = {"draft_card_adjust_w": W, "draft_card_adjust_them_w": W}  # the whole table: "us" and "them" at the gate's weight
-ON = dict(tuning.DEFAULTS, **BOTH)
+PLAIN = tuning.merged({"draft_support_w": 0.0})  # the draft without the support key (39f50af's defaults; deploy #4 ships 0.25)
+ON = dict(PLAIN, **BOTH)
 SUPPORT = tuning.merged({"draft_support_w": 0.25})  # the deploy #4 draft
 SUPPORT_ON = dict(SUPPORT, **BOTH)
 US_ONLY = dict(SUPPORT, draft_card_adjust_w=W)  # "us" alone (draft_card_adjust_them_w 0)
@@ -160,7 +161,7 @@ def test_key_zero_never_reads_the_table_and_the_search_gets_no_adjustment(monkey
         original(self, board, **kwargs)
 
     monkeypatch.setattr(draft.DraftSearch, "__init__", init)
-    for params in (tuning.DEFAULTS, SUPPORT):
+    for params in (PLAIN, SUPPORT):
         for _, state, memory in live_decisions("07a3cb1f", 1):
             for pick in draft.rank_picks_v2(state.legal_actions, memory, params):
                 assert not any(n.startswith("card table") for n in pick.notes)
@@ -168,7 +169,7 @@ def test_key_zero_never_reads_the_table_and_the_search_gets_no_adjustment(monkey
 
 
 @needs_data
-@pytest.mark.parametrize("off, on", [(tuning.DEFAULTS, ON), (SUPPORT, SUPPORT_ON)])
+@pytest.mark.parametrize("off, on", [(PLAIN, ON), (SUPPORT, SUPPORT_ON)])
 def test_an_empty_table_at_the_key_values_every_pick_exactly_as_key_zero(monkeypatch, off, on):
     """The adjusted path is the old path plus the table: with nothing in the table it gives the same full-precision
     values, order and notes (but the card table line) as the key at 0."""
@@ -258,7 +259,7 @@ def test_the_correction_flips_a_near_tie_toward_the_card_the_table_rates_higher(
     assert not memory.my_cards and memory.opp_cards  # our first pick, after theirs
     table = draft.card_adjust_table()
     assert table.us["kingambit"] > 0 > table.us["ironhands"]
-    off = draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS)
+    off = draft.rank_picks_v2(state.legal_actions, memory, PLAIN)
     assert [s.species for s in off[:2]] == ["Iron Hands", "Kingambit"] and 0 < off[0].score - off[1].score < 0.02
     on = {s.species: s for s in draft.rank_picks_v2(state.legal_actions, memory, ON)}
     best = max(on.values(), key=lambda s: s.score)
@@ -306,7 +307,7 @@ def test_team_preview_never_sees_the_key():
     mine = [lineup.profile(CATALOG[s]) for s in ours]
     them = [lineup.profile(CATALOG[s]) for s in theirs]
     for seed in (None, 3):
-        off = lineup.shortlist_v2(mine, them, params=tuning.DEFAULTS, seed=seed)
+        off = lineup.shortlist_v2(mine, them, params=PLAIN, seed=seed)
         on = lineup.shortlist_v2(mine, them, params=ON, seed=seed)
         assert [(c.as_payload(), c.score, c.notes) for c in on] == [(c.as_payload(), c.score, c.notes) for c in off]
 
@@ -318,7 +319,7 @@ def test_archaludon_keeps_its_place_at_our_first_pick_on_the_live_drafts():
     Archaludon floor tests below cover every live decision that offers it, at every pick."""
     for session, seat in (("0a2b7c2a", 0), ("51c86e5c", 0), ("07a3cb1f", 1), ("bcbaabe2", 0)):  # we first x2, they first x2
         name, state, memory = next(live_decisions(session, seat))  # our first pick
-        for off_p, on_p in ((tuning.DEFAULTS, ON), (SUPPORT, SUPPORT_ON)):
+        for off_p, on_p in ((PLAIN, ON), (SUPPORT, SUPPORT_ON)):
             assert draft.rank_picks_v2(state.legal_actions, memory, off_p)[0].species == "Archaludon"
             assert draft.rank_picks_v2(state.legal_actions, memory, on_p)[0].species == "Archaludon", (session, seat)
 
@@ -356,7 +357,7 @@ def archaludon_decisions():
 
 
 @needs_data
-@pytest.mark.parametrize("off, on", [(tuning.DEFAULTS, ON), (SUPPORT, SUPPORT_ON)], ids=["support 0", "support 0.25"])
+@pytest.mark.parametrize("off, on", [(PLAIN, ON), (SUPPORT, SUPPORT_ON)], ids=["support 0", "support 0.25"])
 def test_the_table_never_lowers_archaludons_chance_on_the_live_drafts(off, on):
     """On every live decision that offers Archaludon, both draft orders and every pick: the chance the pick is
     Archaludon with the table on is at least its chance without it. A sole leader stays the sole leader (no
@@ -410,8 +411,8 @@ def test_the_floor_keeps_what_the_table_gives_archaludon(monkeypatch):
     only. (The shipped table, without Sylveon's entry, puts Archaludon in a window with Sylveon: still a gain.)"""
     gate_table(monkeypatch)
     name, state, memory = next(d for d in live_decisions("1aef9227", 0) if len(d[2].my_cards) == 1)
-    off = draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS)
-    assert off[0].species == "Sylveon" and seed_chance(off, tuning.DEFAULTS) == 0.0
+    off = draft.rank_picks_v2(state.legal_actions, memory, PLAIN)
+    assert off[0].species == "Sylveon" and seed_chance(off, PLAIN) == 0.0
     on = draft.rank_picks_v2(state.legal_actions, memory, ON)
     assert on[0].species == "Archaludon" and seed_chance(on, ON) == 1.0
     assert not any("Archaludon floor" in n for s in on for n in s.notes)
