@@ -133,14 +133,25 @@ def test_card_weight_and_tier_adjust_are_independent_knobs():
 # five everywhere (draft_card_w 0 + draft_tier_adjust 1.25, Oct 8 draft-only replay: 4th / 2nd / 1st) showed no gain
 # over the eight live drafts and is not shipped (see test_card_weight_and_tier_adjust_are_independent_knobs), so L4
 # stays pinned as the known tension: the xfail is strict and will flag the day a change lifts it.
-@pytest.mark.parametrize("name", [
-    "L2",
-    "L3",
-    pytest.param("L4", marks=pytest.mark.xfail(strict=True, reason="Incineroar is 6th at pick 1 on the L4 pool (Gholdengo first)")),
+# Deploy #5's per-card table (draft_card_adjust_w and draft_card_adjust_them_w 0.5, shipped on the pinned simulator
+# A/Bs) costs L2 its place: Incineroar 5th -> 7th at pick 1 (Indeedee-F and Chien-Pao pass it; Archaludon stays first),
+# pinned strict too. The cases "no card table" keep the target on the drafter it was set for (both keys 0).
+L4_SIXTH = pytest.mark.xfail(strict=True, reason="Incineroar is 6th at pick 1 on the L4 pool (Gholdengo first)")
+
+
+@pytest.mark.parametrize("name, card_table", [
+    pytest.param("L2", True, id="L2", marks=pytest.mark.xfail(
+        strict=True, reason="with the card table (deploy #5) Incineroar is 7th at pick 1 on the L2 pool (5th without it)")),
+    pytest.param("L3", True, id="L3"),
+    pytest.param("L4", True, id="L4", marks=L4_SIXTH),
+    pytest.param("L2", False, id="L2 no card table"),
+    pytest.param("L3", False, id="L3 no card table"),
+    pytest.param("L4", False, id="L4 no card table", marks=L4_SIXTH),
 ])
-def test_incineroar_is_a_top_five_first_pick_on_the_live_pools_that_offered_it(name):
+def test_incineroar_is_a_top_five_first_pick_on_the_live_pools_that_offered_it(name, card_table):
     assert "Incineroar" not in POOLS["L1"][2]  # pool L1 never offered it (they opened with Dragonite)
-    order = ranking(POOLS[name][2])
+    params = None if card_table else tuning.merged({"draft_card_adjust_w": 0.0, "draft_card_adjust_them_w": 0.0})
+    order = ranking(POOLS[name][2], params=params)
     assert "Incineroar" in order[:5], (name, order[:8])
 
 

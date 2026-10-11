@@ -18,8 +18,9 @@ from altruagent.models import GameState, LegalAction
 from agent.pokemon import data, draft, lineup, matchup, tuning
 from agent.pokemon.memory import MatchMemory, observation_dict
 
-ON = tuning.merged({"draft_support_w": 0.25})
-OFF = tuning.merged({"draft_support_w": 0.0})  # the Oct 10 deploy's draft (81c4591)
+NO_TABLE = {"draft_card_adjust_w": 0.0, "draft_card_adjust_them_w": 0.0}  # the per-card table off (deploy #5 ships it on)
+ON = tuning.merged({"draft_support_w": 0.25, **NO_TABLE})  # deploy #4's draft (09a95b0)
+OFF = tuning.merged({"draft_support_w": 0.0, **NO_TABLE})  # the Oct 10 deploy's draft (81c4591)
 LIVE = Path(__file__).parent / "fixtures" / "live"
 CATALOG = {c["species"]: c for c in json.loads((data.DATA_DIR / "cards.json").read_text())} if (data.DATA_DIR / "cards.json").exists() else {}
 needs_data = pytest.mark.skipif(not CATALOG or not (data.DATA_DIR / "pokedex.json").exists(), reason="needs data/ tables")
@@ -151,8 +152,9 @@ def test_with_the_key_on_the_search_values_change_and_say_why():
     for state, memory in live_decisions("07a3cb1f", 1):
         off = {s.species: s.score for s in draft.rank_picks_v2(state.legal_actions, memory, OFF)}
         on = draft.rank_picks_v2(state.legal_actions, memory, ON)
-        defaults = draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS)  # deploy #4: the key on
-        assert [(s.species, s.score, s.notes) for s in defaults] == [(s.species, s.score, s.notes) for s in on]
+        defaults = draft.rank_picks_v2(state.legal_actions, memory, tuning.DEFAULTS)  # deploy #5: the key on, with the card table
+        with_table = draft.rank_picks_v2(state.legal_actions, memory, dict(ON, draft_card_adjust_w=0.5, draft_card_adjust_them_w=0.5))
+        assert [(s.species, s.score, s.notes) for s in defaults] == [(s.species, s.score, s.notes) for s in with_table]
         assert {s.species for s in on} == set(off)
         changed += sum(1 for s in on if s.score != off[s.species])
         noted += sum(1 for s in on if any(n.startswith("support:") for n in s.notes))

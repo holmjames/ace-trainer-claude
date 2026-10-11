@@ -124,9 +124,14 @@ def test_v2_handles_unknown_cards_and_a_thin_pool():
 
 
 def test_reply_depth_two_branches_their_snake_double_and_stays_fast():
+    # Timed on the drafter this budget was set for: the per-card table off. Deploy #5 ships it (draft_card_adjust_w and
+    # draft_card_adjust_them_w 0.5), and where Archaludon is offered, as here, its floor ranks the pick a second time
+    # without it: ~1.2 s -> ~2.4 s at this unshipped depth on an idle machine. The shipped depth 1 with the table is
+    # timed under the same 2 s in test_v2_pick_is_legal_deterministic_and_fast (~0.5 s).
     memory = memory_for(POOL_0A2B)
     started = time.perf_counter()
-    pick = draft.choose_pick(offered(memory), memory, tuning.merged({"draft_v2": 1, "draft_reply_depth": 2}))
+    pick = draft.choose_pick(offered(memory), memory, tuning.merged({"draft_v2": 1, "draft_reply_depth": 2,
+                                                                     "draft_card_adjust_w": 0.0, "draft_card_adjust_them_w": 0.0}))
     assert time.perf_counter() - started < 2.0
     assert pick.action in offered(memory)
 

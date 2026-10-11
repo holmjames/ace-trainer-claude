@@ -20,10 +20,11 @@ from the fresh process the runtime gives it (Oct 10 state audit):
 Kept across matches, because each is a pure function of its key (no caller changes a cached object;
 tests/test_match_state.py checks a whole live match leaves them as it found them): ``matchup._UNITS``,
 ``matchup._OPENINGS`` (speed ties played both ways and averaged), ``draft._SUPPORT_RESIST``, and the shipped-file
-caches (``matchup._MODEL_CACHE``, ``matchup._TIERS_CACHE``, ``draft._ADJUST_TABLES``, ``data.pokedex`` / ``moves`` /
-``_catalog``). The secret tie-break seed lives on the match memory; ``draft._SEEDS``, the registry Team Preview finds
-it through, answers only for the card dict that registered it, so it needs no reset and a reset never costs a match
-that is still being played (the other seat of a simulator game) its seed.
+caches (``matchup._MODEL_CACHE``, ``matchup._TIERS_CACHE``, ``draft._ADJUST_TABLES``, ``draft._CARD_ADJUST_TABLES``
+and ``_CARD_ADJUST_ERRORS``, ``data.pokedex`` / ``moves`` / ``_catalog``). The secret tie-break seed lives on the
+match memory; ``draft._SEEDS``, the registry Team Preview finds it through, answers only for the card dict that
+registered it, so it needs no reset and a reset never costs a match that is still being played (the other seat of a
+simulator game) its seed.
 
 What "decides as a fresh process" covers. Kept or emptied, none of these caches changes a value a decision reads; a warm
 one only makes the code faster. So a long-lived process decides each match as a fresh process does wherever a decision

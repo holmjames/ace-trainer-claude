@@ -667,8 +667,8 @@ def first_pick_bonus(board, c: int, pool: list[int], params: dict, *, we_first: 
 # decision without it (the Archaludon floor). With either key above 0, DraftSearch.finished adds key x table to every
 # four-against-four value, so the lookahead sees it at every leaf. The greedy rollouts (Board.score), the fitted
 # per-card strengths (Board.resid, data/draft_model.json), the first-pick policy and table, exposure, the
-# counter-picker and Team Preview never see it. Static repo data, the same for every opponent. Both keys 0 = the
-# shipped draft, bit for bit (the table is not even read).
+# counter-picker and Team Preview never see it. Static repo data, the same for every opponent. Both keys ship at 0.5
+# (deploy #5; tuning.py says why); both 0 = deploy #4's draft (09a95b0), bit for bit (the table is not even read).
 CARD_ADJUST_FILE = data.DATA_DIR / "draft_card_adjust.json"
 CARD_ADJUST_LIMIT = 0.5  # the largest |log-odds| an entry may hold
 CARD_ADJUST_EXCLUDED = frozenset({"archaludon"})  # species ids the table must never hold

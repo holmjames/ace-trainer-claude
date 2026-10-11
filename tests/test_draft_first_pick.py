@@ -94,7 +94,11 @@ def test_with_the_zero_table_the_bonus_is_the_four_term_sum_bit_for_bit():
         assert t["adjust"] == 0.0
         assert bonus == (P["draft_first_strength_w"] * t["strength"] + P["draft_first_scarcity_w"] * t["scarcity"]
                          - P["draft_first_exposure_w"] * t["exposure"] / 6.0 + P["draft_first_guard_w"] * t["guard"])
-    assert not any("table" in n for s in ranked().values() for n in s.notes)  # the policy note reads as before
+    no_card_table = tuning.merged({"draft_card_adjust_w": 0.0, "draft_card_adjust_them_w": 0.0})
+    assert not any("table" in n for s in ranked(params=no_card_table).values() for n in s.notes)  # the policy note reads as before
+    # the defaults add the draft's per-card table (deploy #5): its one line per card is the only other "table" note
+    assert all([n for n in s.notes if "table" in n] == [n for n in s.notes if n.startswith("card table")] and
+               sum(n.startswith("card table") for n in s.notes) == 1 for s in ranked().values())
 
 
 @pytest.mark.parametrize("key, term, scale", [("draft_first_strength_w", "strength", 1.0), ("draft_first_scarcity_w", "scarcity", 1.0),

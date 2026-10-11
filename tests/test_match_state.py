@@ -233,18 +233,20 @@ def test_two_live_matches_in_one_process_decide_as_two_fresh_processes(tmp_path)
 
 
 def test_the_caches_kept_across_matches_come_out_of_a_match_unchanged(tmp_path):
-    """Guard (passes on 81c4591 too): the caches a new match keeps are pure only while no caller changes a cached
-    object, so a whole live match must leave every entry an earlier match left exactly as it was."""
+    """Guard (passes on 81c4591 too, less the draft's card table caches, which it lacks): the caches a new match keeps
+    are pure only while no caller changes a cached object, so a whole live match must leave every entry an earlier
+    match left exactly as it was."""
     replay_match(*FIRST, str(tmp_path / "first"))
 
     def kept() -> dict[str, dict]:
         return {"units": matchup._UNITS, "openings": matchup._OPENINGS, "models": matchup._MODEL_CACHE,
                 "tiers": matchup._TIERS_CACHE, "first-pick tables": draft._ADJUST_TABLES, "resists": draft._SUPPORT_RESIST,
+                "card tables": draft._CARD_ADJUST_TABLES, "card table errors": draft._CARD_ADJUST_ERRORS,
                 "pokedex": data.pokedex(), "moves": data.moves(), "defaults": tuning.DEFAULTS}
 
     before = {name: copy.deepcopy(dict(cache)) for name, cache in kept().items()}
     catalog = copy.deepcopy(data._catalog())
-    assert before["units"] and before["openings"]
+    assert before["units"] and before["openings"] and before["card tables"]  # the defaults read the draft's card table
     replay_match(*SECOND, str(tmp_path / "second"))
     after = kept()
     for name, entries in before.items():

@@ -4,7 +4,8 @@ it credits. data/draft_card_adjust.json holds those corrections in log-odds: "us
 bring, "them" for each of their considered fours that holds it. With the key above 0, DraftSearch.finished adds key x
 table to every four-against-four value before the mean / worst blend; their fours are still chosen without it. At 0
 the table is never read and the search runs its old code: the 132 live draft and 22 Team Preview decisions replay
-identically to 39f50af (full-precision values, notes, picks)."""
+identically to 39f50af (full-precision values, notes, picks). Deploy #5 ships both keys at 0.5 (the pinned simulator
+A/Bs), so the tests below set them both ways explicitly."""
 
 from __future__ import annotations
 
@@ -22,10 +23,11 @@ from agent.pokemon.memory import MatchMemory, observation_dict
 
 W = 0.5  # the gate's weight
 BOTH = {"draft_card_adjust_w": W, "draft_card_adjust_them_w": W}  # the whole table: "us" and "them" at the gate's weight
-PLAIN = tuning.merged({"draft_support_w": 0.0})  # the draft without the support key (39f50af's defaults; deploy #4 ships 0.25)
+NO_TABLE = {"draft_card_adjust_w": 0.0, "draft_card_adjust_them_w": 0.0}  # the table off (deploy #5 ships both at 0.5)
+PLAIN = tuning.merged({"draft_support_w": 0.0, **NO_TABLE})  # the draft without the support key (39f50af's defaults; deploy #4 ships 0.25)
 ON = dict(PLAIN, **BOTH)
-SUPPORT = tuning.merged({"draft_support_w": 0.25})  # the deploy #4 draft
-SUPPORT_ON = dict(SUPPORT, **BOTH)
+SUPPORT = tuning.merged({"draft_support_w": 0.25, **NO_TABLE})  # the deploy #4 draft (09a95b0)
+SUPPORT_ON = dict(SUPPORT, **BOTH)  # the deploy #5 draft: the defaults
 US_ONLY = dict(SUPPORT, draft_card_adjust_w=W)  # "us" alone (draft_card_adjust_them_w 0)
 THEM_ONLY = dict(SUPPORT, draft_card_adjust_them_w=W)  # "them" alone (draft_card_adjust_w 0)
 LIVE = Path(__file__).parent / "fixtures" / "live"
@@ -62,16 +64,35 @@ def write(tmp_path: Path, body) -> Path:
     return path
 
 
-def test_the_key_ships_off():
-    assert tuning.DEFAULTS["draft_card_adjust_w"] == 0.0
+def test_the_key_ships_on_at_the_gates_weight():
+    """Deploy #5 ships the whole table at the gate's weight (the pinned simulator A/Bs, with draft_support_w 0.25): the
+    defaults are SUPPORT_ON, the A/B's arm; the off cases here set both keys to 0 explicitly."""
+    assert tuning.DEFAULTS["draft_card_adjust_w"] == W == 0.5
     assert ON["draft_card_adjust_w"] == W
+    # conftest pins the preview budget (which the draft never reads) after these module constants were built
+    assert tuning.merged() == dict(SUPPORT_ON, lineup_sim_budget_s=tuning.DEFAULTS["lineup_sim_budget_s"])
+    assert PLAIN["draft_card_adjust_w"] == SUPPORT["draft_card_adjust_w"] == 0.0
 
 
-def test_the_them_key_ships_off_and_is_a_tuning_key():
+@needs_data
+def test_the_defaults_rank_every_live_pick_as_the_ab_arm():
+    """The shipped defaults are the A/B's arm (support 0.25, both halves 0.5): on a live draft whose first pick offers
+    Archaludon (the floor runs there), every card's score, exposure and notes are SUPPORT_ON's, card table line included."""
+    for _, state, memory in live_decisions("7551b7da", 1):
+        shipped = draft.rank_picks_v2(state.legal_actions, memory)
+        arm = draft.rank_picks_v2(state.legal_actions, memory, SUPPORT_ON)
+        assert shipped and [(s.species, s.score, s.exposure, s.notes) for s in shipped] == \
+               [(s.species, s.score, s.exposure, s.notes) for s in arm]
+        assert all(sum(n.startswith("card table") for n in s.notes) == 1 for s in shipped)
+
+
+def test_the_them_key_ships_on_and_is_a_tuning_key():
     """draft_card_adjust_them_w scales the "them" section on its own (draft lane 8 review: those entries say how
-    well the search bot uses each card, so another opponent may need a different weight); off by default."""
-    assert tuning.DEFAULTS["draft_card_adjust_them_w"] == 0.0
+    well the search bot uses each card, so another opponent may need a different weight); on at 0.5 by default, with
+    draft_card_adjust_w (deploy #5)."""
+    assert tuning.DEFAULTS["draft_card_adjust_them_w"] == W == 0.5
     assert tuning.merged(BOTH)["draft_card_adjust_them_w"] == W
+    assert PLAIN["draft_card_adjust_them_w"] == SUPPORT["draft_card_adjust_them_w"] == 0.0
 
 
 # -- the data file ------------------------------------------------------------------------------------------------------
