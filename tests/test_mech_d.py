@@ -72,11 +72,13 @@ def catalog_mon(species: str, *, side: str, position: int | None, hp: float = 1.
 
 def build(mine: list[str], opp: list[str], *, bench: list[str] = (), hp: dict[str, float] | None = None, obs_extra: dict | None = None,
           cards: dict[str, dict] | None = None, drop_moves: set[str] = frozenset(), their_fainted: list[str] = (),
-          boosts: dict[str, dict] | None = None, our_fainted: list[str] = ()) -> tuple[battle.TurnSheet, MatchMemory]:
+          boosts: dict[str, dict] | None = None, our_fainted: list[str] = (), fresh: list[str] = ()) -> tuple[battle.TurnSheet, MatchMemory]:
     """A doubles turn from catalog sets: ``mine`` are our actives (slot 0, 1), ``opp`` theirs (positions 1, 2), ``bench``
     our switch options, ``hp`` species -> HP fraction, ``cards`` per-species set overrides, ``drop_moves`` move names
-    left out of our option lists, ``their_fainted`` extra fainted members of their team, ``boosts`` species -> stages."""
+    left out of our option lists, ``their_fainted`` extra fainted members of their team, ``boosts`` species -> stages,
+    ``fresh`` our actives on their first turn out (our Fake Out works)."""
     m = MatchMemory()
+    m.fresh_active = [species_key(s) for s in fresh]
     cards = cards or {}
     hp = hp or {}
     boosts = boosts or {}
@@ -791,6 +793,41 @@ def test_gale_wings_is_plus_one_at_full_hp_and_the_priority_blocks_apply():
     assert ours_bb.get("fails") and "BLOCKED" in ours_bb["note"] and not ours_bb["targets"], ours_bb
 
 
+def test_gale_wings_puts_a_full_hp_talonflames_tailwind_at_plus_one():
+    """Should-fix B (fix3 review): gale_wings gave a full-HP Talonflame +1 on its Flying ATTACKS only; its Tailwind (a
+    Flying status move) stayed +0 where status priority is computed. best_action: under their Tailwind, Garchomp's Rock
+    Slide KOs Talonflame before a +0 move, not before the +1 Tailwind, which keeps its 55 (the best attacks row pairs it
+    with Sucker Punch); Flame Body Talonflame (no Gale Wings, same damage) keeps only survival_factor of it. taunt_value:
+    Tornadus's Prankster Taunt (+1) on a full-HP Talonflame (195) no longer beats its +1 Tailwind (Talonflame is faster),
+    so this turn's Tailwind counts at the later turns' weight; at 99% HP it is +0 and the Taunt blocks it now."""
+    flame_body = {"Talonflame": {**CATALOG["Talonflame"], "ability": "Flame Body"}}
+    their_tailwind = {"turn": 2, "opponent_side_conditions": {"TAILWIND": 1}}
+
+    def row(**kw):
+        sheet, _ = build(["Talonflame", "Kingambit"], ["Garchomp", "Archaludon"], obs_extra=their_tailwind, **kw)
+        return sheet, next(c for c in sheet.candidates if c["name"] == "best_attacks")
+
+    sheet, got = row()
+    plain, ctrl = row(cards=flame_body)
+    assert got["why"].startswith("slot 0 tailwind") and ctrl["why"].startswith("slot 0 tailwind"), (got["why"], ctrl["why"])
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(plain.speed_order)}
+    lost = 1.0 - battle.survival_factor(0, plain, 0, rank)
+    assert lost > 0.5, lost
+    assert got["score"] == pytest.approx(ctrl["score"] + battle.SETUP_MOVES["tailwind"] * lost, abs=0.11), (got["score"], ctrl["score"], lost)
+
+    def taunt(hp):
+        sheet, _ = build(["Tornadus", "Kingambit"], ["Talonflame", "Archaludon"], hp={"Talonflame": hp})
+        tornadus = next(m for m in sheet.field.actives if m.side == "mine" and m.position == 0)
+        talonflame = next(m for m in sheet.field.actives if m.side == "theirs" and m.species == "Talonflame")
+        return battle.taunt_value(tornadus, 0, talonflame.position, talonflame, sheet)
+
+    tailwind = battle.SETUP_MOVES["tailwind"] * battle.TAUNT_USE["speed"]
+    w = tuning.DEFAULTS["sleep_future_w"]
+    other = 10.0 * battle.TAUNT_USE["other"]  # its Taunt (+0): ours (+1) blocks it this turn
+    assert taunt(1.0) == pytest.approx(tailwind * w + other, abs=0.06)
+    assert taunt(0.99) == pytest.approx(tailwind + other, abs=0.06)
+
+
 def test_fresh_fake_out_note_needs_a_slot_it_can_flinch():
     """FRESH tells the model to expect a flinch on one of our slots, so it needs a slot Fake Out can flinch. In Psychic
     Terrain beside our grounded Archaludon (or Indeedee-F) the other slot is the Air Balloon Gholdengo, a Ghost type:
@@ -820,6 +857,337 @@ def test_fresh_fake_out_note_needs_a_slot_it_can_flinch():
     shown, calc = hit_and_calc(sheet, 0)
     assert shown == calc and calc[0] > 0, (shown, calc)  # Inner Focus stops the flinch, not the damage
     assert sheet.flinch_risk == {} and not [w for w in sheet.warnings if w.startswith("FAKE OUT")], sheet.warnings
+
+
+def test_a_fresh_fake_out_flinches_our_plus_one_and_plus_two_moves_too(monkeypatch):
+    """F8 (fix2 review): a fresh Fake Out (+3) stops a Prankster Tailwind or Taunt (+1) and the redirect row's partner
+    setup as surely as a +0 move. Indeedee-F (grounded: Psychic Terrain shields it) + Tornadus (Flying: 90% to be Faked
+    Out) vs a fresh Incineroar; the control is the same position with a Covert Cloak on Tornadus (no flinch, no other
+    change). The redirect row keeps 10% of its +50 setup credit, the best attacks row 10% of Tailwind's 55 and the Taunt
+    row 10% of what the Taunt blocks (taunt_value). fake_out_use 1: the redirect row's Fake Out always used, as
+    flinch_risk has it (its default 0.5: test_the_redirect_row_prices_a_fresh_fake_out_used_half_the_time)."""
+    monkeypatch.setitem(tuning.DEFAULTS, "fake_out_use", 1.0)
+    terrain = {"fields": {"PSYCHIC_TERRAIN": 3}, "turn": 1}
+    cloak = {"Tornadus": {**CATALOG["Tornadus"], "item": "Covert Cloak"}}
+
+    def rows(opp, extra, **kw):
+        sheet, _ = build(["Indeedee-F", "Tornadus"], opp, obs_extra=extra, **kw)
+        free, _ = build(["Indeedee-F", "Tornadus"], opp, obs_extra=extra, cards=cloak, **kw)
+        assert 1 not in free.flinch_risk, free.flinch_risk
+        return sheet, {c["name"]: c for c in sheet.candidates}, {c["name"]: c for c in free.candidates}
+
+    for opp, extra, risk in ((["Incineroar", "Baxcalibur"], terrain, 0.9), (["Incineroar", "Rillaboom"], terrain, 0.9)):
+        sheet, got, free = rows(opp, extra, hp={"Tornadus": 0.3})  # Knock Off KOs the 30% Tornadus; Follow Me draws it
+        assert sheet.flinch_risk == {1: risk}, sheet.flinch_risk
+        row, ctrl = got["redirect_to_protect_partner"], free["redirect_to_protect_partner"]
+        assert f"to itself) while slot 1 sets tailwind ({int(100 * risk)}% that their Fake Out flinches it first)" in row["why"], row["why"]
+        assert "sets tailwind" in ctrl["why"] and "flinches" not in ctrl["why"], ctrl["why"]
+        assert row["score"] == pytest.approx(ctrl["score"] - 50 * risk, abs=0.11), (opp, row["score"], ctrl["score"])
+    for opp in (["Incineroar", "Kingambit"], ["Incineroar", "Pelipper"]):
+        sheet, got, free = rows(opp, terrain)
+        row, ctrl = got["best_attacks"], free["best_attacks"]
+        assert "slot 1 tailwind" in row["why"] and "slot 1 tailwind" in ctrl["why"], (row["why"], ctrl["why"])
+        assert row["score"] == pytest.approx(ctrl["score"] - battle.SETUP_MOVES["tailwind"] * 0.9, abs=0.11), (opp, row["score"], ctrl["score"])
+    sheet, got, free = rows(["Incineroar", "Pelipper"], terrain)
+    tornadus = next(m for m in sheet.field.actives if m.side == "mine" and m.position == 1)
+    pelipper = next(m for m in sheet.field.actives if m.side == "theirs" and m.species == "Pelipper")
+    blocked = battle.taunt_value(tornadus, 1, pelipper.position, pelipper, sheet)
+    assert blocked > 0 and "Taunts Pelipper" in got["taunt_status"]["why"]
+    assert got["taunt_status"]["score"] == pytest.approx(free["taunt_status"]["score"] - blocked * 0.9, abs=0.11)
+
+
+def test_the_redirectors_own_flinch_discounts_the_cover(monkeypatch):
+    """Note C (fix3 review): Follow Me / Rage Powder are +2, so a fresh Fake Out (+3) flinches the redirector too, and a
+    flinched redirector covers nothing; one Fake Out flinches the redirector or the partner, not both. That is when the
+    OTHER foe holds the Fake Out: Ursaluna + Amoonguss vs a fresh Incineroar (0.8 into Ursaluna, 0.2 into Amoonguss) +
+    Pelipper, whose Weather Ball KOs Ursaluna before it moves (its turn is the redirect's to give). Always used
+    (fake_out_use 1), the cover counts 80% of the time and Ursaluna's attack never (both of ours past the one Fake Out);
+    used half the time (the default), the cover 90% and the attack 50%. When the covered attacker is itself the only
+    fresh user (Incineroar's Knock Off into the 30% Tornadus), its Fake Out and its Knock Off exclude each other: the
+    cover counts in full (a Fake Out from it is no Knock Off), and Tornadus's Prankster Tailwind (+1, up before every
+    likely KO into it, redirect or not) whenever Tornadus is not the one flinched: 20% always used, 60% at 0.5."""
+    def row(use, mine, opp, extra, hit, **kw):
+        monkeypatch.setitem(tuning.DEFAULTS, "fake_out_use", use)
+        sheet, _ = build(mine, opp, obs_extra=extra, **kw)
+        got = next(c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner")
+        h = threat_hit(sheet, *hit)
+        return sheet, got, (tuning.DEFAULTS["protect_bonus_guaranteed"] if h["ko"] == "guaranteed" else tuning.DEFAULTS["protect_bonus_possible"]) + 25
+
+    knock_off = (["Indeedee-F", "Tornadus"], ["Incineroar", "Baxcalibur"], {"turn": 1}, ("Incineroar", "knockoff", 1))
+    for use, flinched in ((1.0, 80), (0.5, 40)):
+        sheet, got, cover = row(use, *knock_off, hp={"Tornadus": 0.3})
+        assert sheet.flinch_risk == {0: 0.2, 1: 0.8}, sheet.flinch_risk
+        assert f"to itself) while slot 1 sets tailwind ({flinched}% that their Fake Out flinches it first)" in got["why"], got["why"]
+        assert got["score"] == pytest.approx(cover + 50 * (1 - flinched / 100), abs=0.11), (use, got, cover)
+    weather_ball = (["Ursaluna", "Amoonguss"], ["Incineroar", "Pelipper"], {"turn": 1, "weather": "RainDance"}, ("Pelipper", "weatherball", 0))
+    sheet, got, cover = row(1.0, *weather_ball, fresh=["Ursaluna", "Amoonguss"])
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2}, sheet.flinch_risk
+    assert "(20% that their Fake Out flinches it first) while slot 0 attacks freely (80% that their Fake Out flinches it first)" in got["why"], got["why"]
+    assert got["score"] == pytest.approx(cover * 0.8, abs=0.11), (got, cover)
+    credit = row(0.0, *weather_ball, fresh=["Ursaluna", "Amoonguss"])[1]["score"] - cover  # 0.8 x Ursaluna's attack, never Faked Out
+    _, got, cover = row(0.5, *weather_ball, fresh=["Ursaluna", "Amoonguss"])
+    assert credit > 20 and "(10% that their Fake Out flinches it first) while slot 0 attacks freely (40% that" in got["why"], (credit, got["why"])
+    assert got["score"] == pytest.approx(cover * 0.9 + credit * 0.5, abs=0.11), (got, cover, credit)
+
+
+def test_the_redirect_rows_free_attack_needs_the_partner_to_act(monkeypatch):
+    """Should-fix A (fix3 review): "attacks freely" took 0.8 of the partner's attack whatever its chance to act, while
+    "sets X" was discounted for the flinch. Indeedee-F (grounded in Psychic Terrain) Follow Mes Knock Off off the 25%
+    Gyarados, whom Incineroar's and Rillaboom's fresh Fake Outs flinch 90% of the time: always used (fake_out_use 1)
+    the attack credit keeps 10%; each used half the time (the default, two users aiming 1 - 0.1 ** 0.5 each) 43%.
+    Inner Focus Gyarados (same damage, no flinch) is the control; the cover is the same in all three."""
+    inner_focus = {"Gyarados": {**CATALOG["Gyarados"], "ability": "Inner Focus"}}
+
+    def row(use=0.5, **kw):
+        monkeypatch.setitem(tuning.DEFAULTS, "fake_out_use", use)
+        sheet, _ = build(["Indeedee-F", "Gyarados"], ["Incineroar", "Rillaboom"], hp={"Gyarados": 0.25},
+                         obs_extra={"fields": {"PSYCHIC_TERRAIN": 3}, "turn": 1}, **kw)
+        return sheet, next(c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner")
+
+    sheet, got = row(1.0)
+    _, ctrl = row(cards=inner_focus)
+    assert sheet.flinch_risk == {1: 0.9}, sheet.flinch_risk
+    assert "attacks freely (90% that their Fake Out flinches it first)" in got["why"] and "attacks freely" in ctrl["why"], (got, ctrl)
+    knock_off = threat_hit(sheet, "Incineroar", "knockoff", 1)
+    cover = (tuning.DEFAULTS["protect_bonus_guaranteed"] if knock_off["ko"] == "guaranteed" else tuning.DEFAULTS["protect_bonus_possible"]) + 25
+    assert got["score"] == pytest.approx(cover + (ctrl["score"] - cover) * 0.1, abs=0.11), (got["score"], ctrl["score"], cover)
+    spared = (1 - 0.5 * (1 - 0.1 ** 0.5)) ** 2
+    _, got = row()
+    assert "attacks freely (57% that their Fake Out flinches it first)" in got["why"], got["why"]
+    assert got["score"] == pytest.approx(cover + (ctrl["score"] - cover) * spared, abs=0.11), (got["score"], ctrl["score"], cover, spared)
+
+
+def test_the_redirect_row_prices_a_fresh_fake_out_used_half_the_time(monkeypatch):
+    """Must-fix (fix4 decision review): the redirect row priced its cover and the partner's turn as if a fresh Fake Out
+    is always used, so beside one user and two flinchable slots "the redirect up and the partner unflinched" never
+    happened, and Rage Powder + attack fell to Protect + Spore. Both slots' turns count in this row, so it takes
+    fake_out_use (0.5: the search bot Faked Out on 8 of 16 first turns) as all_act does. And when the covered attacker
+    is the only fresh user, its Fake Out and its hit exclude each other: a Fake Out from it is no hit to cover.
+    Amoonguss + Ursaluna vs a fresh Iron Hands (0.8 of its Fake Out into Ursaluna, 0.2 into Amoonguss) + Landorus-T:
+    the cover for Close Combat into Ursaluna counts in full, and Ursaluna's attack (it moves after Close Combat)
+    whenever it is not the one flinched: 20% always used, 60% at 0.5, all of it never used. At 0.5 Rage Powder + the
+    attack tops Spore + Protect again, as on 39f50af (the turn-1 probe's 21732)."""
+    assert tuning.DEFAULTS["fake_out_use"] == 0.5
+
+    def rows(use):
+        monkeypatch.setitem(tuning.DEFAULTS, "fake_out_use", use)
+        sheet, _ = build(["Amoonguss", "Ursaluna"], ["Iron Hands", "Landorus-Therian"], obs_extra={"turn": 1}, fresh=["Amoonguss", "Ursaluna"])
+        return sheet, {c["name"]: c for c in sheet.candidates}
+
+    sheet, half = rows(0.5)
+    assert sheet.flinch_risk == {0: 0.2, 1: 0.8}, sheet.flinch_risk
+    close_combat = threat_hit(sheet, "Iron Hands", "closecombat", 1)
+    cover = (tuning.DEFAULTS["protect_bonus_guaranteed"] if close_combat["ko"] == "guaranteed" else tuning.DEFAULTS["protect_bonus_possible"]) + 25
+    credit = rows(0.0)[1]["redirect_to_protect_partner"]["score"] - cover  # 0.8 x Ursaluna's attack
+    always = rows(1.0)[1]["redirect_to_protect_partner"]
+    assert credit > 20 and always["score"] == pytest.approx(cover + 0.2 * credit, abs=0.11), (credit, always, cover)
+    assert "to itself) while slot 1 attacks freely (80% that their Fake Out flinches it first)" in always["why"], always["why"]
+    row = half["redirect_to_protect_partner"]
+    assert row["score"] == pytest.approx(cover + 0.6 * credit, abs=0.11), (row, cover, credit)
+    assert row["why"].startswith("Iron Hands's closecombat would KO slot 1; slot 0 redirects it (") \
+        and "to itself) while slot 1 attacks freely (40% that their Fake Out flinches it first)" in row["why"], row["why"]
+    top = max(sheet.candidates, key=lambda c: c["score"])
+    assert top is row and row["score"] > half["protect_threatened"]["score"], (top, half["protect_threatened"])
+
+
+def test_the_fake_out_rows_attacking_partner_is_spared_when_ours_flinches_their_user_first():
+    """Should-fix A: the Fake Out row's attacking partner (0.6 x its own value) is priced with its chance to act as the
+    setup is: Rillaboom (124) Fakes Out the slower Incineroar, their only fresh Fake Out user, before it moves, so
+    Gyarados (0.8 of the risk) attacks unflinched, as an Inner Focus Gyarados (the control) does. 50edd01 priced the
+    attack with the flinch anyway (solo_value), as if Incineroar's Fake Out still came."""
+    inner_focus = {"Gyarados": {**CATALOG["Gyarados"], "ability": "Inner Focus"}}
+
+    def row(**kw):
+        sheet, _ = build(["Rillaboom", "Gyarados"], ["Incineroar", "Kingambit"], obs_extra={"turn": 1}, fresh=["Rillaboom", "Gyarados"], **kw)
+        return sheet, next(c for c in sheet.candidates if c["name"] == "fake_out_setup")
+
+    sheet, got = row()
+    _, ctrl = row(cards=inner_focus)
+    assert sheet.flinch_risk == {0: 0.2, 1: 0.8}, sheet.flinch_risk
+    assert got["why"].startswith("Fake Out Incineroar ") and "slot 1 attacks" in got["why"] and "flinches it first" not in got["why"], got["why"]
+    assert got["score"] == pytest.approx(ctrl["score"], abs=0.11), (got, ctrl)
+
+
+def test_the_fake_out_rows_partner_setup_meets_their_fake_out_unless_ours_flinches_it_first():
+    """F8: the Fake Out row's partner (Tornadus, Tailwind) is Faked Out by their fresh Incineroar unless OUR Fake Out hits
+    that Incineroar first: Rillaboom (124) outspeeds it (80), so Fake Out Incineroar spares the Tailwind, Fake Out
+    Chi-Yu does not (80% at Tornadus). Covert Cloak Tornadus is the control (the Fake Out row is otherwise the same:
+    Rillaboom moves first either way). Our Incineroar (80) is slower than their Rillaboom (124): its Fake Out into
+    Kingambit leaves the Tailwind at the 20% risk."""
+    cloak = {"Tornadus": {**CATALOG["Tornadus"], "item": "Covert Cloak"}}
+
+    def row(mine, opp, **kw):
+        sheet, _ = build(mine, opp, obs_extra={"turn": 1}, fresh=mine, **kw)
+        return sheet, next(c for c in sheet.candidates if c["name"] == "fake_out_setup")
+
+    for opp, target, risk in ((["Incineroar", "Chi-Yu"], "Chi-Yu", 0.8), (["Incineroar", "Kingambit"], "Incineroar", 0.0)):
+        sheet, got = row(["Rillaboom", "Tornadus"], opp)
+        _, ctrl = row(["Rillaboom", "Tornadus"], opp, cards=cloak)
+        assert sheet.flinch_risk[1] == 0.8, sheet.flinch_risk
+        assert got["why"].startswith(f"Fake Out {target} ") and "sets tailwind" in got["why"], got["why"]
+        assert ("80% that their Fake Out flinches it first" in got["why"]) is (risk > 0), got["why"]
+        assert got["score"] == pytest.approx(ctrl["score"] - tuning.DEFAULTS["fakeout_setup_value"] * risk, abs=0.11), (opp, got, ctrl)
+    sheet, got = row(["Incineroar", "Tornadus"], ["Rillaboom", "Kingambit"])
+    assert got["why"].startswith("Fake Out Kingambit ") and sheet.flinch_risk[1] == 0.2, (got["why"], sheet.flinch_risk)
+    assert "sets tailwind (20% that their Fake Out flinches it first)" in got["why"], got["why"]
+
+
+def test_fake_out_spares_what_moves_before_it():
+    """Wide Guard and Quick Guard are +3 like Fake Out (the faster one goes first), Ally Switch +2, Follow Me / Rage Powder
+    +2, Protect +4, Helping Hand +5 (Showdown's move table, data/moves.json)."""
+    assert {m: data.move_info(m)["priority"] for m in ("fakeout", "wideguard", "quickguard", "allyswitch", "followme", "ragepowder",
+                                                        "protect", "helpinghand")} == \
+        {"fakeout": 3, "wideguard": 3, "quickguard": 3, "allyswitch": 2, "followme": 2, "ragepowder": 2, "protect": 4, "helpinghand": 5}
+    sheet = battle.TurnSheet(flinch_risk={1: 0.8})
+    sheet.threats = [{"position": 1, "species": "Incineroar", "known_moves": ["fakeout"], "note": "FRESH: its Fake Out works THIS turn", "hits": []}]
+    sheet.speed_order = [{"side": "theirs", "position": 1, "speed": 80}, {"side": "mine", "position": 1, "speed": 60}]
+    assert [battle.fake_out_spares(sheet, 1, p) for p in (-7, 0, 1, 2, 3, 4, 5)] == pytest.approx([0.2, 0.2, 0.2, 0.2, 0.2, 1.0, 1.0])
+    sheet.speed_order.reverse()  # ours moves first: its +3 Wide Guard goes up before the Fake Out
+    assert [battle.fake_out_spares(sheet, 1, p) for p in (2, 3)] == pytest.approx([0.2, 1.0])
+    assert battle.fake_out_spares(sheet, 0, 1) == 1.0  # no risk on that slot
+
+
+def test_our_fake_out_is_flinched_first_by_a_faster_fresh_one():
+    """Fake Out against Fake Out is decided by speed: their faster fresh Rillaboom (124) flinches our Incineroar (80,
+    80% of the risk) before its Fake Out moves, as the Fake Out row's own check says, so survival_factor prices our +3
+    attack with fake_out_spares like any other move: 0.2 at +3 as at +0, nothing at +4. The best attacks row stops
+    crediting a Fake Out into Rillaboom in full (it played one before). Our Rillaboom (124) beside Tornadus against
+    their slower Incineroar (80) keeps its Fake Out whole (its slot carries 0.2 of the risk, at +0 only)."""
+    sheet, _ = build(["Incineroar", "Tornadus"], ["Rillaboom", "Kingambit"], obs_extra={"turn": 1}, fresh=["Incineroar", "Tornadus"])
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2}, sheet.flinch_risk
+    assert [battle.survival_factor(0, sheet, p, rank) for p in (0, 3, 4)] == pytest.approx([0.2, 0.2, 1.0])
+    top = next(c for c in sheet.candidates if c["name"] == "best_attacks")
+    assert not top["why"].startswith("slot 0 fakeout"), top["why"]
+    sheet, _ = build(["Rillaboom", "Tornadus"], ["Incineroar", "Kingambit"], obs_extra={"turn": 1}, fresh=["Rillaboom", "Tornadus"])
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    assert sheet.flinch_risk[0] == 0.2 and [battle.survival_factor(0, sheet, p, rank) for p in (0, 3)] == pytest.approx([0.8, 1.0])
+
+
+def _fake_out_sheet(risk: dict[int, float], users: list[tuple[str, int, int]], ours: list[tuple[str, int, int]], **cards) -> battle.TurnSheet:
+    """A hand sheet for fake_out_cases: ``users`` their fresh Fake Out users (species, position, speed), ``ours`` our
+    actives (species, slot, speed), ``cards`` per-species set overrides."""
+    sheet = battle.TurnSheet(flinch_risk=dict(risk))
+    sheet.threats = [{"position": pos, "species": s, "known_moves": ["fakeout"], "note": "FRESH: its Fake Out works THIS turn", "hits": []}
+                     for s, pos, _ in users]
+    order = [("theirs", s, pos, v) for s, pos, v in users] + [("mine", s, n, v) for s, n, v in ours]
+    sheet.speed_order = [{"species": s, "side": side, "position": pos, "speed": v} for side, s, pos, v in sorted(order, key=lambda e: -e[3])]
+    sheet.field = battle.FieldState(actives=[catalog_mon(s, side="theirs", position=pos, **cards.get(s, {})) for s, pos, _ in users]
+                                    + [catalog_mon(s, side="mine", position=n, **cards.get(s, {})) for s, n, _ in ours])
+    return sheet
+
+
+def _cases(sheet: battle.TurnSheet, plan: dict[int, dict]) -> dict[frozenset, float]:
+    return {hit: round(p, 6) for p, hit in battle.fake_out_cases(sheet, plan)}
+
+
+def test_one_fresh_fake_out_flinches_one_of_our_pokemon():
+    """fake_out_cases: Incineroar's one Fake Out aims at Iron Hands (0.8) or Whimsicott (0.2, the sheet's estimate) and
+    flinches THAT one: never both, never neither (1aef9227 T1). Protect (+4) takes the hit it aims at; Prankster
+    Tailwind (+1) does not. Two fresh users can flinch both (each aims on its own, the slot's chance over both is its
+    flinch_risk). Our Fake Out (+3) goes first only when faster: then it stops their Fake Out, unless its target ignores
+    the flinch (Covert Cloak). Our Quick Guard up first stops it for both slots. Alone, a slot comes out at
+    fake_out_spares."""
+    m2 = _fake_out_sheet({0: 0.8, 1: 0.2}, [("Incineroar", 1, 80)], [("Iron Hands", 0, 73), ("Whimsicott", 1, 184)])
+    move = {0: {"priority": 0, "move": "closecombat", "target": 1}, 1: {"priority": 0, "move": "moonblast", "target": 1}}
+    assert _cases(m2, move) == {frozenset({0}): 0.8, frozenset({1}): 0.2}
+    assert _cases(m2, {0: {"priority": 4, "move": "protect"}, 1: {"priority": 1, "move": "tailwind"}}) == {frozenset(): 0.8, frozenset({1}): 0.2}
+    for n, prio in ((0, 0), (1, 1), (0, 3), (1, 3), (1, 4)):
+        assert sum(p for p, hit in battle.fake_out_cases(m2, {n: {"priority": prio}}) if n not in hit) == pytest.approx(
+            battle.fake_out_spares(m2, n, prio)), (n, prio)
+    # our Fake Out: Iron Hands (73) is slower than Incineroar (80), so theirs goes first; Rillaboom (124) is faster and stops it
+    assert _cases(m2, {0: {"priority": 3, "move": "fakeout", "target": 1}, 1: {"priority": 0}}) == {frozenset({0}): 0.8, frozenset({1}): 0.2}
+    fast = _fake_out_sheet({0: 0.8, 1: 0.2}, [("Incineroar", 1, 80)], [("Rillaboom", 0, 124), ("Tornadus", 1, 179)])
+    assert _cases(fast, {0: {"priority": 3, "move": "fakeout", "target": 1}, 1: {"priority": 0}}) == {frozenset(): 1.0}
+    assert _cases(fast, {0: {"priority": 3, "move": "fakeout", "target": 2}, 1: {"priority": 0}}) == {frozenset({1}): 0.2, frozenset(): 0.8}
+    cloak = _fake_out_sheet({0: 0.8, 1: 0.2}, [("Incineroar", 1, 80)], [("Rillaboom", 0, 124), ("Tornadus", 1, 179)],
+                            Incineroar={"item": "Covert Cloak"})
+    assert _cases(cloak, {0: {"priority": 3, "move": "fakeout", "target": 1}, 1: {"priority": 0}}) == {frozenset({1}): 0.2, frozenset(): 0.8}
+    assert _cases(fast, {0: {"priority": 3, "move": "quickguard"}, 1: {"priority": 0}}) == {frozenset(): 1.0}
+    # two fresh users (aims 0.8 / 0.2 each: flinch_risk 0.9 capped, 0.36): both slots are flinched together sometimes
+    two = _fake_out_sheet({0: 0.9, 1: 0.36}, [("Incineroar", 1, 80), ("Rillaboom", 2, 124)], [("Iron Hands", 0, 73), ("Whimsicott", 1, 184)])
+    got = _cases(two, move)
+    assert got[frozenset({0, 1})] > 0.2 and sum(got.values()) == pytest.approx(1.0)
+    assert sum(p for hit, p in got.items() if 0 in hit) == pytest.approx(0.9) and sum(p for hit, p in got.items() if 1 in hit) == pytest.approx(0.36)
+
+
+def test_our_faster_fake_out_stops_one_of_two_fresh_fake_outs():
+    """Two fresh Fake Out users (Incineroar 80, Rillaboom 124): Sneasler (189) Fakes Out Incineroar first, so only
+    Rillaboom's Fake Out is left for Tornadus's Tailwind, which it aims at 0.2 of the time; the 50edd01 rule saw two users
+    and no stop (36%). The best attacks row (Fake Out + Bleakwind Storm) counts the same stop. Covert Cloak Tornadus is
+    the control."""
+    cloak = {"Tornadus": {**CATALOG["Tornadus"], "item": "Covert Cloak"}}
+
+    def rows(**kw):
+        sheet, _ = build(["Sneasler", "Tornadus"], ["Incineroar", "Rillaboom"], obs_extra={"turn": 1}, fresh=["Sneasler", "Tornadus"], **kw)
+        return sheet, {c["name"]: c for c in sheet.candidates}
+
+    sheet, got = rows()
+    _, ctrl = rows(cards=cloak)
+    assert sheet.flinch_risk == {0: 0.9, 1: 0.36}, sheet.flinch_risk
+    row = got["fake_out_setup"]
+    assert row["why"].startswith("Fake Out Incineroar ") and "sets tailwind (20% that their Fake Out flinches it first)" in row["why"], row["why"]
+    assert row["score"] == pytest.approx(ctrl["fake_out_setup"]["score"] - tuning.DEFAULTS["fakeout_setup_value"] * 0.2, abs=0.11)
+    cases = {hit: p for p, hit in battle.fake_out_cases(sheet, {0: {"priority": 3, "move": "fakeout", "target": 1}, 1: {"priority": 0}})}
+    assert cases == {frozenset(): pytest.approx(0.8), frozenset({1}): pytest.approx(0.2)}, cases
+
+
+def test_a_plain_two_slot_row_keeps_each_slots_own_flinch_chance(monkeypatch):
+    """Must-fix (fix4 reviews): the sheet's flinch_risk has a fresh Fake Out always used (one user's aims sum to 1), so
+    averaging a plain row over fake_out_cases left "both slots act" at 0 beside one user (the search bot used it on 8 of
+    16 first turns). Best attacks, focus fire and finish the other price each slot's own flinch chance
+    (survival_factor), whatever fake_out_cases says; the Fake Out row passes its cases (our Fake Out shapes them) and is
+    still 0.8 x (Iron Hands flinched) + 0.2 x (Whimsicott flinched). Iron Hands + Whimsicott vs a fresh Incineroar +
+    Sylveon, focus_fire_bonus 0 (the bonus for both hits reads all_act, its own test below)."""
+    real_cases = battle.fake_out_cases
+    names = ("best_attacks", "focus_fire", "finish_the_other", "fake_out_setup")
+    monkeypatch.setitem(tuning.DEFAULTS, "focus_fire_bonus", 0.0)
+
+    def rows(cases=None):
+        if cases is not None:
+            monkeypatch.setattr(battle, "fake_out_cases", lambda sheet, plan, **kw: cases)
+        sheet, _ = build(["Iron Hands", "Whimsicott"], ["Incineroar", "Sylveon"], obs_extra={"turn": 1}, fresh=["Iron Hands", "Whimsicott"])
+        monkeypatch.setattr(battle, "fake_out_cases", real_cases)
+        return sheet, {c["name"]: c["score"] for c in sheet.candidates if c["name"] in names}
+
+    sheet, real = rows()
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2} and set(real) == set(names), (sheet.flinch_risk, real)
+    hands, whims = rows([(1.0, frozenset({0}))])[1], rows([(1.0, frozenset({1}))])[1]  # Iron Hands / Whimsicott flinched
+    for name in ("best_attacks", "focus_fire", "finish_the_other"):
+        assert real[name] == pytest.approx(hands[name], abs=0.01) and real[name] == pytest.approx(whims[name], abs=0.01), (name, real, hands, whims)
+    assert abs(hands["fake_out_setup"] - whims["fake_out_setup"]) > 1.0, (hands, whims)
+    assert real["fake_out_setup"] == pytest.approx(0.8 * hands["fake_out_setup"] + 0.2 * whims["fake_out_setup"], abs=0.11), (real, hands, whims)
+
+
+def test_a_bonus_for_both_hits_counts_when_their_fresh_fake_out_is_not_used(monkeypatch):
+    """focus_fire's +30 and priority_focus's bonus (and its gate) are for the two hits TOGETHER: both slots acting
+    (all_act), one fresh Fake Out flinching one of them when it is used. It is used fake_out_use of the time (0.5: the
+    search bot Faked Out on 8 of 16 first turns), not always as flinch_risk has it: always used, the bonus was 0 beside
+    one user and two flinchable slots and dropped doubles that KO the target before it moves (the fix4 decision review).
+    Talonflame (Gale Wings Brave Bird +1, 0.8 of the risk) and Kingambit (Sucker Punch +1, 0.2) vs a fresh Incineroar +
+    Chi-Yu: the focus fire into Chi-Yu keeps none of its bonus when the Fake Out is always used, all of it when it never
+    is and half at 0.5, where the priority focus takes Chi-Yu out first 50% of the time (no row when always used). On
+    turn 3 (Incineroar no longer fresh) both count whole: the bonus as with no Fake Out, the priority focus 100%."""
+    assert tuning.DEFAULTS["fake_out_use"] == 0.5
+
+    def rows(turn, use, bonus=30.0):
+        monkeypatch.setitem(tuning.DEFAULTS, "fake_out_use", use)
+        monkeypatch.setitem(tuning.DEFAULTS, "focus_fire_bonus", bonus)
+        sheet, _ = build(["Talonflame", "Kingambit"], ["Incineroar", "Chi-Yu"], obs_extra={"turn": turn}, fresh=["Talonflame", "Kingambit"])
+        return sheet, {c["name"]: c for c in sheet.candidates if c["name"] in ("focus_fire", "priority_focus")}
+
+    def bonus(turn, use):
+        return rows(turn, use)[1]["focus_fire"]["score"] - rows(turn, use, 0.0)[1]["focus_fire"]["score"]
+
+    sheet, always = rows(1, 1.0)
+    assert sheet.flinch_risk == {0: 0.8, 1: 0.2} and "focus_fire" in always and "priority_focus" not in always, (sheet.flinch_risk, always)
+    assert bonus(1, 1.0) == pytest.approx(0.0, abs=0.11)
+    full, half = bonus(1, 0.0), bonus(1, 0.5)
+    assert full > 2.0 and half == pytest.approx(0.5 * full, abs=0.16), (full, half)
+    assert "take it out first 50% of the time" in rows(1, 0.5)[1]["priority_focus"]["why"]
+    sheet, late = rows(3, 1.0)
+    assert not sheet.flinch_risk and "take it out first 100% of the time" in late["priority_focus"]["why"], late
+    assert bonus(3, 1.0) == pytest.approx(full, abs=0.16)
 
 
 def test_redirect_ignored_and_blocked_effects():

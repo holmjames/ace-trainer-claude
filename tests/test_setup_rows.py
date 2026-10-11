@@ -92,7 +92,9 @@ def test_a_speed_setup_backfires_only_when_one_of_ours_would_lose_a_foe_it_outsp
 
 @pytest.mark.parametrize("name, sc, row, setup", [
     # the last turn of our Tailwind (set on turn 1, now turn 4): a Trick Room set now (-7) starts as the Tailwind ends
-    ("redirect_room_on_our_tailwinds_last_turn", dataclasses.replace(REDIRECT, turn=4, my_side={"TAILWIND": 1}, **HATTERENE),
+    # (Hatterene's attacks left out: the redirect row pairs the better of the setup and the attack, and here the attack wins)
+    ("redirect_room_on_our_tailwinds_last_turn", dataclasses.replace(REDIRECT, turn=4, my_side={"TAILWIND": 1}, **HATTERENE,
+                                                                     drop_moves={"hatterene": {"dazzlinggleam", "psychic", "mysticalfire"}}),
      "redirect_to_protect_partner", "trickroom"),
     # the last turn of our Trick Room (set on turn 1, now turn 5): a Tailwind set now runs three more turns without it
     ("fake_out_tailwind_on_our_rooms_last_turn", dataclasses.replace(FAKE_OUT, turn=5, my_fresh=("incineroar",), their_fresh=(), fields={"TRICK_ROOM": 1}),
@@ -123,10 +125,29 @@ def test_a_speed_setup_never_backfires_on_the_last_turn_of_what_it_reverses():
 
 
 def test_a_tailwind_not_yet_up_is_still_the_redirect_partners_setup(tmp_path, monkeypatch):
+    # Bleakwind Storm left out: the row pairs the better of the setup and the attack (should-fix A), and the attack wins here
     monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)
     monkeypatch.setitem(tuning.DEFAULTS, "lineup_sim_budget_s", 0.0)
-    found = [c for c in rows(dataclasses.replace(REDIRECT, **TORNADUS), tmp_path) if c["name"] == "redirect_to_protect_partner"]
+    sc = dataclasses.replace(REDIRECT, **TORNADUS, drop_moves={"tornadus": {"bleakwindstorm"}})
+    found = [c for c in rows(sc, tmp_path) if c["name"] == "redirect_to_protect_partner"]
     assert found and all("sets tailwind" in c["why"] for c in found), found
+
+
+def test_the_redirect_row_pairs_the_partners_better_action(tmp_path, monkeypatch):
+    """Should-fix A (fix3 review): the redirect row paired the partner's setup whenever it had one (+50) and never weighed
+    it against the partner's free attack (0.8 x its value). Amoonguss's Rage Powder beside Tornadus: Bleakwind Storm into
+    Urshifu-RS + Kingambit is worth more than the Tailwind's 50, so the row attacks, and scores above the same row with
+    Bleakwind Storm left out (which sets the Tailwind)."""
+    monkeypatch.setitem(tuning.DEFAULTS, "reply_mixture", 0.0)
+    monkeypatch.setitem(tuning.DEFAULTS, "lineup_sim_budget_s", 0.0)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    attack = [c for c in rows(dataclasses.replace(REDIRECT, **TORNADUS), tmp_path / "a") if c["name"] == "redirect_to_protect_partner"]
+    setup = [c for c in rows(dataclasses.replace(REDIRECT, **TORNADUS, drop_moves={"tornadus": {"bleakwindstorm"}}), tmp_path / "b")
+             if c["name"] == "redirect_to_protect_partner"]
+    assert attack and all("attacks freely" in c["why"] for c in attack), attack
+    assert setup and all("sets tailwind" in c["why"] for c in setup), setup
+    assert max(c["score"] for c in attack) > max(c["score"] for c in setup), (attack, setup)
 
 
 def test_only_our_own_trick_room_is_spent():
