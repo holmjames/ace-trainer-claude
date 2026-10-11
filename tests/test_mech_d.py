@@ -6,6 +6,7 @@ scripts/gen_mech_fixture.js (the Low Kick cases also sit in tests/fixtures/smogo
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -905,7 +906,9 @@ def test_the_redirectors_own_flinch_discounts_the_cover(monkeypatch):
     used half the time (the default), the cover 90% and the attack 50%. When the covered attacker is itself the only
     fresh user (Incineroar's Knock Off into the 30% Tornadus), its Fake Out and its Knock Off exclude each other: the
     cover counts in full (a Fake Out from it is no Knock Off), and Tornadus's Prankster Tailwind (+1, up before every
-    likely KO into it, redirect or not) whenever Tornadus is not the one flinched: 20% always used, 60% at 0.5."""
+    likely KO into it, redirect or not) whenever Tornadus is not the one flinched: 20% always used, 60% at 0.5. The
+    row's words give each slot's chance as the FAKE OUT warning does (their Fake Out used) whatever fake_out_use prices
+    the score at (should-fix, the deploy #5 review): 80% for Tornadus, 20% / 80% for Amoonguss / Ursaluna."""
     def row(use, mine, opp, extra, hit, **kw):
         monkeypatch.setitem(tuning.DEFAULTS, "fake_out_use", use)
         sheet, _ = build(mine, opp, obs_extra=extra, **kw)
@@ -917,7 +920,7 @@ def test_the_redirectors_own_flinch_discounts_the_cover(monkeypatch):
     for use, flinched in ((1.0, 80), (0.5, 40)):
         sheet, got, cover = row(use, *knock_off, hp={"Tornadus": 0.3})
         assert sheet.flinch_risk == {0: 0.2, 1: 0.8}, sheet.flinch_risk
-        assert f"to itself) while slot 1 sets tailwind ({flinched}% that their Fake Out flinches it first)" in got["why"], got["why"]
+        assert "to itself) while slot 1 sets tailwind (80% that their Fake Out flinches it first)" in got["why"], got["why"]
         assert got["score"] == pytest.approx(cover + 50 * (1 - flinched / 100), abs=0.11), (use, got, cover)
     weather_ball = (["Ursaluna", "Amoonguss"], ["Incineroar", "Pelipper"], {"turn": 1, "weather": "RainDance"}, ("Pelipper", "weatherball", 0))
     sheet, got, cover = row(1.0, *weather_ball, fresh=["Ursaluna", "Amoonguss"])
@@ -926,7 +929,7 @@ def test_the_redirectors_own_flinch_discounts_the_cover(monkeypatch):
     assert got["score"] == pytest.approx(cover * 0.8, abs=0.11), (got, cover)
     credit = row(0.0, *weather_ball, fresh=["Ursaluna", "Amoonguss"])[1]["score"] - cover  # 0.8 x Ursaluna's attack, never Faked Out
     _, got, cover = row(0.5, *weather_ball, fresh=["Ursaluna", "Amoonguss"])
-    assert credit > 20 and "(10% that their Fake Out flinches it first) while slot 0 attacks freely (40% that" in got["why"], (credit, got["why"])
+    assert credit > 20 and "(20% that their Fake Out flinches it first) while slot 0 attacks freely (80% that" in got["why"], (credit, got["why"])
     assert got["score"] == pytest.approx(cover * 0.9 + credit * 0.5, abs=0.11), (got, cover, credit)
 
 
@@ -935,7 +938,8 @@ def test_the_redirect_rows_free_attack_needs_the_partner_to_act(monkeypatch):
     "sets X" was discounted for the flinch. Indeedee-F (grounded in Psychic Terrain) Follow Mes Knock Off off the 25%
     Gyarados, whom Incineroar's and Rillaboom's fresh Fake Outs flinch 90% of the time: always used (fake_out_use 1)
     the attack credit keeps 10%; each used half the time (the default, two users aiming 1 - 0.1 ** 0.5 each) 43%.
-    Inner Focus Gyarados (same damage, no flinch) is the control; the cover is the same in all three."""
+    Inner Focus Gyarados (same damage, no flinch) is the control; the cover is the same in all three. The row's words
+    say 90% at both, the warning's figure (should-fix, the deploy #5 review)."""
     inner_focus = {"Gyarados": {**CATALOG["Gyarados"], "ability": "Inner Focus"}}
 
     def row(use=0.5, **kw):
@@ -953,7 +957,7 @@ def test_the_redirect_rows_free_attack_needs_the_partner_to_act(monkeypatch):
     assert got["score"] == pytest.approx(cover + (ctrl["score"] - cover) * 0.1, abs=0.11), (got["score"], ctrl["score"], cover)
     spared = (1 - 0.5 * (1 - 0.1 ** 0.5)) ** 2
     _, got = row()
-    assert "attacks freely (57% that their Fake Out flinches it first)" in got["why"], got["why"]
+    assert "attacks freely (90% that their Fake Out flinches it first)" in got["why"], got["why"]
     assert got["score"] == pytest.approx(cover + (ctrl["score"] - cover) * spared, abs=0.11), (got["score"], ctrl["score"], cover, spared)
 
 
@@ -966,7 +970,8 @@ def test_the_redirect_row_prices_a_fresh_fake_out_used_half_the_time(monkeypatch
     Amoonguss + Ursaluna vs a fresh Iron Hands (0.8 of its Fake Out into Ursaluna, 0.2 into Amoonguss) + Landorus-T:
     the cover for Close Combat into Ursaluna counts in full, and Ursaluna's attack (it moves after Close Combat)
     whenever it is not the one flinched: 20% always used, 60% at 0.5, all of it never used. At 0.5 Rage Powder + the
-    attack tops Spore + Protect again, as on 39f50af (the turn-1 probe's 21732)."""
+    attack tops Spore + Protect again, as on 39f50af (the turn-1 probe's 21732). The row's words say 80% for Ursaluna
+    at both, the warning's figure (should-fix, the deploy #5 review)."""
     assert tuning.DEFAULTS["fake_out_use"] == 0.5
 
     def rows(use):
@@ -985,9 +990,40 @@ def test_the_redirect_row_prices_a_fresh_fake_out_used_half_the_time(monkeypatch
     row = half["redirect_to_protect_partner"]
     assert row["score"] == pytest.approx(cover + 0.6 * credit, abs=0.11), (row, cover, credit)
     assert row["why"].startswith("Iron Hands's closecombat would KO slot 1; slot 0 redirects it (") \
-        and "to itself) while slot 1 attacks freely (40% that their Fake Out flinches it first)" in row["why"], row["why"]
+        and "to itself) while slot 1 attacks freely (80% that their Fake Out flinches it first)" in row["why"], row["why"]
     top = max(sheet.candidates, key=lambda c: c["score"])
     assert top is row and row["score"] > half["protect_threatened"]["score"], (top, half["protect_threatened"])
+
+
+def test_the_redirect_rows_flinch_clauses_give_the_warnings_chance_whatever_fake_out_use_prices(monkeypatch):
+    """Should-fix (deploy #5 review, sheet text vs prompt_v2 + KB): one sheet gave a slot's flinch chance on two bases.
+    The FAKE OUT warning, the FRESH note and the Fake Out row's clause have their fresh Fake Out used (flinch_risk), but
+    the redirect row's clauses came from the cases it prices at fake_out_use (0.5), so beside the warning's "slot 1
+    (Ursaluna): 80%" the row said "(40% that their Fake Out flinches it first)". The row's words now give each slot's
+    chance on the sheet's basis (fake_out_cases at its default, use 1: the warning's figure for a move below +3), and
+    fake_out_use still prices its score: the same words at 0.5 and at 1, a higher score at 0.5. The four redirect
+    positions above: Tornadus (the covered Knock Off's user is the only fresh one, so no clause on the redirector),
+    Amoonguss + Ursaluna (the other foe holds the Fake Out: both clauses), Ursaluna (Iron Hands's own Fake Out), and
+    Gyarados beside two users (90%; the grounded Indeedee-F is shielded by its Psychic Terrain)."""
+    positions = {
+        "knock_off": (["Indeedee-F", "Tornadus"], ["Incineroar", "Baxcalibur"], {"obs_extra": {"turn": 1}, "hp": {"Tornadus": 0.3}}, [1]),
+        "weather_ball": (["Ursaluna", "Amoonguss"], ["Incineroar", "Pelipper"], {"obs_extra": {"turn": 1, "weather": "RainDance"},
+                                                                                 "fresh": ["Ursaluna", "Amoonguss"]}, [1, 0]),
+        "close_combat": (["Amoonguss", "Ursaluna"], ["Iron Hands", "Landorus-Therian"], {"obs_extra": {"turn": 1}, "fresh": ["Amoonguss", "Ursaluna"]}, [1]),
+        "two_users": (["Indeedee-F", "Gyarados"], ["Incineroar", "Rillaboom"], {"obs_extra": {"fields": {"PSYCHIC_TERRAIN": 3}, "turn": 1},
+                                                                              "hp": {"Gyarados": 0.25}}, [1]),
+    }
+    for name, (mine, opp, kw, clause_slots) in positions.items():
+        got = {}
+        for use in (0.5, 1.0):
+            monkeypatch.setitem(tuning.DEFAULTS, "fake_out_use", use)
+            sheet, _ = build(mine, opp, **kw)
+            warning = next(w for w in sheet.warnings if w.startswith("FAKE OUT"))
+            said = {int(n): int(v) for n, v in re.findall(r"slot (\d) \([^)]*\): (\d+)%", warning)}
+            row = got[use] = next(c for c in sheet.candidates if c["name"] == "redirect_to_protect_partner")
+            figures = [int(x) for x in re.findall(r"\((\d+)% that their Fake Out flinches it first\)", row["why"])]
+            assert figures == [said[n] for n in clause_slots], (name, use, warning, row["why"])
+        assert got[0.5]["why"] == got[1.0]["why"] and got[0.5]["score"] > got[1.0]["score"] + 1, (name, got)
 
 
 def test_the_fake_out_rows_attacking_partner_is_spared_when_ours_flinches_their_user_first():

@@ -2671,7 +2671,9 @@ def fake_out_cases(sheet: "TurnSheet", plan: dict[int, dict], use: float = 1.0) 
 
 def _flinch_clause(spared: float) -> str:
     """What a row says of a move of ours that a fresh Fake Out may flinch first, given the chance it is spared
-    (``fake_out_spares`` or ``fake_out_cases`` below 1): the partner's setup or attack, the redirector's Follow Me."""
+    (``fake_out_spares`` or ``fake_out_cases`` below 1): the partner's setup or attack, the redirector's Follow Me. The
+    chance is on the sheet's basis, their Fake Out used (``fake_out_cases``' default), as the FAKE OUT warning and the
+    FRESH note give it, whatever ``fake_out_use`` a row's score is priced at."""
     return f" ({int(round(100 * (1.0 - spared)))}% that their Fake Out flinches it first)" if spared < 1.0 else ""
 
 
@@ -3833,14 +3835,19 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             # decision review: Rage Powder + attack fell to Protect + Spore). When the covered attacker is the only fresh
             # user, its Fake Out and this hit exclude each other: a flinch is its Fake Out, so there is no hit to cover
             # (the cover counts, as protect_threatened counts it) and the partner moves unless it is the one flinched.
+            # fake_out_use prices the score only. The row's words give each slot's flinch chance on the sheet's basis,
+            # fake_out_cases at its default (their Fake Out used), as the FAKE OUT warning, the FRESH note and the Fake
+            # Out row give it: from the 0.5 cases one sheet said 80% in its warning and 40% in this row for the same
+            # slot (should-fix, the deploy #5 review).
             redirect_move = data.to_id(slot_r["options"][redirect].get("move_id"))
             cover = (P["protect_bonus_guaranteed"] if hit["ko"] == "guaranteed" else P["protect_bonus_possible"]) + 25
             use = float(P.get("fake_out_use", DEFAULTS["fake_out_use"]))
             exclusive = [t["position"] for t in _fresh_fake_out_users(sheet)] == [threat["position"]]
             priced = []
             for answer, move_id, prio, tgt, credit, setup in options:
-                cases = fake_out_cases(sheet, {redirector: {"priority": move_priority(me_r, redirect_move), "move": redirect_move, "target": 0},
-                                               endangered_slot: {"priority": prio, "move": move_id, "target": tgt}}, use=use)
+                plan = {redirector: {"priority": move_priority(me_r, redirect_move), "move": redirect_move, "target": 0},
+                        endangered_slot: {"priority": prio, "move": move_id, "target": tgt}}
+                cases = fake_out_cases(sheet, plan, use=use)
                 first = all(acts_before(endangered_slot, t["position"], prio, h.get("priority", 0) or 0) for t in sheet.threats for h in t["hits"]
                             if h["into_slot"] == endangered_slot and ko_probability(h, with_accuracy=True) >= LIKELY_KO)
                 value = covered = spared = 0.0
@@ -3852,6 +3859,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                         up = sheet.acts(redirector) * (redirector not in hit_)  # the redirect is up: the redirector acts, unflinched
                         moves = sheet.acts(endangered_slot) * (endangered_slot not in hit_) * (up + (1.0 - up) * first)
                     value += p * (cover * up + credit * moves)
+                for p, hit_ in (cases if use == 1.0 else fake_out_cases(sheet, plan)):  # the words: the sheet's basis
                     covered += p * (exclusive or redirector not in hit_)
                     spared += p * (endangered_slot not in hit_)
                 priced.append((value, answer, setup, covered, spared))
@@ -3895,6 +3903,9 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         # value), each priced with the partner's chance to act: asleep / paralysed, and their fresh Fake Out (below +3),
         # which ours stops when it flinches that user first (our target, and ours moves first: the speed order decides
         # between two +3 moves; fake_out_cases). Should-fix A (fix3 review): "attacks" was not discounted for it.
+        # Their Fake Out is used here (fake_out_cases' default, flinch_risk's basis), not fake_out_use: this row's score
+        # adds one slot's turn to the other's, with no term that needs both to act (fake_out_use is for those: all_act,
+        # the redirect row), so it is the per-slot chance fake_out_spares and the warning give.
         # (value, answer, setup, spared, cases)
         option = None
         if other_slot:
