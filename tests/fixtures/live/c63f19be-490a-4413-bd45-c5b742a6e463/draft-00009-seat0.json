@@ -1,0 +1,474 @@
+{
+ "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 9,
+ "observation": {
+  "phase": "draft",
+  "draft_complete": false,
+  "battle_format": "gen9vgc2025regi",
+  "current_seat": "68a1235b-e6e1-424b-8621-c057a4604d87",
+  "pick_number": 10,
+  "picks_remaining": 3,
+  "first_drafter": "c1e41fa2-187c-424f-8bd9-079371f7ad03",
+  "available_card_ids": [
+   "vgc-baxcalibur",
+   "vgc-dondozo",
+   "vgc-arcanine",
+   "vgc-cresselia",
+   "vgc-sableye",
+   "vgc-indeedee-f",
+   "vgc-talonflame",
+   "vgc-tornadus",
+   "vgc-rillaboom"
+  ],
+  "available_cards": [
+   {
+    "card_id": "vgc-baxcalibur",
+    "species": "Baxcalibur",
+    "item": "Loaded Dice",
+    "ability": "Thermal Exchange",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 4,
+     "atk": 252,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Icicle Spear",
+     "Glaive Rush",
+     "Ice Shard",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-dondozo",
+    "species": "Dondozo",
+    "item": "Leftovers",
+    "ability": "Unaware",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Wave Crash",
+     "Earthquake",
+     "Liquidation",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-arcanine",
+    "species": "Arcanine",
+    "item": "Safety Goggles",
+    "ability": "Intimidate",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 252,
+     "spe": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Flare Blitz",
+     "Extreme Speed",
+     "Snarl",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-cresselia",
+    "species": "Cresselia",
+    "item": "Sitrus Berry",
+    "ability": "Levitate",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Icy Wind",
+     "Moonblast",
+     "Helping Hand",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-sableye",
+    "species": "Sableye",
+    "item": "Mental Herb",
+    "ability": "Prankster",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Foul Play",
+     "Fake Out",
+     "Will-O-Wisp",
+     "Taunt"
+    ]
+   },
+   {
+    "card_id": "vgc-indeedee-f",
+    "species": "Indeedee-F",
+    "item": "Rocky Helmet",
+    "ability": "Psychic Surge",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Follow Me",
+     "Helping Hand",
+     "Dazzling Gleam",
+     "Psychic"
+    ]
+   },
+   {
+    "card_id": "vgc-talonflame",
+    "species": "Talonflame",
+    "item": "Sharp Beak",
+    "ability": "Gale Wings",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Tailwind",
+     "Brave Bird",
+     "Taunt",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-tornadus",
+    "species": "Tornadus",
+    "item": "Mental Herb",
+    "ability": "Prankster",
+    "nature": "Timid",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spd": 4,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Bleakwind Storm",
+     "Taunt",
+     "Tailwind",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-rillaboom",
+    "species": "Rillaboom",
+    "item": "Assault Vest",
+    "ability": "Grassy Surge",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 236,
+     "atk": 116,
+     "def": 4,
+     "spd": 4,
+     "spe": 148
+    },
+    "ivs": {},
+    "moves": [
+     "Fake Out",
+     "Wood Hammer",
+     "Grassy Glide",
+     "U-turn"
+    ]
+   }
+  ],
+  "rosters": {
+   "68a1235b-e6e1-424b-8621-c057a4604d87": [
+    {
+     "card_id": "vgc-porygon2",
+     "species": "Porygon2"
+    },
+    {
+     "card_id": "vgc-dragonite",
+     "species": "Dragonite"
+    },
+    {
+     "card_id": "vgc-gholdengo",
+     "species": "Gholdengo"
+    },
+    {
+     "card_id": "vgc-torkoal",
+     "species": "Torkoal"
+    }
+   ],
+   "c1e41fa2-187c-424f-8bd9-079371f7ad03": [
+    {
+     "card_id": "vgc-iron-hands",
+     "species": "Iron Hands"
+    },
+    {
+     "card_id": "vgc-incineroar",
+     "species": "Incineroar"
+    },
+    {
+     "card_id": "vgc-iron-bundle",
+     "species": "Iron Bundle"
+    },
+    {
+     "card_id": "vgc-wo-chien",
+     "species": "Wo-Chien"
+    },
+    {
+     "card_id": "vgc-amoonguss",
+     "species": "Amoonguss"
+    }
+   ]
+  },
+  "picks": [
+   {
+    "pick_number": 1,
+    "seat_id": "c1e41fa2-187c-424f-8bd9-079371f7ad03",
+    "card_id": "vgc-iron-hands",
+    "species": "Iron Hands",
+    "public_reason": "Draft pick 1: Iron Hands (Fighting/Electric). It adds Fighting/Electric typing to our team.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 2,
+    "seat_id": "68a1235b-e6e1-424b-8621-c057a4604d87",
+    "card_id": "vgc-porygon2",
+    "species": "Porygon2",
+    "public_reason": "Drafted Porygon2.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 3,
+    "seat_id": "68a1235b-e6e1-424b-8621-c057a4604d87",
+    "card_id": "vgc-dragonite",
+    "species": "Dragonite",
+    "public_reason": "Drafted Dragonite.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 4,
+    "seat_id": "c1e41fa2-187c-424f-8bd9-079371f7ad03",
+    "card_id": "vgc-incineroar",
+    "species": "Incineroar",
+    "public_reason": "Draft pick 4: Incineroar (Fire/Dark). It adds Fire/Dark typing to our team.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 5,
+    "seat_id": "c1e41fa2-187c-424f-8bd9-079371f7ad03",
+    "card_id": "vgc-iron-bundle",
+    "species": "Iron Bundle",
+    "public_reason": "Draft pick 5: Iron Bundle (Ice/Water). Its Ice typing is super effective against their Dragonite.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 6,
+    "seat_id": "68a1235b-e6e1-424b-8621-c057a4604d87",
+    "card_id": "vgc-gholdengo",
+    "species": "Gholdengo",
+    "public_reason": "Drafted Gholdengo.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 7,
+    "seat_id": "68a1235b-e6e1-424b-8621-c057a4604d87",
+    "card_id": "vgc-torkoal",
+    "species": "Torkoal",
+    "public_reason": "Drafted Torkoal.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 8,
+    "seat_id": "c1e41fa2-187c-424f-8bd9-079371f7ad03",
+    "card_id": "vgc-wo-chien",
+    "species": "Wo-Chien",
+    "public_reason": "Draft pick 8: Wo-Chien (Dark/Grass). Its Dark typing is super effective against their Gholdengo.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 9,
+    "seat_id": "c1e41fa2-187c-424f-8bd9-079371f7ad03",
+    "card_id": "vgc-amoonguss",
+    "species": "Amoonguss",
+    "public_reason": "Draft pick 9: Amoonguss (Grass/Poison). It adds Grass/Poison typing to our team.",
+    "auto": false,
+    "auto_reason": null
+   }
+  ],
+  "unused_card_ids": [
+   "vgc-baxcalibur",
+   "vgc-dondozo",
+   "vgc-arcanine",
+   "vgc-cresselia",
+   "vgc-sableye",
+   "vgc-indeedee-f",
+   "vgc-talonflame",
+   "vgc-tornadus",
+   "vgc-rillaboom"
+  ],
+  "decision_timeout_seconds": 15.0,
+  "decision_deadline_at": "2026-10-12T10:11:03.837646+00:00",
+  "battle_starting": false
+ },
+ "phase": "draft",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "68a1235b-e6e1-424b-8621-c057a4604d87",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+  "state_version": 9,
+  "actions": [
+   {
+    "action_id": "draft_pick:vgc-dondozo",
+    "label": "Draft vgc-dondozo",
+    "input": {
+     "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-dondozo"
+     },
+     "action_id": "draft_pick:vgc-dondozo",
+     "state_version": 9
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-arcanine",
+    "label": "Draft vgc-arcanine",
+    "input": {
+     "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-arcanine"
+     },
+     "action_id": "draft_pick:vgc-arcanine",
+     "state_version": 9
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-cresselia",
+    "label": "Draft vgc-cresselia",
+    "input": {
+     "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-cresselia"
+     },
+     "action_id": "draft_pick:vgc-cresselia",
+     "state_version": 9
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-sableye",
+    "label": "Draft vgc-sableye",
+    "input": {
+     "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-sableye"
+     },
+     "action_id": "draft_pick:vgc-sableye",
+     "state_version": 9
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-indeedee-f",
+    "label": "Draft vgc-indeedee-f",
+    "input": {
+     "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-indeedee-f"
+     },
+     "action_id": "draft_pick:vgc-indeedee-f",
+     "state_version": 9
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-talonflame",
+    "label": "Draft vgc-talonflame",
+    "input": {
+     "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-talonflame"
+     },
+     "action_id": "draft_pick:vgc-talonflame",
+     "state_version": 9
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-tornadus",
+    "label": "Draft vgc-tornadus",
+    "input": {
+     "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-tornadus"
+     },
+     "action_id": "draft_pick:vgc-tornadus",
+     "state_version": 9
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-rillaboom",
+    "label": "Draft vgc-rillaboom",
+    "input": {
+     "session_id": "c63f19be-490a-4413-bd45-c5b742a6e463",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-rillaboom"
+     },
+     "action_id": "draft_pick:vgc-rillaboom",
+     "state_version": 9
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}

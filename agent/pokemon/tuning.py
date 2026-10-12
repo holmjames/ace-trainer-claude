@@ -125,6 +125,7 @@ DEFAULTS: dict[str, float] = {
     "sleep_future_w": 0.5,         # Part 3: weight of a later turn's action against this turn's (the turns a sleep move takes, a Taunt blocks)
     "sleep_use_prior": 0.6,        # Part 3: chance a sleep user with a target uses its sleep move this turn (aimed 0.8 at the slot that loses most)
     "fake_out_use": 0.5,           # chance a fresh opposing Fake Out user Fakes Out at all, where a row needs BOTH our slots to act (battle.rank_candidates: all_act, focus fire's bonus for the second hit, and priority focus's combined KO; the redirect row's cover and partner); the search bot 8 of 16 first turns (replies.SEEDS fakeout_first_turn). flinch_risk's per-slot chances keep it at 1: 0.5 there flipped four live scenarios (fix4 reviews)
+    "foe_sleep": 1.0,              # 1: a foe's KO threat counts only as often as it acts this turn (asleep: 0, 1/3, 1/2 by missed attempts; paralysed 3/4; frozen 1/5) in the Protect / switch / double-target rows; 0: the deploy #5 rows (a sleeping Iron Hands won two Protects over the model's pick, Oct 12)
     # model layer (ops lane)
     "override_margin": 0.15,       # E2: a free-form override whose value trails the best row by more than this share of the top value is rejected, unless the model's opponent prediction matches the code's top column
     # model path (lane M1): the model audit's recommendations (Oct 9). Of the four switches below, recheck_v2, prompt_v2
