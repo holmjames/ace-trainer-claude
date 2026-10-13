@@ -165,6 +165,25 @@ def test_a_fresh_agent_sees_the_same_sheet_as_a_full_replay(folder, seat, tmp_pa
     assert not diffs, f"{len(diffs)}/{compared} states differ after a restart:\n  " + "\n  ".join(diffs[:12])
 
 
+def test_a_restart_keeps_a_terastallized_cards_own_typing_6eb7e991(tmp_path):
+    """6eb7e991 T2: their Iron Valiant Terastallized (Fairy) on T1 and was benched. Its summary's types are now its Tera
+    type, battle state: a restart took them as the card's typing (pure Fairy) where the full replay, which saw it before
+    the Tera, has Fairy / Fighting. The card now keeps the species' own typing; the summary still carries the Tera type
+    for the battle (``battle.build_mon`` lays the summary over the card)."""
+    from agent.pokemon import battle
+
+    folder = _folder("6eb7e991")
+    raw = json.loads((folder / "moving-00002-seat0.json").read_text())
+    state = GameState.from_mcp_state(raw)
+    summary = next(v for v in observation_dict(state)["opponent_team"].values() if species_key(v.get("species")) == "ironvaliant")
+    assert summary["is_terastallized"] and summary["types"] == ["FAIRY"] and not summary["active"]
+    agent = _agent(tmp_path, "fresh")
+    agent.choose_action(state, _context(folder, raw, 0))
+    card = agent.memory.opp_cards["ironvaliant"]
+    assert card["types"] == ["FAIRY", "FIGHTING"]
+    assert battle.build_mon(summary, card, side="theirs", position=None).types == ["fairy"]
+
+
 @pytest.mark.skipif(not CASES, reason="no live captures")
 def test_a_fresh_agent_knows_every_drafted_set_from_the_catalog(tmp_path):
     """A restart on the first battle state of the newest session recovers full sets (moves, EVs, item) for everything

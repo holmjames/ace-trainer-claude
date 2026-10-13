@@ -230,7 +230,12 @@ class MatchMemory:
         if not key:
             return
         known = side.get(key, {})
-        fill = {k: v for k, v in entry.items() if k in CARD_FIELDS and v not in UNKNOWN_VALUES and known.get(k) in UNKNOWN_VALUES}
+        # A Terastallized summary's types are its Tera type, battle state like its HP: the card keeps the species' own
+        # typing (the dex fills it when nothing else does), as an agent that saw it before the Tera has it. 6eb7e991: a
+        # restart with Iron Valiant benched after Tera Fairy read it as pure Fairy, the full replay as Fairy / Fighting.
+        tera = bool(entry.get("is_terastallized"))
+        fill = {k: v for k, v in entry.items() if k in CARD_FIELDS and v not in UNKNOWN_VALUES and known.get(k) in UNKNOWN_VALUES
+                and not (tera and k == "types")}
         revealed = entry.get("moves")
         if not _complete(known) and isinstance(revealed, list) and revealed and "moves" not in fill:
             # A set we do not know (never offered, not in the catalog): keep every move the battle has shown so far.
