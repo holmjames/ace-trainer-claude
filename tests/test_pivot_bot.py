@@ -187,7 +187,10 @@ def test_replacement_prefers_an_intimidate_user():
     assert action["slot_0"] == {"type": "switch", "species": "arcanine"} and "cycling" in why
 
 
-def test_the_code_brains_protect_of_a_slot_not_facing_a_ko_becomes_an_attack():
+def test_the_code_brains_protect_of_a_slot_not_facing_a_ko_becomes_an_attack(monkeypatch):
+    """4e6fa669 (seat 1) T2. The code brain's Protect here is Scarf Landorus's, which choice_protect_guard leaves out (it
+    switches Landorus to Iron Hands instead), so the position is replayed with the guard off."""
+    monkeypatch.setitem(tuning.DEFAULTS, "choice_protect_guard", 0.0)
     action, why = _decide("4e6fa669", 1, 2, ALWAYS)
     assert action["slot_0"]["move_id"] == "rockslide" and "instead of Protecting" in why
     action, _ = _decide("4e6fa669", 1, 2, {**ALWAYS, "unprotect_p": 0.0})

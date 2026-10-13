@@ -850,12 +850,16 @@ class PokemonAgent:
             if waits:
                 meta["lone_protect_waits"] = waits
             lone = bool(rows) and _protects_alone(proposed, sheet, self.memory)
-            if (not rows or value >= best - margin or matches) and not lone:
+            # choice_protect_guard: a Protect that would lock an unlocked Choice item is refused, read or not, unless a
+            # listed row Protects that slot too (the rows keep one only when nothing else it can do comes close)
+            locked = _locks_a_choice_item(proposed, sheet, rows, base, self.params) if rows else []
+            if (not rows or value >= best - margin or matches) and not lone and not locked:
                 meta["resolution"] = "override accepted" + (" (same as a row)" if same is not None else "") \
                     + (" on the opponent read" if rows and value < best - margin else "") + ("" if rows else " (no rows)")
                 return proposed
             why = ("our last Pokémon's Protect has nothing to wait for (it only delays)" if lone else
-                   f"value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}")
+                   f"slot {locked[0]}'s Choice item would lock it into Protect (next turn only a 1-in-3 Protect or a switch, no attack)"
+                   if locked else f"value {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}")
             if not row_ok:
                 raise InvalidChoice(f"override rejected ({why}) and row {row!r} is not a candidate_turns row number 0..{len(rows) - 1}")
             # "row k plays" is added once the margin below has let row k through (the M1b review: the log read "override
@@ -1346,6 +1350,33 @@ def _protects(payload: Any) -> bool:
     return isinstance(payload, dict) and any(
         (payload.get(f"slot_{n}") or {}).get("type") == "move" and _move_key((payload.get(f"slot_{n}") or {}).get("move_id")) in _PROTECT_MOVES
         for n in (0, 1))
+
+
+def _protect_slots(payload: Any) -> set[int]:
+    """The slots of a payload that use a Protect-like move."""
+    if not isinstance(payload, dict):
+        return set()
+    return {n for n in (0, 1) if (payload.get(f"slot_{n}") or {}).get("type") == "move"
+            and _move_key((payload.get(f"slot_{n}") or {}).get("move_id")) in _PROTECT_MOVES}
+
+
+def _locks_a_choice_item(payload: Any, sheet: Any, rows: list[dict], base: Choice, params: dict | None = None) -> list[int]:
+    """choice_protect_guard: the slots whose Protect-like move in ``payload`` would lock an unlocked Choice item
+    (``battle.TurnSheet.choice_protect``) while no listed row Protects that slot (the rows keep such a Protect only when
+    everything else the slot can do trails far behind, or it has no other move). Empty with the key at 0."""
+    P = params or DEFAULTS
+    if not P.get("choice_protect_guard", DEFAULTS["choice_protect_guard"]):
+        return []
+    slots = _protect_slots(payload) & set(getattr(sheet, "choice_protect", None) or ())
+    if not slots:
+        return []
+    listed: set[int] = set()
+    for row in rows:
+        try:
+            listed |= _protect_slots(base.build({"slot_0": row["slot_0"], "slot_1": row["slot_1"]}))
+        except (InvalidChoice, KeyError):
+            continue
+    return sorted(slots - listed)
 
 
 def _protects_alone(payload: Any, sheet: Any, memory: Any = None) -> bool:

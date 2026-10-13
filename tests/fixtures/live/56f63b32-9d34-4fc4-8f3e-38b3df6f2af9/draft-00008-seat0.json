@@ -1,0 +1,493 @@
+{
+ "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 8,
+ "observation": {
+  "phase": "draft",
+  "draft_complete": false,
+  "battle_format": "gen9vgc2025regi",
+  "current_seat": "15ab67aa-4c2b-47d2-bbd6-20798ea6ee67",
+  "pick_number": 9,
+  "picks_remaining": 4,
+  "first_drafter": "15ab67aa-4c2b-47d2-bbd6-20798ea6ee67",
+  "available_card_ids": [
+   "vgc-wo-chien",
+   "vgc-thundurus",
+   "vgc-whimsicott",
+   "vgc-cresselia",
+   "vgc-klefki",
+   "vgc-dragonite",
+   "vgc-sableye",
+   "vgc-baxcalibur",
+   "vgc-tornadus",
+   "vgc-tyranitar"
+  ],
+  "available_cards": [
+   {
+    "card_id": "vgc-wo-chien",
+    "species": "Wo-Chien",
+    "item": "Sitrus Berry",
+    "ability": "Tablets of Ruin",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spa": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Leech Seed",
+     "Foul Play",
+     "Giga Drain",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-thundurus",
+    "species": "Thundurus",
+    "item": "Life Orb",
+    "ability": "Defiant",
+    "nature": "Timid",
+    "level": 50,
+    "evs": {
+     "spa": 252,
+     "spd": 4,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Thunderbolt",
+     "Sludge Bomb",
+     "Taunt",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-whimsicott",
+    "species": "Whimsicott",
+    "item": "Focus Sash",
+    "ability": "Prankster",
+    "nature": "Timid",
+    "level": 50,
+    "evs": {
+     "hp": 4,
+     "spa": 252,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Tailwind",
+     "Moonblast",
+     "Encore",
+     "Light Screen"
+    ]
+   },
+   {
+    "card_id": "vgc-cresselia",
+    "species": "Cresselia",
+    "item": "Sitrus Berry",
+    "ability": "Levitate",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Icy Wind",
+     "Moonblast",
+     "Helping Hand",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-klefki",
+    "species": "Klefki",
+    "item": "Light Clay",
+    "ability": "Prankster",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Reflect",
+     "Light Screen",
+     "Dazzling Gleam",
+     "Foul Play"
+    ]
+   },
+   {
+    "card_id": "vgc-dragonite",
+    "species": "Dragonite",
+    "item": "Loaded Dice",
+    "ability": "Multiscale",
+    "nature": "Adamant",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 252,
+     "spe": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Extreme Speed",
+     "Scale Shot",
+     "Tailwind",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-sableye",
+    "species": "Sableye",
+    "item": "Mental Herb",
+    "ability": "Prankster",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Foul Play",
+     "Fake Out",
+     "Will-O-Wisp",
+     "Taunt"
+    ]
+   },
+   {
+    "card_id": "vgc-baxcalibur",
+    "species": "Baxcalibur",
+    "item": "Loaded Dice",
+    "ability": "Thermal Exchange",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 4,
+     "atk": 252,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Icicle Spear",
+     "Glaive Rush",
+     "Ice Shard",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-tornadus",
+    "species": "Tornadus",
+    "item": "Mental Herb",
+    "ability": "Prankster",
+    "nature": "Timid",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spd": 4,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Bleakwind Storm",
+     "Taunt",
+     "Tailwind",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-tyranitar",
+    "species": "Tyranitar",
+    "item": "Chople Berry",
+    "ability": "Sand Stream",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Rock Slide",
+     "Knock Off",
+     "Low Kick",
+     "Protect"
+    ]
+   }
+  ],
+  "rosters": {
+   "15ab67aa-4c2b-47d2-bbd6-20798ea6ee67": [
+    {
+     "card_id": "vgc-landorus-therian",
+     "species": "Landorus-Therian"
+    },
+    {
+     "card_id": "vgc-torkoal",
+     "species": "Torkoal"
+    },
+    {
+     "card_id": "vgc-chien-pao",
+     "species": "Chien-Pao"
+    },
+    {
+     "card_id": "vgc-rillaboom",
+     "species": "Rillaboom"
+    }
+   ],
+   "060fe20e-f317-46e5-85ea-353f47fe9ec2": [
+    {
+     "card_id": "vgc-sylveon",
+     "species": "Sylveon"
+    },
+    {
+     "card_id": "vgc-iron-hands",
+     "species": "Iron Hands"
+    },
+    {
+     "card_id": "vgc-kingambit",
+     "species": "Kingambit"
+    },
+    {
+     "card_id": "vgc-lucario",
+     "species": "Lucario"
+    }
+   ]
+  },
+  "picks": [
+   {
+    "pick_number": 1,
+    "seat_id": "15ab67aa-4c2b-47d2-bbd6-20798ea6ee67",
+    "card_id": "vgc-landorus-therian",
+    "species": "Landorus-Therian",
+    "public_reason": "Drafted Landorus-Therian.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 2,
+    "seat_id": "060fe20e-f317-46e5-85ea-353f47fe9ec2",
+    "card_id": "vgc-sylveon",
+    "species": "Sylveon",
+    "public_reason": "Draft pick 2: Sylveon (Fairy). It adds Fairy typing to our team.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 3,
+    "seat_id": "060fe20e-f317-46e5-85ea-353f47fe9ec2",
+    "card_id": "vgc-iron-hands",
+    "species": "Iron Hands",
+    "public_reason": "Draft pick 3: Iron Hands (Fighting/Electric). It adds Fighting/Electric typing to our team.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 4,
+    "seat_id": "15ab67aa-4c2b-47d2-bbd6-20798ea6ee67",
+    "card_id": "vgc-torkoal",
+    "species": "Torkoal",
+    "public_reason": "Drafted Torkoal.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 5,
+    "seat_id": "15ab67aa-4c2b-47d2-bbd6-20798ea6ee67",
+    "card_id": "vgc-chien-pao",
+    "species": "Chien-Pao",
+    "public_reason": "Drafted Chien-Pao.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 6,
+    "seat_id": "060fe20e-f317-46e5-85ea-353f47fe9ec2",
+    "card_id": "vgc-kingambit",
+    "species": "Kingambit",
+    "public_reason": "Draft pick 6: Kingambit (Dark/Steel). Its Steel typing is super effective against their Chien-Pao.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 7,
+    "seat_id": "060fe20e-f317-46e5-85ea-353f47fe9ec2",
+    "card_id": "vgc-lucario",
+    "species": "Lucario",
+    "public_reason": "Draft pick 7: Lucario (Fighting/Steel). Its Fighting/Steel typing is super effective against their Chien-Pao.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 8,
+    "seat_id": "15ab67aa-4c2b-47d2-bbd6-20798ea6ee67",
+    "card_id": "vgc-rillaboom",
+    "species": "Rillaboom",
+    "public_reason": "Drafted Rillaboom.",
+    "auto": false,
+    "auto_reason": null
+   }
+  ],
+  "unused_card_ids": [
+   "vgc-wo-chien",
+   "vgc-thundurus",
+   "vgc-whimsicott",
+   "vgc-cresselia",
+   "vgc-klefki",
+   "vgc-dragonite",
+   "vgc-sableye",
+   "vgc-baxcalibur",
+   "vgc-tornadus",
+   "vgc-tyranitar"
+  ],
+  "decision_timeout_seconds": 15.0,
+  "decision_deadline_at": "2026-10-13T00:34:17.971384+00:00",
+  "battle_starting": false
+ },
+ "phase": "draft",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "15ab67aa-4c2b-47d2-bbd6-20798ea6ee67",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+  "state_version": 8,
+  "actions": [
+   {
+    "action_id": "draft_pick:vgc-wo-chien",
+    "label": "Draft vgc-wo-chien",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-wo-chien"
+     },
+     "action_id": "draft_pick:vgc-wo-chien",
+     "state_version": 8
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-thundurus",
+    "label": "Draft vgc-thundurus",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-thundurus"
+     },
+     "action_id": "draft_pick:vgc-thundurus",
+     "state_version": 8
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-cresselia",
+    "label": "Draft vgc-cresselia",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-cresselia"
+     },
+     "action_id": "draft_pick:vgc-cresselia",
+     "state_version": 8
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-klefki",
+    "label": "Draft vgc-klefki",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-klefki"
+     },
+     "action_id": "draft_pick:vgc-klefki",
+     "state_version": 8
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-dragonite",
+    "label": "Draft vgc-dragonite",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-dragonite"
+     },
+     "action_id": "draft_pick:vgc-dragonite",
+     "state_version": 8
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-sableye",
+    "label": "Draft vgc-sableye",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-sableye"
+     },
+     "action_id": "draft_pick:vgc-sableye",
+     "state_version": 8
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-baxcalibur",
+    "label": "Draft vgc-baxcalibur",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-baxcalibur"
+     },
+     "action_id": "draft_pick:vgc-baxcalibur",
+     "state_version": 8
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-tornadus",
+    "label": "Draft vgc-tornadus",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-tornadus"
+     },
+     "action_id": "draft_pick:vgc-tornadus",
+     "state_version": 8
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-tyranitar",
+    "label": "Draft vgc-tyranitar",
+    "input": {
+     "session_id": "56f63b32-9d34-4fc4-8f3e-38b3df6f2af9",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-tyranitar"
+     },
+     "action_id": "draft_pick:vgc-tyranitar",
+     "state_version": 8
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ]
+}

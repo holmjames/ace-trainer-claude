@@ -708,6 +708,7 @@ class TurnSheet:
     sleep_threat: dict = field(default_factory=dict)  # their position -> what one use of its sleep move costs us (damage points)
     bench_status: dict = field(default_factory=dict)  # our bench species_key -> its status ("slp": a Spore sink if it comes in)
     opp_team: dict = field(default_factory=dict)  # their species_key -> {"hp", "status", "fainted", "active"} from the observation
+    choice_protect: set = field(default_factory=set)  # our slots whose Protect-like move would lock an unlocked Choice item (choice_protect_guard)
     turn: int | None = None  # the battle turn of this sheet (the reply mixture's priors depend on it)
     timers: dict = field(default_factory=dict)  # "trickroom", "tailwind" (ours) -> turns it still covers, this one counted (None: unknown)
     field: "FieldState | None" = None  # keep last: this name shadows dataclasses.field for anything declared after it
@@ -1117,13 +1118,21 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
     sheet.turn = turn if isinstance(turn, int) else None
     _our_status(sheet, ours, obs)
     _their_status(sheet, theirs, obs)
+    guard = bool(P.get("choice_protect_guard", DEFAULTS["choice_protect_guard"]))
     for slot in slots:
         me = ours.get(slot.get("slot", 0))
+        moves = [o for o in slot.get("options") or [] if o.get("type") == "move"]
+        if me is not None and data.to_id(me.item) in CHOICE_ITEMS and len(moves) > 1 \
+                and any(data.to_id(o.get("move_id")) in PROTECT_LIKE for o in moves):
+            # unlocked (a locked holder is offered its one move): any Protect-like move would lock it (choice_protect_guard)
+            sheet.choice_protect.add(slot.get("slot", 0))
         if me is not None and data.to_id(me.item) in CHOICE_ITEMS and any(
                 o.get("type") == "move" and data.to_id(o.get("move_id")) in PROTECT_OPTIONS for o in slot.get("options") or []) \
                 and len([o for o in slot.get("options") or [] if o.get("type") == "move"]) > 1:
             sheet.notes.append(f"Our {me.species} holds a Choice item: Protect LOCKS it into Protect until it switches out (next turn "
-                               "only a 1-in-3 Protect or a switch, no attack).")
+                               "only a 1-in-3 Protect or a switch, no attack)."
+                               + (" The rows list that Protect only when everything else it can do trails far behind, and a "
+                                  "proposal that Protects it is refused when no row does." if guard else ""))
     _glaive_rush_carry(sheet, ours, memory)
     _flinch_risk(sheet, ours, theirs, fs, slots=slots, P=P)
     _sleep_threats(sheet, ours, theirs, fs, slots=slots, P=P)
@@ -3021,8 +3030,12 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         return None
 
     lone: dict[int, dict | None] = {0: None, 1: None}  # filled once slot_template exists, below
+    protect_credit: dict[tuple, float] = {}  # a row's answers -> what its Protect adds to its score (choice_protect_guard)
 
-    def add(name: str, s0: dict | None, s1: dict | None, why: str, score: float, **extra: Any) -> None:
+    def answers_key(s0: dict, s1: dict) -> tuple:
+        return (s0.get("option"), s0.get("target"), s1.get("option"), s1.get("target"))
+
+    def add(name: str, s0: dict | None, s1: dict | None, why: str, score: float, *, credit: float = 0.0, **extra: Any) -> None:
         if s0 is None and lone[0]:
             s0 = lone[0]
         if s1 is None and lone[1]:
@@ -3035,8 +3048,10 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if cand["score"] > existing["score"]:
                     existing.clear()
                     existing.update(cand)  # the same turn, better explained and better scored: keep that one (D1j)
+                    protect_credit[answers_key(s0, s1)] = credit
                 return
         candidates.append(cand)
+        protect_credit[answers_key(s0, s1)] = credit
 
     def slot_template(number: int) -> dict | None:
         return next((s for s in slots if s.get("slot", 0) == number), None)
@@ -3731,7 +3746,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     f"{threat['species']}'s {hit['move']} can KO slot {endangered_slot} ({hit['damage_pct_of_current_hp']}%) {when}; Protect it, slot {other} attacks"
                     + (f" (slot {other} KOs {threat['species']} first {int(removed * 100)}% of the time)" if removed else "")
                     + (f" (Protect used {streak} turn(s) in a row already: only 1 in {3 ** streak} to work)" if streak else ""),
-                    solo_value(other, "protect") + bonus, covers=endangered_slot)
+                    solo_value(other, "protect") + bonus, covers=endangered_slot, credit=bonus)
             asleep = sheet.acts(endangered_slot) < 1
             if slot and solo[other][0] and (protect is None or streak >= 1 or asleep):
                 # No Protect, Protect is a coin we already flipped, or the slot is asleep (its Protect needs it to wake): offer
@@ -3782,10 +3797,10 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         streak = memory.protect_streak(me_f.species, endangered_slot) if (me_f is not None and memory is not None) else 0
         if protect is not None and solo[other][0]:
             answers = {endangered_slot: {"option": protect, "target": 0}, other: solo_answer(other)}
+            bonus = P["protect_bonus_guaranteed"] * P.get("focus_risk", 0.35) * focus["ko_chance"] * 0.33 ** streak * sheet.acts(endangered_slot)
             add("protect_double_target", answers[0], answers[1],
                 f"both foes together KO slot {endangered_slot} ({focus['moves'][0]} + {focus['moves'][1]} = {focus['damage_pct_of_current_hp']}%) before it moves; Protect it, slot {other} attacks",
-                solo_value(other, "protect") + P["protect_bonus_guaranteed"] * P.get("focus_risk", 0.35) * focus["ko_chance"] * 0.33 ** streak
-                * sheet.acts(endangered_slot), covers=endangered_slot)
+                solo_value(other, "protect") + bonus, covers=endangered_slot, credit=bonus)
 
     # 3b. Protect one slot, switch the other: the slot in danger Protects while its partner pivots to a safe bench card
     #     (the Oct 8 loss, turn 3: Thundurus Protect + Kingambit out to Landorus-T; the generator did not exist).
@@ -3803,12 +3818,13 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             streak = memory.protect_streak(me_e.species, endangered_slot) if me_e is not None else 0
             worst = max((ko_probability(h, with_accuracy=True) * (sheet.foe_acts(t["position"]) if P.get("foe_sleep", DEFAULTS["foe_sleep"]) else 1.0)
                          for t in sheet.threats for h in t["hits"] if h["into_slot"] == endangered_slot), default=0.0)
-            value = P["protect_bonus_guaranteed"] * worst * 0.33 ** streak * sheet.acts(endangered_slot) + P["switch_weak_bonus"] \
-                + max(float(preview.get("score", 0.0) or 0.0), 0.0) * 0.25
+            bonus = P["protect_bonus_guaranteed"] * worst * 0.33 ** streak * sheet.acts(endangered_slot)
+            value = bonus + P["switch_weak_bonus"] + max(float(preview.get("score", 0.0) or 0.0), 0.0) * 0.25
             answers = {endangered_slot: {"option": protect, "target": 0}, other: {"option": idx, "target": 0}}
             add("protect_and_switch", answers[0], answers[1],
                 f"slot {endangered_slot} is in KO range; Protect it while slot {other} pivots to {species}"
-                + (f" (Intimidate: {', '.join(preview['intimidate'])})" if preview.get("intimidate") else ""), value, covers=endangered_slot)
+                + (f" (Intimidate: {', '.join(preview['intimidate'])})" if preview.get("intimidate") else ""), value, covers=endangered_slot,
+                credit=bonus)
 
     # 3c. Redirection: Follow Me / Rage Powder soaks a single-target lethal hit aimed at our partner, who then
     #     gets its turn (setup or attack). Only when the redirector is sturdier than the partner against that hit.
@@ -4043,6 +4059,40 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 continue
             switch_row(number, other, "switch_weak_slot", f"slot {number} has no good attack; switch out while slot {other} attacks",
                        solo_value(other) + P["switch_weak_bonus"], allow_unsafe=False)
+
+    # 6. choice_protect_guard: a Choice Scarf / Band / Specs holder that Protects is locked into Protect, so the turn its
+    #    Protect buys is spent (next turn only a 1-in-3 Protect or a switch, no attack). Its Protect rows are credited
+    #    nothing for that Protect and stay only when they still lead every row where the slot makes another move by
+    #    protect_bonus_possible, or when it has no other move that works (live, Oct 12, 56f63b32 T11: Scarf Landorus at 24%
+    #    Protected as row 0, 67.8 against 22.8, and was locked; the next turn's Protect failed and the game was lost).
+    if P.get("choice_protect_guard", DEFAULTS["choice_protect_guard"]) and sheet.choice_protect:
+        def answer_move(cand: dict, n: int) -> str | None:
+            index = (cand.get(f"slot_{n}") or {}).get("option")
+            options = (slot_template(n) or {}).get("options") or []
+            option = options[index] if isinstance(index, int) and 0 <= index < len(options) else {}
+            return data.to_id(option.get("move_id")) if option.get("type") == "move" else None
+
+        for n in sorted(sheet.choice_protect):
+            failing = {o.get("option") for o in by_slot.get(n, {}).get("options") or [] if o.get("fails")}
+            if not any(o.get("type") == "move" and data.to_id(o.get("move_id")) not in PROTECT_LIKE and i not in failing
+                       for i, o in enumerate((slot_template(n) or {}).get("options") or [])):
+                continue  # no other move that works: the lock costs nothing
+            locks = [c for c in candidates if answer_move(c, n) in PROTECT_LIKE]
+            if not locks:
+                continue
+            others = [c["score"] for c in candidates if answer_move(c, n) is not None and answer_move(c, n) not in PROTECT_LIKE]
+            alt = max(others, default=0.0)  # no such row listed: its other moves are worth nothing to the scorer
+            dropped = set()
+            for cand in locks:
+                lock_aware = cand["score"] - protect_credit.get(answers_key(cand["slot_0"], cand["slot_1"]), 0.0)
+                cand["score"] = round(lock_aware, 1)
+                if lock_aware >= alt + P["protect_bonus_possible"]:
+                    cand["why"] += (f" (slot {n}'s Choice item locks it into Protect: listed because every row where it makes "
+                                    f"another move trails by {lock_aware - alt:.0f})")
+                else:
+                    dropped.add(id(cand))
+            if len(dropped) < len(candidates):  # else nothing else is listed: they stay, credited nothing for the Protect
+                candidates = [c for c in candidates if id(c) not in dropped]
 
     candidates.sort(key=lambda c: -c["score"])
     if P.get("reply_mixture", 0) and not forced and memory is not None:

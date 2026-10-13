@@ -47,7 +47,12 @@ def test_every_captured_live_state_gets_a_computed_decision(path, tmp_path):
     elif state.phase == "moving":
         assert action["type"] == "doubles_turn" and "slot_0" in action
         turns = [r for r in _log_rows(tmp_path) if r.get("kind") == "turn"]
-        assert turns and (turns[-1].get("turn_sheet") or {}).get("candidate_turns"), "the brain produced no candidate on a real state (adapter default would play)"
+        slots = (state.legal_actions[0].input.get("action") or {}).get("slots") or []
+        # one legal turn only (56f63b32 T12: our last Pokémon Choice-locked into Protect, the other slot empty): the
+        # adapter's default is that turn, so no row is needed
+        only = all(len(s.get("options") or []) == 1 and len(s["options"][0].get("targets") or []) <= 1 for s in slots)
+        assert turns and ((turns[-1].get("turn_sheet") or {}).get("candidate_turns") or only), \
+            "the brain produced no candidate on a real state (adapter default would play)"
     else:
         assert hasattr(action, "action_id")
 
