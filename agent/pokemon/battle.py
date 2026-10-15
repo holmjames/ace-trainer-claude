@@ -17,7 +17,7 @@ from __future__ import annotations
 import itertools
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable
 
 from . import data
@@ -711,6 +711,7 @@ class TurnSheet:
     choice_protect: set = field(default_factory=set)  # our slots whose Protect-like move would lock an unlocked Choice item (choice_protect_guard)
     turn: int | None = None  # the battle turn of this sheet (the reply mixture's priors depend on it)
     timers: dict = field(default_factory=dict)  # "trickroom", "tailwind" (ours) -> turns it still covers, this one counted (None: unknown)
+    hp_first: dict = field(default_factory=dict)  # (our slot, option index) of an HP-scaling move -> the foes that hit its user first and its cases (hp_power_first)
     field: "FieldState | None" = None  # keep last: this name shadows dataclasses.field for anything declared after it
 
     def acts(self, slot: int) -> float:
@@ -975,10 +976,7 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         for index, option in enumerate(slot.get("options") or []):
             if option.get("type") != "move" or not me:
                 continue
-            move = data.move_info(option.get("move_id")) or {}
-            move = gale_wings(me, {**move, "id": data.to_id(option.get("move_id")), "type": move.get("type") or option.get("move_type"),
-                                   "category": move.get("category") or str(option.get("category") or "").capitalize() or None,
-                                   "base_power": move.get("base_power") or option.get("base_power") or 0})
+            move = _option_move(me, option)
             spread = is_spread(move, foes=len(theirs), allies=len(ours) - 1)  # Earthquake with one foe and our ally is still 0.75x (batch 2)
             eff = effective_move(me, move, me, fs)
             psychic_spread = move["id"] == "expandingforce" and fs.terrain == "psychic" and me.grounded and len(theirs) > 1
@@ -1118,6 +1116,8 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
     sheet.turn = turn if isinstance(turn, int) else None
     _our_status(sheet, ours, obs)
     _their_status(sheet, theirs, obs)
+    if P.get("hp_power_first", DEFAULTS["hp_power_first"]):
+        _hp_power_first(sheet, slots, ours, theirs, fs, P)
     guard = bool(P.get("choice_protect_guard", DEFAULTS["choice_protect_guard"]))
     for slot in slots:
         me = ours.get(slot.get("slot", 0))
@@ -1694,6 +1694,172 @@ def _their_status(sheet: "TurnSheet", theirs: dict[int, "Mon"], obs: dict) -> No
             sheet.foe_wake[position] = 0.75 if foe.status == "par" else 0.2
 
 
+# -- HP-scaling moves: the HP the user has when it moves (hp_power_first; live, Oct 14, 58c44401 T1) --
+
+HP_POWER_MOVES = ("eruption", "waterspout")  # 150 power x the user's HP fraction (effective_move)
+HP_ROLL_POINTS = 3  # a foe's hit that lands first, at its low, middle and high roll
+
+
+class HpRow(dict):
+    """A damage row of an HP-scaling move (Eruption, Water Spout) whose user a foe can hit first (``hp_power_first``):
+    a plain row for every reader, its range running from the lowest case to the highest and its label on that range,
+    plus ``cases`` [(chance, lo, hi)]: the move's range at each HP the user can have when it moves, which
+    ``ko_probability``, ``_expected`` and ``_outcome`` read. An attribute, not a key: the prompt shows the range, the KO
+    odds and the ``if_hit_first`` note, not the cases (a copy of the row is a plain row over the whole range)."""
+
+    def __init__(self, *args: Any, cases: list | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.cases = cases or []
+
+
+def _option_move(me: "Mon", option: dict) -> dict:
+    """The move of one of our slot options as the sheet prices it: the move table's entry, the server's type, category
+    and power where the table has none, Gale Wings' priority."""
+    move = data.move_info(option.get("move_id")) or {}
+    return gale_wings(me, {**move, "id": data.to_id(option.get("move_id")), "type": move.get("type") or option.get("move_type"),
+                           "category": move.get("category") or str(option.get("category") or "").capitalize() or None,
+                           "base_power": move.get("base_power") or option.get("base_power") or 0})
+
+
+def _hp_first_hitters(sheet: "TurnSheet", ours: dict[int, "Mon"], number: int, my_priority: int, P: dict) -> list[dict]:
+    """The foes whose attack lands on our slot ``number`` before its move of ``my_priority`` (higher priority, or the
+    same and ahead in the speed order: Trick Room and Tailwind as the order has them): per foe, its strongest such hit
+    (average roll capped at a KO, times accuracy; not Fake Out, whose flinch is ``flinch_risk``'s) and ``p``, the chance
+    that hit lands on this slot: how often the foe aims here (a spread hit reaches both of ours: always; else 0.8 at the
+    slot its best hit is worth most against, as ``threat_weight`` values a hit, 0.2 at the other, 0.5 each within 10%, as
+    their Fake Out and sleep moves are aimed), times its chance to act (``foe_acts``) and the hit's accuracy."""
+    rank = {(r["side"], r["position"]): i for i, r in enumerate(sheet.speed_order)}
+    out = []
+    for t in sheet.threats:
+        pos = t["position"]
+        hits = [h for h in t["hits"] if h["move"] != "fakeout" and h["damage_pct_of_current_hp"][1] > 0]
+        first = [h for h in hits if h["into_slot"] == number and ((h.get("priority") or 0) > my_priority or (
+            (h.get("priority") or 0) == my_priority and rank.get(("theirs", pos), 99) < rank.get(("mine", number), 99)))]
+        if not first:
+            continue
+        hit = max(first, key=lambda h: min(_avg(h["damage_pct_of_current_hp"]), 100.0) * float(h.get("hit_chance", 1.0)))
+        worth: dict[int, float] = {}
+        for h in hits:
+            mon = ours.get(h["into_slot"])
+            v = min(_avg(h["damage_pct_of_current_hp"]), 100.0) * (mon.hp_fraction if mon is not None else 1.0) \
+                * float(h.get("hit_chance", 1.0)) + P["ko_bonus_guaranteed"] * ko_probability(h, with_accuracy=True)
+            worth[h["into_slot"]] = max(worth.get(h["into_slot"], 0.0), v)
+        if (data.move_info(hit["move"]) or {}).get("target") in SPREAD_TARGETS or len(worth) == 1:
+            aim = 1.0
+        else:
+            top = max(worth, key=worth.get)
+            rest = max(v for n, v in worth.items() if n != top)
+            aim = 0.5 if worth[top] <= 1.1 * rest else (0.8 if number == top else 0.2)
+        acts = sheet.foe_acts(pos) if P.get("foe_sleep", DEFAULTS["foe_sleep"]) else 1.0
+        p = aim * acts * float(hit.get("hit_chance", 1.0))
+        if p > 0:
+            out.append({"position": pos, "species": t["species"], "move": hit["move"], "damage": list(hit["damage_pct_of_current_hp"]), "p": p})
+    return out
+
+
+def _hp_rows(info: dict, stopped: dict[int, float] | None = None) -> list[dict]:
+    """An HP-scaling option's damage rows over its cases (``_hp_power_first``), the foes in ``stopped`` (position ->
+    chance) kept from hitting its user first that often. A row whose cases all come to the full-HP row is that row."""
+    stopped = stopped or {}
+    hitters = info["hitters"]
+    ps = [h["p"] * (1.0 - stopped.get(h["position"], 0.0)) for h in hitters]
+    by_hp: dict[float, float] = {}
+    for combo, hp in info["cases"]:
+        w = math.prod((1.0 - p) if k is None else p / HP_ROLL_POINTS for p, k in zip(ps, combo))
+        if hp is not None and w > 0:
+            by_hp[hp] = by_hp.get(hp, 0.0) + w
+    total = sum(by_hp.values())
+    rows: list[dict] = []
+    for i, base in enumerate(info["base"]):
+        ranges = info["ranges"].get(i)
+        if not ranges or total <= 0:
+            rows.append(base)
+            continue
+        cases = [(w / total, *ranges[hp]) for hp, w in sorted(by_hp.items(), reverse=True)]
+        lo, hi = min(c[1] for c in cases), max(c[2] for c in cases)
+        full = list(base["damage_pct_of_current_hp"])
+        if [lo, hi] == full:
+            rows.append(base)
+            continue
+        row = HpRow({**base, "damage_pct_of_current_hp": [lo, hi], "ko": _ko_label(lo, hi)}, cases=cases)
+        p_ko = ko_probability(row)
+        if row["ko"] == "possible":
+            row["ko_chance_pct"] = int(round(100 * p_ko))
+        first = " and ".join(f"{h['species']}'s {h['move']} ({h['damage'][0]}-{h['damage'][1]}%, {int(round(100 * p))}% likely)"
+                             for h, p in zip(hitters, ps) if p > 0)
+        row["full_hp_pct"] = full
+        row["if_hit_first"] = (f"{info['move']} loses power with {info['user']}'s HP: {first} can hit it first; {full[0]}-{full[1]}% "
+                               f"only if nothing does" + (f"; the KO depends on not being hit first ({int(round(100 * p_ko))}%)"
+                                                          if ko_probability(base) > p_ko + 1e-9 else ""))
+        rows.append(row)
+    return rows
+
+
+def _hp_power_first(sheet: "TurnSheet", slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int, "Mon"], fs: "FieldState",
+                    P: dict) -> None:
+    """Eruption and Water Spout lose power with their user's HP (``effective_move``), and the sheet priced them at the
+    HP it has now. Live, Oct 14 (58c44401 T1): Torkoal's Eruption 'already KOs' Iron Bundle (161-191%) and led the rows,
+    but Iron Bundle's Hydro Pump hit Torkoal first (65-79%) and the Eruption, at a quarter of its power, left it at 60%.
+    Each such row is now an ``HpRow`` over the cases of which foes hit its user first (``_hp_first_hitters``, each
+    landed hit at HP_ROLL_POINTS rolls): the user's HP when it moves, the move's range at that HP. A case whose hits KO
+    the user first is left out (it does not move: ``survival_factor`` and the double-target threat price that), so the
+    cases are what the move does when it is used. ``sheet.hp_first`` keeps them for a row that stops one of those foes
+    first (``hp_power_entry``: our Fake Out)."""
+    by_slot = {e["slot"]: e for e in sheet.our_options}
+    for slot in slots:
+        number = slot.get("slot", 0)
+        me = ours.get(number)
+        if me is None:
+            continue
+        for opt in (by_slot.get(number) or {}).get("options") or []:
+            if opt.get("move") not in HP_POWER_MOVES or opt.get("fails") or not opt.get("targets"):
+                continue
+            hitters = _hp_first_hitters(sheet, ours, number, opt.get("priority", 0) or 0, P)
+            if not hitters:
+                continue
+            move = _option_move(me, (slot.get("options") or [])[opt["option"]])
+            cases = []
+            for combo in itertools.product(*[[None, *range(HP_ROLL_POINTS)] for _ in hitters]):
+                taken = sum(h["damage"][0] + (h["damage"][1] - h["damage"][0]) * (k + 0.5) / HP_ROLL_POINTS
+                            for h, k in zip(hitters, combo) if k is not None)
+                cases.append((combo, None if taken >= 100.0 else me.hp_fraction * (1.0 - taken / 100.0)))
+            hps = {hp for _, hp in cases if hp is not None}
+            ranges: dict[int, dict[float, tuple[float, float]]] = {}
+            for i, r in enumerate(opt["targets"]):
+                target = r.get("target", 0)
+                defender = theirs.get(target) if target > 0 else ours.get(-target - 1) if target < 0 else next(
+                    (m for m in list(theirs.values()) + list(ours.values())
+                     if m.side == r.get("side") and species_key(m.species) == species_key(r.get("species"))), None)
+                if defender is None:
+                    continue
+                by_hp = {}
+                for hp in hps:
+                    prof = hit_profile(replace(me, hp_fraction=hp), move, defender, field=fs, spread=bool(opt.get("spread")))
+                    by_hp[hp] = tuple(prof["damage_pct_of_current_hp"]) if prof else (0.0, 0.0)
+                ranges[i] = by_hp
+            if not hps or not ranges:
+                continue
+            info = {"hitters": hitters, "cases": cases, "ranges": ranges, "base": list(opt["targets"]), "move": opt["move"], "user": me.species}
+            sheet.hp_first[(number, opt["option"])] = info
+            opt["targets"] = _hp_rows(info)
+
+
+def hp_power_entry(sheet: "TurnSheet", number: int, entry: dict, stopped: dict[int, float]) -> dict | None:
+    """Slot ``number``'s sheet entry with its HP-scaling moves re-priced for a row that stops the foes in ``stopped``
+    (position -> chance) before they can hit their user first (our Fake Out flinches its target): None when no such
+    move of the slot has one of those foes hitting first."""
+    changed = False
+    options = []
+    for opt in entry.get("options") or []:
+        info = sheet.hp_first.get((number, opt.get("option")))
+        if info and any(stopped.get(h["position"], 0.0) > 0 for h in info["hitters"]):
+            options.append({**opt, "targets": _hp_rows(info, stopped)})
+            changed = True
+        else:
+            options.append(opt)
+    return {**entry, "options": options} if changed else None
+
+
 def sleep_users(sheet: "TurnSheet", theirs: dict[int, "Mon"]) -> dict[int, list[dict]]:
     """Their actives that can use a sleep move this turn: position -> the move dicts (not asleep or frozen themselves,
     not Taunted, not Choice-locked into something else)."""
@@ -1995,7 +2161,8 @@ def _expected(row: dict, priority: int, P: dict | None = None, threat: float = 0
     if hi <= 0:
         return 0.0  # an immune or blocked hit is worth nothing, priority or not (Fake Out into a Ghost, Oct 7)
     acc = float(row.get("hit_chance", 1.0))
-    damage = min((lo + hi) / 2, 100.0) * acc
+    cases = getattr(row, "cases", None)  # an HP-scaling move's row (HpRow): each case capped at a KO on its own
+    damage = (sum(w * min((a + b) / 2, 100.0) for w, a, b in cases) if cases else min((lo + hi) / 2, 100.0)) * acc
     if P.get("hp_units", 0) and "hp_frac" in row:
         damage *= row["hp_frac"]  # in % of MAX HP: finishing a 9% Pokémon is 9 points of damage plus the KO, not 100
     bonus = 0.0
@@ -2162,6 +2329,8 @@ def _boosted_row(row: dict, factor: float) -> dict:
         if row.get(key):
             out[key] = [v * factor for v in row[key]]
     out["ko"] = _ko_label(*out["damage_pct_of_current_hp"])
+    if getattr(row, "cases", None):
+        out = HpRow(out, cases=[(w, lo * factor, hi * factor) for w, lo, hi in row.cases])
     return out
 
 
@@ -2380,6 +2549,9 @@ def ko_probability(hit: dict, *, with_accuracy: bool = False) -> float:
     own. ``with_accuracy`` also multiplies by the move's chance to land (``hit_chance`` on the row; 1.0 when absent),
     so a 70%-accurate guaranteed KO reads as a 70% KO."""
     acc = float(hit.get("hit_chance", 1.0)) if with_accuracy else 1.0
+    cases = getattr(hit, "cases", None)
+    if cases:  # an HP-scaling move's row: its range at each HP its user can have when it moves (HpRow)
+        return acc * sum(w * linear_ko(lo, hi) for w, lo, hi in cases)
     per_hit, hits = hit.get("per_hit"), hit.get("hits")
     if per_hit and hits:
         return acc * data.multi_hit_ko_chance(per_hit[0], per_hit[1], 1.0, hits, first_hit=hit.get("first_hit"))
@@ -2526,6 +2698,15 @@ def _outcome(parts: list[tuple[float, dict]], defender: "Mon | None" = None) -> 
     parts = [(max(0.0, min(1.0, p)), r) for p, r in parts if p > 0 and r.get("damage_pct_of_current_hp", [0, 0])[1] > 0]
     if not parts:
         return 0.0, 0.0
+    for i, (p, r) in enumerate(parts):
+        cases = getattr(r, "cases", None)
+        if cases:  # an HP-scaling move's row (HpRow): one outcome per HP its user can have when it moves, by its chance
+            damage = ko = 0.0
+            for w, lo, hi in cases:
+                d, k = _outcome(parts[:i] + [(p, {**r, "damage_pct_of_current_hp": [lo, hi]})] + parts[i + 1:], defender)
+                damage += w * d
+                ko += w * k
+            return damage, min(1.0, ko)
     berry = defender if pinch_heal(defender) is not None else None
     damage = 0.0
     ko = 0.0
@@ -3156,13 +3337,14 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
         protect_cache[pos] = risk
         return risk
 
-    def best_action(number: int, *, allow_ally_only: bool = True) -> tuple[dict | None, dict | None, float]:
+    def best_action(number: int, *, allow_ally_only: bool = True, entry: dict | None = None) -> tuple[dict | None, dict | None, float]:
         """Best attack or status move, as (option, row, value): the ATTACK is the option that keeps the most value once
         its chance to act is counted (the strongest raw move, discounted afterwards, picked a Kowtow Cleave worth 78 x 0
         over a Sucker Punch worth 64 x 1 in the Oct 8 loss, turn 6); the raw best stands when every option is worth 0.
         ``allow_ally_only`` off leaves out Helping Hand / Coaching / Follow Me: next to a partner that Protects or
-        switches they do nothing (Oct 7 match 1 turn 5: Protect + Helping Hand was code #1)."""
-        entry = by_slot.get(number, {})
+        switches they do nothing (Oct 7 match 1 turn 5: Protect + Helping Hand was code #1). ``entry``: the slot's options
+        as one row prices them (``hp_power_entry``), else the sheet's."""
+        entry = entry if entry is not None else by_slot.get(number, {})
         raw = _best_attack(entry, P=P, threats=weights, protect=protect_p)
         choice: tuple[dict | None, dict | None, float] = (None, None, -1.0)
         if raw[0]:
@@ -3964,18 +4146,30 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                     spared = sum(p for p, hit in cases if other not in hit)
                     option = (P["fakeout_setup_value"] * sheet.acts(other) * spared, {"option": idx, "target": 0}, setup, spared, cases)
                     break
+        hp_note = ""
         if option is None and solo[other][0] and solo_answer(other) is not None:
-            s_opt, s_row = solo[other][0], solo[other][1]
+            pick, partner_answer = solo[other], solo_answer(other)
+            if sheet.hp_first and P.get("hp_power_first", DEFAULTS["hp_power_first"]):
+                # the flinch keeps our target from hitting the partner first: an Eruption / Water Spout it would have cut
+                # keeps that power in this row (hp_power_first), as often as our Fake Out lands before it
+                stop = sum(p for p, hit in fake_out_cases(sheet, {number: ours_fake}) if number not in hit) * sheet.acts(number)
+                kept = hp_power_entry(sheet, other, by_slot.get(other, {}), {target: stop})
+                alt = best_action(other, allow_ally_only=False, entry=kept) if kept is not None else (None, None, 0.0)
+                if alt[0] and alt[1]:
+                    pick, partner_answer = alt, slot_answer(alt[0]["option"], alt[1]["target"])
+                    if alt[0].get("move") in HP_POWER_MOVES:
+                        hp_note = f" ({alt[0]['move']} at the HP it keeps: {theirs[target].species} cannot hit it first)"
+            s_opt, s_row = pick[0], pick[1]
             cases = fake_out_cases(sheet, {number: ours_fake, other: {"priority": s_opt.get("priority", 0) or 0, "move": s_opt.get("move"),
                                                                       "target": (s_row or {}).get("target", 0)}})
             spared = sum(p for p, hit in cases if other not in hit)
-            option = (joint_value([(other, *solo[other])], cases=cases) * 0.6, solo_answer(other), None, spared, cases)
+            option = (joint_value([(other, *pick)], cases=cases) * 0.6, partner_answer, None, spared, cases)
         if option is None:
             continue
         partner_value, partner, setup_name, spared, cases = option
         answers = {number: {"option": fake, "target": target}, other: partner}
         why = f"Fake Out {theirs[target].species} (its attacks threaten us most) while slot {other} " + (
-            f"sets {setup_name}" if setup_name else "attacks") + _flinch_clause(spared)
+            f"sets {setup_name}" if setup_name else "attacks") + hp_note + _flinch_clause(spared)
         attacks_ko = any(kos_a_foe(b[1]) for b in best.values())  # per foe: a spread's summed range is not a KO (D1j)
         lethal_first = lethal_by_target.get(target, 0.0)  # chance this target KOs one of our slots before it moves
         base = P["fakeout_base"] if (not attacks_ko or lethal_first) else 15
