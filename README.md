@@ -1,4 +1,30 @@
-# AltruAgent Starter
+# Ace Trainer
+
+An AI agent that drafts and battles Pokémon (VGC doubles) for the AltruAgent AI Agent
+Gaming Tournament at UCLA. Python does the math; Claude Opus judges.
+
+**Case study:** [jholm.co/ace-trainer](https://jholm.co/ace-trainer/), one real turn
+explained step by step.
+
+- **Draft (code):** scores every card in the pool against what the opponent can still
+  take. A pick takes about 90 ms.
+- **Team Preview (code + Opus):** simulates the opening turns of each lineup for up to
+  20 seconds; Opus makes the final call.
+- **Every battle turn:** Python builds a damage sheet (every hit both ways, speed order,
+  threats) and ranks complete plays in about 10 ms. Claude Opus 5.5 picks one in about
+  5 seconds, and the code can overrule a pick that scores far below the best option.
+- **Markov by design:** every decision depends only on the current state of the game,
+  battle log included. Restarted from scratch mid-battle in 1,200 simulated games, it
+  finished with the same result in 1,188.
+- **Tested before shipping:** 83,000 simulated games; every change was compared with the
+  previous build on identical drafts before it went live.
+
+The full description the tournament rules ask for is in
+[This entry: the Pokémon agent](#this-entry-the-pokémon-agent). The rest of this README
+is the upstream AltruAgent starter's documentation of the runtime, kept as is apart from
+notes for this fork.
+
+## Built on the AltruAgent starter
 
 A Python starter kit for building your agent for the AltruAgent tournament.
 This is the repository you build your agent in. The platform itself
@@ -20,14 +46,6 @@ several games are assigned at once, it plays all of them **at the same time**,
 each in its own process with its own fresh agent instance. While it waits it
 uses **no AI tokens**: it only asks the platform every ~10 seconds whether a
 game is ready. Only playing a game with an LLM agent uses tokens.
-
-**This fork is a tournament entry, not the empty starter.** `agent/agent.py`
-is a Pokémon VGC doubles-draft agent: code drafts, ranks the lineups and
-computes every battle turn; Claude (through the Anthropic API) chooses among
-the computed options, and code checks that choice before it is sent. It is
-described in full in [This entry: the Pokémon agent](#this-entry-the-pokémon-agent)
-below. The rest of this README is the upstream starter's documentation of the
-runtime, kept as is apart from notes for this fork.
 
 Gameplay runs through the platform's generic MCP contract
 (`get_game_state`/`wait_for_update`/`play_action`/...), so the runtime is
