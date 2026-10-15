@@ -9,8 +9,9 @@ Dates as planned on Oct 6: plan written **Tue Oct 6, 2026**; code freeze **Tue O
 
 ## Final state at submission
 
-**What is deployed.** Commit `9fc28a4` (deploy #8), the code that competes, plus one documentation commit on top of
-it that changes only `README.md` and `PLAN.md`. The submitted version is the latest commit on the repository's
+**What is deployed.** Commit `7313386` (deploy #8), the code that competes, plus documentation commits on top of
+it that change only `README.md` and `PLAN.md`. Commit IDs in the diary below predate a history cleanup on Oct 15
+(old notes reworded); the code did not change. The submitted version is the latest commit on the repository's
 default branch at the Submission Deadline. README.md ("This entry: the Pokémon agent") describes the agent in full.
 Everything below this section is the plan and build diary from Oct 6 on: where it describes an earlier design,
 model or default, this section is what plays.

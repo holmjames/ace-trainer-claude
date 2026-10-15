@@ -48,8 +48,8 @@ published.
 
 **Submitted version:** the latest commit on this repository's default branch
 at the Submission Deadline; its full commit ID is entered on the tournament
-dashboard. The agent's code is that of commit `9fc28a4`; the documentation
-commit on top of it changes only `README.md` and `PLAN.md`. Every match log
+dashboard. The agent's code is that of commit `7313386`; the documentation
+commits on top of it change only `README.md` and `PLAN.md`. Every match log
 starts with a `config` line naming the commit that played it (see *Records*
 below).
 
