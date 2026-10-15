@@ -1,8 +1,94 @@
 # PLAN.md — UCLA AI Agent Gaming Tournament: Pokémon VGC Doubles Draft agent
 
-Approved by James on Oct 6, 2026. No agent code has been written yet; work starts at Milestone 0.
+Approved by James on Oct 6, 2026, before any agent code was written.
 
-Dates: today is **Mon Oct 6, 2026**. Code freeze **Mon Oct 13**. Tournament **Thu Oct 16, 10:00–12:00 PDT**.
+Dates as planned on Oct 6: plan written **Tue Oct 6, 2026**; code freeze **Tue Oct 13**; tournament **Fri Oct 16,
+10:00–12:00 PDT**.
+
+---
+
+## Final state at submission
+
+**What is deployed.** Commit `9fc28a4` (deploy #8), the code that competes, plus one documentation commit on top of
+it that changes only `README.md` and `PLAN.md`. The submitted version is the latest commit on the repository's
+default branch at the Submission Deadline. README.md ("This entry: the Pokémon agent") describes the agent in full.
+Everything below this section is the plan and build diary from Oct 6 on: where it describes an earlier design,
+model or default, this section is what plays.
+
+**Main components**
+- `agent/agent.py`: `PokemonAgent` routes each request (draft pick, Team Preview, battle turn), builds the model's
+  message, budgets the clock, retries once on an invalid answer, runs the lethal recheck and the row gate, falls
+  back to the computed move, plays the starter's smoke move on an exception, and writes the decision log.
+- `agent/llm/anthropic_provider.py`: the model chain. **Claude Opus 5.5 (`claude-opus-5-5`) makes the model
+  decisions; Sonnet 5.5 (`claude-sonnet-5-5`) answers when Opus errors or times out; then the computed move plays.**
+  Timeout ceilings 18 s and 8 s plus a 2 s wall-clock guard; effort `low` for battle turns and `high` for Team
+  Preview (per call); strict JSON output; `max_tokens` 4,000; no `thinking` parameter; SDK retries off.
+- The clock (`agent/agent.py` `_clock_budget`): the server reports about 50 s per battle decision, 85 s at Team
+  Preview and a 420 s bank. Model deadline = min(decision time left − 8 s, (bank − 90 s) ÷ turns still needed), at
+  most 20 s a turn; at Team Preview what the ~20 s search leaves, at most 60 s, and code #1 under 10 s. A deadline
+  under 6 s skips the model; a second call needs 6 s left; two all-failed decisions in a row skip the model once.
+- `agent/pokemon/draft.py`, `matchup.py`, `counterpick.py`: the code-only, counter-aware draft search (no model call).
+- `agent/pokemon/lineup.py`, `preview_sim.py`: Team Preview from the four-against-four game, the lead veto and
+  ~20 s of simulated openings; the top three plans and a matchup table go to the model.
+- `agent/pokemon/battle.py`: the turn sheet and its scored rows (the best four plus up to two Protect / switch /
+  redirection rows that cover a slot in a KO range); row 0 is the fallback.
+- `agent/pokemon/opponent.py`, `memory.py`, `match_state.py`: the opponent's class and per-slot prediction; match
+  memory from the draft and the battle log (re-read every turn), rebuilt from `data/cards.json` after a restart;
+  per-match caches emptied at a match's start.
+- `agent/pokemon/prompts.py`: the system prompt (with `prompt_v2` and `prompt_kb`), the known-sets block, the Team
+  Preview instructions.
+- `agent/pokemon/tuning.py` and `data/`: the weights and switches; the dex and move tables, the 48-card catalog,
+  the fitted team model, the per-card and first-pick tables, the tier list.
+- `scripts/run_tournament.sh`: the launcher (pre-flight with one real model call, detached restart loop, runtime
+  log, raw-state capture to `tests/fixtures/live/`).
+- In the simulator tools the player spec `fable` is the full agent (`agent/agent.py` with the model chain from
+  `.env`, Opus 5.5 by default); the name is historical.
+
+**Default-on switches and the weights that change behaviour** (`tuning.DEFAULTS`; every other number there is a
+plain weight)
+- `draft_v2` 1: the counter-aware draft search instead of the greedy scorer.
+- `draft_lookahead` 3, `draft_counter_replies` 3, `draft_minimax` 0.5, `draft_reply_depth` 1: their next pick tried
+  with three team-model and three counter-picker replies, the worst reply weighted half.
+- `draft_four_eval` 1, `draft_their_fours` 3: a finished draft valued as our four against their three likeliest fours.
+- `draft_card_w` 1: the team model's fitted per-card strengths.
+- `draft_counter_prior` 0.02: the tier rating as the counter-picker's strength prior.
+- `draft_first_pick_w` 1 (strength 1, scarcity 0.5, exposure 0.2, guard 0.1, table 1): the first-pick policy, full
+  at our first pick, half at our second.
+- `draft_hole_w` 0.5, `lineup_hole_w` 0.5: a coverage-hole penalty in the draft value and at Team Preview.
+- `draft_support_w` 0.25: a counter blunted by Intimidate or a safe switch-in partner counts for less.
+- `draft_card_adjust_w` 0.5, `draft_card_adjust_them_w` 0.5: the per-card table in the finished-draft value, with
+  the Archaludon floor.
+- `draft_tiebreak_eps` 0.01, `lineup_tiebreak_eps` 0.01: near-ties (within 1 % win chance) drawn by a secret
+  per-match seed.
+- `lineup_v2` 1 (`lineup_v2_robust` 0.25, `lineup_v2_template` 0.5): Team Preview from the four-against-four game.
+- `lead_veto_w` 0.5: no lead pair that loses a Pokémon on turn 1 while a safe pair of the same four exists.
+- `lineup_sim_budget_s` 20 (with the other `lineup_sim_*` keys): simulated openings re-rank the plans.
+- `lineup_min_model_s` 10: the Team Preview model call needs 10 s left after the search.
+- `hp_units` 1: damage valued in % of max HP, capped at what the target has left.
+- `choice_lock_rerank` 1: a Choice holder is steered off moves dead against a remaining foe.
+- `focus_risk` 0.35, `opp_protect_risk` 0.3, `fake_out_use` 0.5: double-target risk, a foe's Protect chance in KO
+  range, a fresh opposing Fake Out used half the time.
+- `ko_threat_w` 0.5, `exposure_w` 1: a KO is worth more the bigger the threat removed; self-exposing moves are charged.
+- `sleep_future_w` 0.5, `sleep_use_prior` 0.6: sleep threats priced.
+- `foe_sleep` 1: a sleeping, paralysed or frozen foe's threat counts only as often as it acts.
+- `choice_protect_guard` 1: a Protect that would lock an unlocked Choice item earns nothing in the rows and is
+  refused as an override.
+- `hp_power_first` 1: Eruption / Water Spout are credited at the HP their user likely has when it moves (after
+  the hits of foes that move first); a KO counts as guaranteed only if it still lands after those hits.
+- `override_margin` 0.15: the row gate (a lower row or an override plays only within 15 % of row 0, or an override
+  whose opponent prediction matches the code's).
+- `recheck_v2` 1: the lethal recheck only where row 0 Protects or switches the slot, pointing the model to row 0.
+- `prompt_v2` 1: the Protect procedure treats DOUBLE-TARGET as a risk, lessons from live games, the prediction
+  vocabulary in the code's words.
+- `prompt_kb` 1: the nine-fact battle reference in the system prompt.
+- Off: `reply_mixture` (and `answer_rules_v2`, which needs it), `protect_prior_rows`, `draft_tier_adjust`,
+  `draft_sleep_w`, `lineup_sleep_w`, `draft_tiebreak_exposure`, `draft_mode_w`, `draft_role_w`,
+  `draft_deny_mode_w`, `lineup_answer_w`, `lead_priority_multihit_w`, `lead_ohko_w`, `lineup_predict_opp`,
+  `lineup_v2_lead_robust`, `lineup_v2_four_template`.
+
+**Last measurement** (Oct 13, code only, `sim/draft_eval.py match … --pin-tiebreak`, seeds 61–64, 300 pinned pairs
+per seed): about 48 % of 2,400 paired games against a clone of a search-based opponent, about 54 % against the
+switch-heavy practice opponent (`agent/versions/pivot.py`).
 
 ---
 
@@ -11,8 +97,9 @@ Dates: today is **Mon Oct 6, 2026**. Code freeze **Mon Oct 13**. Tournament **Th
 - You chose **Pokémon Showdown only**. Werewolf is dropped entirely.
 - The tournament's Pokémon game is `pokemon_vgc_doubles_draft`: two agents snake-draft 6 Pokémon
   each from a shared 18-card pool, pick 4 of 6 at Team Preview, then play a 4v4 doubles battle.
-- Decisions by **Claude Fable 5.1** (`claude-fable-5-1`) through the official `anthropic` Python
-  SDK, key in `.env` as `ANTHROPIC_API_KEY`. Fallback chain: Sonnet 5.5, then a code-only move.
+- Decisions by **Claude Opus 5.5** (`claude-opus-5-5`) through the official `anthropic` Python
+  SDK, key in `.env` as `ANTHROPIC_API_KEY`. Fallback chain: Sonnet 5.5, then a code-only move. (The Oct 6 plan
+  named Fable 5.1; Opus 5.5 replaced it that night, §5d.)
 - Guiding rule from you: **reliable beats clever.** Every decision has a pure-code answer that is
   legal and sane, and the LLM only ever *upgrades* it. The agent can never crash a match because
   the model was slow, down, or wrong.
@@ -62,8 +149,8 @@ Your entire job is one file, `agent/agent.py`, exposing one function: `create_ag
 
 | Topic | Fact | Consequence |
 |---|---|---|
-| Draft clock | **15 s per pick**, measured from when it becomes your turn and *including* any model call. Timeout = server picks a random card; late picks are rejected `STALE_STATE`. | **Draft is pure code.** No LLM call in the draft, ever. Fable 5.1 always thinks and can take 5–20 s. |
-| Battle clock | ~~300 s~~ **Corrected Oct 7 (upstream GAMES.md):** Showdown's VGC timer. **90 s** Team Preview, **55 s** per battle decision, **420 s total bank** per battle; an empty bank is a forfeit. | Model chain capped at 18 s primary + 8 s fallback (+2 s grace each), worst case 30 s; a retry/recheck is only made if under 10 s have passed, so no decision exceeds ~40 s. Median Opus call is ~3 s. |
+| Draft clock | **15 s per pick**, measured from when it becomes your turn and *including* any model call. Timeout = server picks a random card; late picks are rejected `STALE_STATE`. | **Draft is pure code.** No LLM call in the draft, ever. A model call can take 5–20 s. |
+| Battle clock | ~~300 s~~ **Corrected Oct 7 (upstream GAMES.md):** Showdown's VGC timer. **90 s** Team Preview, **55 s** per battle decision, **420 s total bank** per battle; an empty bank is a forfeit. | The server reports about 50 s left per battle decision and 85 s at Team Preview when it asks. Each decision gets one model deadline from that clock: min(decision left − 8 s, (bank − 90 s) ÷ turns still needed), at most 20 s a turn (60 s at Team Preview); Opus ≤ 18 s and Sonnet ≤ 8 s inside it (+2 s guard each); a second call only with ≥ 6 s left; under 6 s the computed move plays. Median Opus call is ~3 s. |
 | Draft info | Pool cards are **complete sets**: species, item, ability, nature, EVs, 4 moves. `rosters` and `picks` are public to both players. | We know the opponent's **exact** 6 builds before the battle starts. Most LLM-only agents only use what the battle "reveals". This is our biggest edge: store every drafted card in match memory. |
 | Item Clause | Your six must hold six different items; clashing cards are simply not offered. | Nothing to enforce; `legal_actions` already filters. |
 | Team Preview | You see both full rosters with `types` and `base_stats`; bring 4, lead 2. | Lineup is chosen against the opponent's known 6 (and their known moves from the draft). |
@@ -74,7 +161,7 @@ Your entire job is one file, `agent/agent.py`, exposing one function: `create_ag
 | Registration | Admin creates one tournament per game. You press **Register my agent** on the dashboard's Tournaments page. Button is enabled only when: agent is Self Hosted, has an active Official Agent Key, and your **event registration is complete** (the readiness codes mention a questionnaire, Rules, and a *repository*). | Registration is per tournament, so we register for the Pokémon one only. Your fork URL is probably the "repository" they want: keep it secret-free. |
 | Runtime flags | **Resolved Oct 6 evening: upstream PR #5 merged and is now in our branch.** `python -m agent --match` plays your Testing seats, `--tournament` plays tournament games, both flags together play both in one process. Claim codes and the old `ALTRUAGENT_API_KEY` are retired; the only platform credential is `ALTRUAGENT_OFFICIAL_AGENT_KEY`. | `.env` needs just the Official Agent Key (plus our Anthropic variables). Our agent code was untouched by the merge. |
 | Python | Repo needs 3.11+. Your laptop has **Python 3.14.4**. | **Resolved Oct 6:** `.venv` created, `pip install -e ".[dev]" anthropic` succeeded, and the starter's 498 tests pass on 3.14. No need for 3.12. |
-| Fable 5.1 API | Thinking is always on (omit the `thinking` param); depth via `output_config.effort`; structured JSON via `output_config.format` (`json_schema`); can return `stop_reason: "refusal"`; not available to zero-data-retention orgs. | Provider sets `effort: "low"` for speed, checks `stop_reason`, uses a 40 s timeout and `max_retries=0` so we own retries and fallback. Default Anthropic orgs are fine; confirm yours is not ZDR. |
+| Claude API (Opus 5.5, Sonnet 5.5) | Depth via `output_config.effort`; structured JSON via `output_config.format` (`json_schema`); a reply can stop with `stop_reason: "refusal"` or `"max_tokens"`. | Provider sends effort `low` for battle turns and `high` for Team Preview, no `thinking` parameter, checks `stop_reason`, and uses 18 s / 8 s timeout ceilings with `max_retries=0` so we own retries and fallback. |
 
 ---
 
@@ -82,37 +169,41 @@ Your entire job is one file, `agent/agent.py`, exposing one function: `create_ag
 
 Short record of why that is also the right call:
 - Pokémon's draft and battle have **perfect information about builds** and well-defined math, so code can carry most of the weight and the LLM adds judgment on top. Werewolf's edge was almost entirely prompting, under a 120 s shared chat window with 7 agents.
-- Pokémon's 55 s turn clock (420 s bank) still leaves room for a low-effort model call (median ~3 s, p95 ~8 s). The 15 s draft is pure code.
+- Pokémon's battle clock (about 50 s per decision as the server reports it, 420 s bank) still leaves room for a low-effort model call (median ~3 s, p95 ~8 s). The 15 s draft is pure code.
 - Pokémon has the bigger, deeper bracket (6 Swiss rounds + top 32 best-of-3), so a consistent agent gets rewarded.
 
 ---
 
 ## 4. Architecture: hybrid, code first, LLM on top
 
+As built (the Oct 6 sketch had only `memory`, `log`, `data`, `draft`, `lineup`, `battle` and `prompts` under `pokemon/`):
+
 ```
-altruagent-starter/
-  agent/
-    agent.py              # create_agent() -> PokemonAgent (thin router by state.phase)
-    llm/
-      anthropic_provider.py   # AnthropicProvider (official SDK) + FallbackProvider chain
-    pokemon/
-      memory.py           # MatchMemory: both rosters' full card sets, turn history, revealed info
-      log.py              # DecisionLog: one JSON line per decision -> logs/<session_id>.jsonl
-      data.py             # TYPE_CHART (18x18), species/move lookups from data/*.json
-      draft.py            # PURE CODE: score_pool(...) -> best card_id in < 50 ms
-      lineup.py           # code shortlist of lineups + one LLM pick (90 s clock)
-      battle.py           # code: damage/speed/threat table + candidate ranking; LLM picks; validated
-      prompts.py          # system prompt + the JSON schemas the model must answer in
-    arena.py              # self-play helper: picks agent version by seat (see §6)
-  data/
-    pokedex.json, moves.json   # vendored from Pokémon Showdown data (MIT), built by scripts/build_dex.py
-  logs/                   # gitignored; decision logs from every test match
-  scripts/
-    build_dex.py          # regenerates data/*.json
-    tally.py              # win rate, latency p95, fallback rate per version from logs/
-    run_tournament.sh     # caffeinate + python -m agent --tournament, restart on exit
-  tests/
-    test_draft.py, test_battle_math.py, test_provider.py, test_payloads.py
+agent/
+  agent.py                # create_agent() -> PokemonAgent: routing, clock budget, model call, row gate, fallbacks, log
+  llm/
+    anthropic_provider.py # AnthropicProvider (official SDK) + FallbackProvider chain (Opus 5.5 -> Sonnet 5.5)
+  pokemon/
+    memory.py             # MatchMemory: both sides' full card sets, the battle log read every turn, restart rebuild
+    log.py                # DecisionLog: one JSON line per decision -> logs/<session_id>.jsonl
+    data.py               # type chart, stat formula, species/move/catalog lookups from data/*.json
+    draft.py              # PURE CODE: the counter-aware draft search (and the older greedy scorer as its fallback)
+    matchup.py            # 1-on-1 races between cards, team model (data/draft_model.json), lead openings
+    counterpick.py        # a counter-picking drafter's scorer, for the draft search's opponent replies
+    lineup.py             # Team Preview: four-against-four game, leads, lead veto, the table for the model
+    preview_sim.py        # the simulated openings behind the deep Team Preview
+    battle.py             # the turn sheet: speed, damage, threats, warnings, switch-ins, scored rows
+    opponent.py           # the opponent class's per-slot prediction
+    replies.py            # opponent priors (its reply mixture is off by default)
+    match_state.py        # per-match cache reset
+    prompts.py            # system prompt and its variants, Team Preview instructions
+    tuning.py             # every weight and switch
+  versions/, arena.py     # development: alternative players and the seat-based arena
+data/                     # dex, moves, card catalog, fitted team model, per-card and first-pick tables, tiers
+logs/                     # gitignored; decision logs and runtime logs
+scripts/                  # run_tournament.sh (the launcher) and development tools
+sim/                      # development: the local Showdown simulator
+tests/                    # pytest, no network
 ```
 
 **Reuse, don't rewrite** (all already in the repo):
@@ -125,6 +216,11 @@ altruagent-starter/
 ### 4.1 The decision flow per phase
 
 **Draft (code only, must return in well under 1 s)**
+As built and on by default (`draft_v2`): for every offered card the search plays the rest of the snake draft out,
+trying at the opponent's next pick the team model's three best replies and a counter-picker's three best, and values
+each finished draft as the four we would bring against their three likeliest fours under the team model fitted on
+simulator games; a first-pick policy adds to our first two picks, and picks within 1 % win chance are drawn by a
+secret per-match seed. The Oct 6 scorer below is the fallback if the search raises. As planned on Oct 6:
 Score every offered card with `score_pool(card, my_roster, opp_roster, picks_left)`:
 - base stat total and speed tier (from `data/pokedex.json`, falling back to the card if present);
 - **type coverage**: reward offensive types we lack and defensive resistances to what the opponent has already drafted; penalize stacking a shared weakness;
@@ -133,32 +229,39 @@ Score every offered card with `score_pool(card, my_roster, opp_roster, picks_lef
 - a deterministic tiebreak so the same pool always drafts the same way (reproducible tests).
 Store the **full card** of every pick, ours and theirs, in `MatchMemory`.
 
-**Team Preview (code shortlist, LLM chooses, 90 s)**
-Code enumerates the 15 four-Pokémon subsets, scores each against the opponent's 6 (coverage, speed, known threats from their drafted moves), proposes leads (fastest/Fake Out/weather setter pairs), and keeps the top 3. The LLM sees the 3 options with the computed numbers and the opponent's exact sets, and picks one. Answer goes through `lineup_choice.build()`. Timeout or error -> code's #1.
+**Team Preview (code shortlist, LLM chooses, 85 s as the server reports it)**
+As built: code plays our 15 fours against their 15 as a small game under the team model, picks leads with a two-turn
+opening model and a lead veto, then spends about 20 s simulating the first turns of the best plans
+(`preview_sim.py`), and keeps the top 3. The model (Opus 5.5, effort `high`) sees the 3 plans with their numbers, a
+matchup table and the opponent's exact sets, and chooses the lineup. Answer goes through `lineup_choice.build()`.
+Timeout or error -> code's #1.
 
-**Battle turn (code computes, LLM judges, 55 s from a 420 s bank)**
+**Battle turn (code computes, LLM judges, code gates; about 50 s per decision from a 420 s bank)**
 Code builds a compact **turn sheet** every turn:
 - speed order of the 4 active Pokémon (base stats + known EVs/nature, boosts, Tailwind/Trick Room/paralysis);
 - for each of our legal moves vs each target: type multiplier, STAB, rough damage as a % of the target's current HP (Gen 9 formula, level 50, using the opponent's known EVs/nature/item from the draft);
 - the opponent's **known** moves per active Pokémon (from their drafted cards), with their rough damage to us, and flags like "can OHKO slot 0", "has Protect", "has Fake Out", "priority move";
-- a ranked list of 3–5 candidate full turns (both slots), e.g. "double into opp A", "Protect slot 0 + attack", "switch slot 1 to resist".
-The LLM sees the sheet plus the raw per-slot options from the server and returns `{slot_0, slot_1, reasoning_summary}` in the exact schema `doubles_choice` expects. `doubles_choice.build()` validates it. Any failure -> retry once with the error -> candidate #1 -> `smoke_agent` move.
+- a ranked list of scored candidate full turns (both slots), e.g. "double into opp A", "Protect slot 0 + attack", "switch slot 1 to resist": as built, the best four plus up to two Protect / switch / redirection rows that cover a slot in a KO range.
+As built, the model (Opus 5.5, effort `low`) sees the sheet plus the per-slot options from the server and answers with a row number (or a proposed joint action, the override), its opponent prediction, a win condition and a public `reasoning_summary`. The row gate and the lethal recheck apply (see *Final state*), and `doubles_choice.build()` validates the payload. Any failure -> retry once with the error -> row 0 -> `smoke_agent` move on an exception.
 
 ### 4.2 Per-match memory and decision log
-- `MatchMemory` (one per process, created in `create_agent()`): `my_cards`, `opp_cards` (full sets by species), `first_drafter`, `my_lineup`, `opp_lineup_seen`, per-turn `turns[]` (what we played, what the opponent did, HP after), `fallbacks_used`, latencies.
-- `DecisionLog` appends one JSON line per decision to `logs/<session_id>.jsonl`: phase, turn, compact state summary, the turn sheet, candidates, the model's answer, which provider answered (fable / sonnet / code), latency ms, validation errors, and the final payload. **Never** any key, token, or env value. This is what we read after every test match to answer "why did it do that".
+- `MatchMemory` (one per process, created in `create_agent()`): `my_cards`, `opp_cards` (full sets by species), `first_drafter`, `my_lineup`, `opp_lineup_seen`, per-turn `turns[]` (what we played, what the opponent did, HP after), `fallbacks`, latencies.
+- `DecisionLog` appends one JSON line per decision to `logs/<session_id>.jsonl`: phase, turn, compact state summary, the turn sheet, candidates, the model's answer, which model answered (Opus / Sonnet / none = code), latency ms, validation errors, and the final payload. **Never** any key, token, or env value. This is what we read after every test match to answer "why did it do that".
 
 ### 4.3 The Anthropic provider and fallback chain
 `AnthropicProvider.complete_structured(messages, schema_name, schema)`:
 - `anthropic.Anthropic(timeout=<per-provider>, max_retries=0)`; the SDK reads `ANTHROPIC_API_KEY` from the environment after `load_dotenv()`. The key is never stored on our object, never in `repr`, never logged. James's key is a personal key spanning several workspaces, so every request also carries the `anthropic-workspace-id` header, read from `ANTHROPIC_WORKSPACE_ID` in `.env` (verified live Oct 6).
-- Request: `model`, `max_tokens≈2000`, `system` (stable, marked `cache_control` ephemeral so repeated turns get the cache discount), `messages=[{"role":"user", ...}]`, `output_config={"format": {"type": "json_schema", "schema": schema}, "effort": "low"}`. No `thinking` parameter (Fable 5.1 thinks by default; sending `disabled` or a budget is a 400).
+- Request: `model`, `max_tokens` 4,000, `system` (stable, marked `cache_control` ephemeral so repeated turns get the cache discount; a second cached block carries the match's known sets), `messages=[{"role":"user", ...}]`, `output_config={"format": {"type": "json_schema", "schema": schema}, "effort": ...}` (`low` for battle turns, `high` for Team Preview). No `thinking` parameter.
 - Check `stop_reason`: `"refusal"` or `"max_tokens"` -> `ProviderError`. Parse the first text block as JSON; non-object -> `ProviderError`.
-- Errors are mapped most-specific-first (`RateLimitError`, `APIStatusError`, `APIConnectionError`, `APITimeoutError`) to `ProviderError` with the class name only, never the body.
+- Errors are mapped most-specific-first (`RateLimitError`, `APIStatusError`, `APIConnectionError`, `APITimeoutError`) to `ProviderError` with the HTTP status and the API's own error type and message (trimmed, anything key-shaped removed), never the request. Every call also runs under a hard wall-clock guard (its timeout + 2 s).
 - Server-side refusal fallback (`fallbacks: "default"` with the beta header) is available but **not** used: our own chain already covers refusals and keeps one code path. Can be added later if logs show refusals.
 
-`FallbackProvider([Fable 5.1 @ 40 s, Sonnet 5.5 @ 12 s])` tries each in order and raises only if all fail; the caller then uses code. Model ids come from `.env` (`AGENT_MODEL=claude-fable-5-1`, `AGENT_FALLBACK_MODEL=claude-sonnet-5-5`) so we can run cheap test matches on Sonnet without code changes.
+`FallbackProvider([Opus 5.5 @ 18 s, Sonnet 5.5 @ 8 s])` tries each in order within one deadline for the whole decision and raises only if all fail; the caller then uses code. The model ids default to `claude-opus-5-5` and `claude-sonnet-5-5` in code; `.env` can override them (`AGENT_MODEL`, `AGENT_FALLBACK_MODEL`) so cheap test runs can use another model without code changes.
 
 ### 4.4 Rough cost per match
+(The Oct 6 estimate, written when Fable 5.1 was the planned judge. The agent that competes runs Opus 5.5; measured on
+Opus: about $1.50 for a 26-decision self-play match before caching (§5j) and about $0.36 a game against the sparring
+partner (§5n).)
 Prices: Fable 5.1 $10 in / $50 out per million tokens; Sonnet 5.5 $2 / $10. A battle decision sends roughly 4–6K input tokens (system prompt cached after the first turn) and produces roughly 1–2K output tokens including low-effort thinking.
 
 | Item | Calls per match | Fable 5.1 | Sonnet 5.5 |
@@ -170,7 +273,7 @@ Prices: Fable 5.1 $10 in / $50 out per million tokens; Sonnet 5.5 $2 / $10. A ba
 | Tournament day (6–11 games) | | **~$15–35** | |
 | Testing (40–60 matches) | | ~$100–150 on Fable, ~$25 on Sonnet | |
 
-Budget approved: **$250**. Default to Fable 5.1 for testing so what we tune is what we play; drop to Sonnet 5.5 for bulk self-play if spend passes ~$150 before validation week.
+Budget approved: **$250**. Default to Fable 5.1 for testing so what we tune is what we play; drop to Sonnet 5.5 for bulk self-play if spend passes ~$150 before validation week. (Superseded: Opus 5.5 became the judge on Oct 6 night, §5d.)
 
 **Measured Oct 6 (offline dry run, real Fable 5.1, effort low):** Team Preview call 2.3K in / 130 out, 7.1 s. Battle turn call 4.6K in / 100 out, 4.0 s. At $10/$50 per MTok that is about $0.03 per lineup and $0.05 per turn, so **roughly $1 per match on Fable**, well under the table above. The system prompt (~1K tokens) is written to the prompt cache; whether reads hit on later turns gets checked in the first live match.
 
@@ -191,7 +294,7 @@ Budget approved: **$250**. Default to Fable 5.1 for testing so what we tune is w
 - **Damage math verified** against Smogon's official calculator (`@smogon/calc`, 376 generated cases in `tests/fixtures/smogon_calc.json`, `tests/test_damage_vs_smogon.py`): median error 0.5% of max HP, p90 1.4%, max 3.9%. Found and fixed on the way: multi-hit moves, always-crit moves, type-boost items, Expert Belt, Knock Off's item bonus.
 - **Candidate ranking is now scored**, not fixed-order: survival factor (a slot that dies to a faster KO contributes nothing), status-move values (Spore, Rage Powder, Tailwind, Trick Room, Will-O-Wisp…), Fake Out setup on a fresh switch-in, ally damage charged against spread moves, speed-aware Protect.
 - **Payload shapes** aligned with the platform guide's examples: seats keyed by agent id, `fields`/`side_conditions` for Trick Room and Tailwind, `active_pokemon` lists.
-- **Effort sweep (Oct 6, three parallel runs of the 9 scenarios):** low 9/9, median ~3 s, max 16 s; medium 9/9, max 22 s; high 9/9, max 33 s (one call fell through to Sonnet 5.5, which also answered correctly). Decision: **stay on `low`**. It is the fastest and cheapest and lost nothing; the 300 s clock leaves huge margin either way. Revisit only if live matches show judgment errors the sheet can't fix.
+- **Effort sweep (Oct 6, three parallel runs of the 9 scenarios):** low 9/9, median ~3 s, max 16 s; medium 9/9, max 22 s; high 9/9, max 33 s (one call fell through to Sonnet 5.5, which also answered correctly). Decision: **stay on `low`**. It is the fastest and cheapest and lost nothing; the 300 s clock leaves huge margin either way. Revisit only if live matches show judgment errors the sheet can't fix. (Final state: battle turns stay `low`; Team Preview, one call per match, asks for `high`. The clock was later corrected, §5h.)
 - Still to do offline: harder scenarios as live matches reveal mistakes (the current nine no longer discriminate between effort levels).
 
 ## 5b. Local self-play on the real engine (added Oct 6 night)
@@ -229,7 +332,7 @@ variants against the baseline. First sweep: every knob at 0.5x and 1.5x, 300 gam
 defaults are not badly mis-set anywhere. Four knobs moved consistently in one direction at both ends (lower
 `draft_support_cap`, higher `switch_weak_bonus`, lower `ally_damage_w`, higher `fakeout_base`). **Confirmed at 1,000 games: the four together beat the old defaults 55.7% ± 3.1, so they are now the defaults** (annotated in `tuning.py`). Individually only `draft_support_cap=15` cleared the bar (53.9%). The opponent-lineup prediction flag measured 49.8%: a null result, kept off. Rule: adopt a change only when its 95% interval clears 50% at 1,000 games.
 
-**Hardening from the simulator (Oct 6 night):** a Fable call once hung for 18+ minutes with the socket open despite the SDK's 40 s timeout. Every model call now runs under a hard wall-clock deadline (timeout + 5 s) in a worker thread; past it, the agent treats the call as failed and falls back. The 300 s turn clock can no longer be eaten by a stuck connection.
+**Hardening from the simulator (Oct 6 night):** a Fable call once hung for 18+ minutes with the socket open despite the SDK's 40 s timeout. Every model call now runs under a hard wall-clock deadline (timeout + 5 s; later + 2 s, §5h) in a worker thread; past it, the agent treats the call as failed and falls back. The 300 s turn clock can no longer be eaten by a stuck connection.
 
 ## 5d. Which model should judge? (Oct 6 night, local self-play)
 
@@ -379,7 +482,9 @@ now graded: LETHAL only when guaranteed or at least a coin flip, otherwise RISK 
 Rerunning the two hardest ones three times each still showed the model attacking with a Pokémon the sheet had marked LETHAL
 (a priority Sucker Punch it had read as "it moves first under Tailwind", and a speed tie it read as a win). So the agent now
 does a **lethal recheck**: if a valid answer leaves a LETHAL-flagged slot attacking, the model gets that exact warning quoted back
-and answers once more; its second answer stands either way (trades can be right), and the decision log records `recheck`. With
+and answers once more; its second answer stands either way (trades can be right), and the decision log records `recheck`.
+(Final state, `recheck_v2`: it fires only for a LETHAL or EXPOSED slot that row 0 Protects or switches, and points the
+model back to row 0.) With
 it: `stale_fake_out` 2/2, `sucker_punch_respect` 3/3, `break_sash_then_ko` 3/3 under the broadened rule (the recheck fired on
 3 of the 6 and flipped the answer each time). Scenario suite now 18 (10 basic + 8 hard); code-only 18/18.
 
@@ -411,7 +516,8 @@ model can see a trade before it makes one. Regression test added.
 
 **Effort sweep (Oct 7, all 18 scenarios, Opus, recheck on):** low 18/18, median 3.2 s, p95 8.1 s; medium 17/18, median 7.8 s,
 p95 14.3 s (it missed `intimidate_the_dancer`). The recheck fired 4 times at low and 2 at medium. More thinking bought nothing here
-and doubled latency, so **effort stays low**; the recheck is doing the work the extra thinking was supposed to do.
+and doubled latency, so **effort stays low**; the recheck is doing the work the extra thinking was supposed to do. (Final
+state: battle turns `low`, Team Preview `high`.)
 
 ### 5h. Oct 7 afternoon: upstream merge, the real battle clock, reliability drills, readiness
 
@@ -426,6 +532,8 @@ battle decision, 420 s total bank per player per battle**; an empty bank is a fo
 `_ask` makes a second model call (retry on an invalid answer, or the lethal recheck) only while under
 `SECOND_CALL_CUTOFF_SECONDS` = 10 s have passed, else the first valid answer stands / the computed move plays (2 tests).
 Worst-case decision ~40 s; measured median 3.1 s, p95 ~8 s. Bank math: 12 turns x 5 s = 60 s of a 420 s bank.
+(Superseded: the cutoff was replaced by the per-decision clock budget described in *Final state*, which reads the
+server's own clock: about 50 s per decision when it asks, 85 s at Team Preview.)
 
 **Reliability drills (§5.4), all passed, no credits used:**
 - A. Bogus model names (`AGENT_MODEL=claude-bogus-model AGENT_FALLBACK_MODEL=...`): both failed (the 400 was the credit
@@ -470,7 +578,8 @@ Pokémon have `item: null, moves: []` (our drafted sets fill them), the battle o
 2. `weather` as a dict was read as "no weather". Fix: both reads go through `normalize_weather`, which handles dicts.
 
 **Also from the live payload:** the agent now reads the server clock. Under 25 s left on the decision or under 90 s in the bank,
-the model is skipped and the computed move plays; the second-call cutoff shrinks with the decision clock. Capture files are now
+the model is skipped and the computed move plays; the second-call cutoff shrinks with the decision clock. (Superseded by
+the per-decision clock budget in *Final state*.) Capture files are now
 named `<phase>-<version>-seat<n>.json` (both seats and all phases used to overwrite each other; the draft states were lost).
 
 **Baselines after the fixes:** 860 tests, 19/19 scenarios, code vs smoke 85% (200 games), code vs random 930/1000 (93%) with the fixes vs 930/1000 for the previous commit on the same seed: no regression.
@@ -703,19 +812,19 @@ Protect history and Tailwind/Trick Room turns left from the log; system prompt o
 
 | Day | Milestone | Done when |
 |---|---|---|
-| **Mon Oct 6** (today) | **M0 Setup.** You: dashboard signup, Self Hosted, Official Agent Key into `.env`, Anthropic key + credits. Me: venv, `pip install -e ".[dev]" anthropic`, `pytest` (**done Oct 6: 498 passed**), `.env` scaffolded from the template (**done**), then `python -m agent --check-tournament` (all ✓) and a first test match with `examples.smoke_agent` once your keys are in. | Check shows ✓ on every line; one smoke match completes. |
-| **Tue Oct 7** | **M1 Never-forfeit baseline.** `AnthropicProvider` + `FallbackProvider`, `MatchMemory`, `DecisionLog`, `PokemonAgent` that drafts with a trivial code rule, and uses the LLM for lineup and turns through the existing adapters. Raw-state capture to fixtures. **Code written Oct 6 (started early): 518 tests pass incl. 23 new. Remaining: first live match once keys are in.** | Plays a full match end to end with Fable; log shows latency per call; zero `DecisionError`. |
-| **Wed Oct 8** | **M2 Draft brain + data.** `scripts/build_dex.py` -> `data/*.json`; `TYPE_CHART`; `draft.py` scoring; memory stores all 12 cards. Unit tests. **Done Oct 6 (two days early): data vendored (1,481 species, 954 moves), type chart + level-50 stat math, opponent-aware draft scorer (offense/defense vs their actual sets, team coverage, shared weaknesses, support timing, denial). 547 tests pass.** | Draft picks in < 50 ms on fixtures; tests green; self-play draft looks sensible on review. |
-| **Thu Oct 9** | **M3 Battle brain.** Speed order, damage estimates, threat flags, candidate ranking, the turn sheet in the prompt; `lineup.py` shortlist. **Code done Oct 6: `lineup.py` ranks all 15 lineups + leads; `battle.py` computes speed order (items, status, boosts, Trick Room), Gen 9 damage % incl. spread moves, opponent threats from known sets, and ranked candidate turns that double as the fallback. 556 tests. Remaining: validate against real server payloads in a live match.** | Turn sheet visible in logs; LLM agrees with code's #1 most turns; fallback path exercised by a forced provider error. |
-| **Fri Oct 10** | **M4 Arena + tuning.** `arena.py`, `tally.py`, 10 self-play matches v-current vs v-M1 on Sonnet; prompt and heuristic fixes from the logs. Join open matches for real opponents. **Code done Oct 6: `agent/arena.py`, `scripts/tally.py`, `scripts/run_match.sh`. Remaining: the matches themselves.** | Tally shows current version ahead; p95 latency under 25 s on Fable. |
-| **Sat Oct 11** | **M5 Hardening.** Try/except wrapper around `choose_action` returning the smoke move; failure drills (§5.4); `run_tournament.sh` with `caffeinate -dims`; pull upstream if PR #5 merged and re-verify. **Done Oct 6: exception guard (tested), `scripts/run_tournament.sh` (pre-flight, caffeinate, auto-restart, tee'd log), upstream PR #5 merged in. Remaining: the live failure drills.** | All drills pass; restart mid-match resumes; no secrets in `git status`/`git log`. |
-| **Sun Oct 12** | **M6 Validation.** 10–15 matches on Fable 5.1 against the previous version and open opponents. Bug fixes only; no new features. | Win rate holds; zero bug-caused fallbacks. |
-| **Mon Oct 13** | **Freeze.** Tag `v1.0`, push, make sure the commit is the latest on the repo's **default branch** (Official Rules §8), paste that full commit ID into the dashboard, `--check-tournament` ✓, PLAN.md updated with final numbers, redacted copy of `.env` saved next to `logs/`. | **Nothing is pushed after 11:59 p.m. PT** — not even a crash fix. The Rules allow a post-deadline edit only when Organizers authorize one in writing or a leaked secret must be removed. |
-| Tue–Wed Oct 14–15 | Dry run from a cold laptop boot; register for the Pokémon tournament as soon as it appears on the dashboard. | Registered; dry run clean. |
+| **Tue Oct 6** | **M0 Setup.** You: dashboard signup, Self Hosted, Official Agent Key into `.env`, Anthropic key + credits. Me: venv, `pip install -e ".[dev]" anthropic`, `pytest` (**done Oct 6: 498 passed**), `.env` scaffolded from the template (**done**), then `python -m agent --check-tournament` (all ✓) and a first test match with `examples.smoke_agent` once your keys are in. | Check shows ✓ on every line; one smoke match completes. |
+| **Wed Oct 7** | **M1 Never-forfeit baseline.** `AnthropicProvider` + `FallbackProvider`, `MatchMemory`, `DecisionLog`, `PokemonAgent` that drafts with a trivial code rule, and uses the LLM for lineup and turns through the existing adapters. Raw-state capture to fixtures. **Code written Oct 6 (started early): 518 tests pass incl. 23 new. Remaining: first live match once keys are in.** | Plays a full match end to end with the model chain; log shows latency per call; zero `DecisionError`. |
+| **Thu Oct 8** | **M2 Draft brain + data.** `scripts/build_dex.py` -> `data/*.json`; `TYPE_CHART`; `draft.py` scoring; memory stores all 12 cards. Unit tests. **Done Oct 6 (two days early): data vendored (1,481 species, 954 moves), type chart + level-50 stat math, opponent-aware draft scorer (offense/defense vs their actual sets, team coverage, shared weaknesses, support timing, denial). 547 tests pass.** | Draft picks in < 50 ms on fixtures; tests green; self-play draft looks sensible on review. |
+| **Fri Oct 9** | **M3 Battle brain.** Speed order, damage estimates, threat flags, candidate ranking, the turn sheet in the prompt; `lineup.py` shortlist. **Code done Oct 6: `lineup.py` ranks all 15 lineups + leads; `battle.py` computes speed order (items, status, boosts, Trick Room), Gen 9 damage % incl. spread moves, opponent threats from known sets, and ranked candidate turns that double as the fallback. 556 tests. Remaining: validate against real server payloads in a live match.** | Turn sheet visible in logs; LLM agrees with code's #1 most turns; fallback path exercised by a forced provider error. |
+| **Sat Oct 10** | **M4 Arena + tuning.** `arena.py`, `tally.py`, 10 self-play matches v-current vs v-M1 on Sonnet; prompt and heuristic fixes from the logs. Join open matches for real opponents. **Code done Oct 6: `agent/arena.py`, `scripts/tally.py`, `scripts/run_match.sh`. Remaining: the matches themselves.** | Tally shows current version ahead; p95 latency under 25 s on the judging model. |
+| **Sun Oct 11** | **M5 Hardening.** Try/except wrapper around `choose_action` returning the smoke move; failure drills (§5.4); `run_tournament.sh` with `caffeinate -dims`; pull upstream if PR #5 merged and re-verify. **Done Oct 6: exception guard (tested), `scripts/run_tournament.sh` (pre-flight, caffeinate, auto-restart, tee'd log), upstream PR #5 merged in. Remaining: the live failure drills.** | All drills pass; restart mid-match resumes; no secrets in `git status`/`git log`. |
+| **Mon Oct 12** | **M6 Validation.** 10–15 matches on the judging model (Opus 5.5) against the previous version and open opponents. Bug fixes only; no new features. | Win rate holds; zero bug-caused fallbacks. |
+| **Tue Oct 13** | **Freeze.** Tag `v1.0`, push, make sure the commit is the latest on the repo's **default branch** (Official Rules §8), paste that full commit ID into the dashboard, `--check-tournament` ✓, PLAN.md updated with final numbers, redacted copy of `.env` saved next to `logs/`. | **Nothing is pushed after 11:59 p.m. PT** — not even a crash fix. The Rules allow a post-deadline edit only when Organizers authorize one in writing or a leaked secret must be removed. |
+| Wed–Thu Oct 14–15 | Dry run from a cold laptop boot; register for the Pokémon tournament as soon as it appears on the dashboard. | Registered; dry run clean. |
 
 ---
 
-## 7. Tournament-day checklist (Thu Oct 16)
+## 7. Tournament-day checklist (Fri Oct 16)
 
 **Night before**
 - [ ] Laptop updates done, auto-update off, sleep off, screensaver off, charger packed.
@@ -725,7 +834,7 @@ Protect history and Tailwind/Trick Room turns left from the log; system prompt o
 - [ ] Phone hotspot tested as backup network.
 
 **09:00–09:45**
-- [ ] Plug in. Open two terminals in `altruagent-starter`, venv active in both.
+- [ ] Plug in. Open two terminals in the repository checkout, venv active in both.
 - [ ] Terminal 1: `./scripts/run_tournament.sh` (verified Oct 7: pre-flight, `caffeinate -dims python -m agent --tournament`, auto-restart after a kill; it also captures raw states to `tests/fixtures/live/`). Wait for `Connected with your Official Agent Key.` then `Waiting for your next game...`. Do NOT add `--match` on tournament day and run only one copy.
 - [ ] Terminal 2: `tail -f logs/*.jsonl` for the live decision log.
 - [ ] Dashboard open: confirm registration shows the agent as Self Hosted and ready. Then **close any spectator/replay view**: Rules §6 says the person who can restart the agent must not watch its match through a spectator view.
@@ -733,7 +842,7 @@ Protect history and Tailwind/Trick Room turns left from the log; system prompt o
 **10:00–12:00**
 - [ ] Do not edit code. Do not restart unless the process is dead.
 - [ ] If it dies: `run_tournament.sh` restarts it by itself (preconfigured fault recovery, allowed by Rules §4). If you ever restart it by hand, write down the time and reason: that is a manual intervention and belongs in the records (Rules §9).
-- [ ] If Fable errors spike (watch `provider` field in the log): nothing to do, the chain falls to Sonnet, then code.
+- [ ] If Opus errors spike (watch the `model` and `provider_errors` fields in the log): nothing to do, the chain falls to Sonnet, then code.
 - [ ] If Wi-Fi drops: switch to hotspot; restart the runtime if it did not recover within 60 s. Remember the 4-minute connect window per game.
 
 **After**
@@ -745,7 +854,7 @@ Protect history and Tailwind/Trick Room turns left from the log; system prompt o
 
 1. **Dashboard signup** (link posted on the tournament Discord, opens today Oct 6). Choose **Self Hosted**.
 2. **Complete event registration** on the dashboard (questionnaire, Rules, and a repository field; use `https://github.com/holmjames/ace-trainer-claude` — renamed Oct 7, the old URL redirects). The "Register my agent" button stays disabled until this is complete.
-3. **Generate the Official Agent Key** on Agent Configuration. It is shown **once**. Paste it into `altruagent-starter/.env` as `ALTRUAGENT_OFFICIAL_AGENT_KEY=...`. Never paste it into chat with me, a commit, or a screenshot.
+3. **Generate the Official Agent Key** on Agent Configuration. It is shown **once**. Paste it into the checkout's `.env` as `ALTRUAGENT_OFFICIAL_AGENT_KEY=...`. Never paste it into chat with me, a commit, or a screenshot.
 4. **Anthropic API key**: ~~create one~~ **done Oct 6.** Key plus `ANTHROPIC_WORKSPACE_ID` are in `.env` and a live Fable 5.1 call succeeded (about 4.6 s per small call). Still to confirm in the Console: prepaid credits loaded, standard data retention. Lesson learned: close TextEdit after editing `.env`, a later save from an open window silently reverted lines added by scripts.
 5. **Register my agent** for the Pokémon tournament on the Tournaments page when it appears (likely Oct 14–15). Not Werewolf, not Red Alert.
 6. **Create test matches** on the Testing page when we test (I can't click the dashboard; you create, I run).
@@ -765,7 +874,7 @@ Protect history and Tailwind/Trick Room turns left from the log; system prompt o
 
 ## 10. Verification (how we know it works, end to end)
 
-- `pytest` green at every milestone, including `test_payloads.py`, which runs every code path (draft, lineup, turn, each fallback) against real captured fixtures and asserts the output passes `examples/llm/pokemon.py`'s validators.
+- `pytest` green at every milestone, including `tests/test_live_fixtures.py` and `tests/test_live_semantics.py`, which replay every real captured state (draft, lineup, turn) through the code-only agent and check that each gets a computed, well-formed decision without the exception path, and what the agent knew at each decision.
 - `python -m agent --check-tournament` ✓ before M1, after M5, on Oct 13, and on the morning of Oct 16.
 - Every test match leaves a `logs/<session_id>.jsonl`; `scripts/tally.py` summarizes wins, latency p95, provider mix and fallback reasons. Promotion of a version requires the numbers in §5.3.
 - Failure drills in §5.4 pass on Oct 11 and again on the dry run Oct 14–15.
