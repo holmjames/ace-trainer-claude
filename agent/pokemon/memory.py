@@ -402,6 +402,10 @@ class MatchMemory:
     their_voluntary_switches: list[int] = field(default_factory=list)  # turns on which they switched without a faint or a pivot move
     their_protect_attempts: int = 0
     their_repeat_protects: int = 0  # a Protect attempted the turn after a Protect (the search bot never does)
+    # dodge_adapt (protocol log, this match only): each (turn, foe) one of our single-target damaging moves aimed at, and
+    # the ones that foe dodged: Protected successfully that turn, or switched out before the hit (the move hit whoever came in)
+    targeted_attacks: list[tuple[int, str]] = field(default_factory=list)  # (turn, their species_key) we aimed a single-target hit at
+    dodges: list[tuple[int, str, str]] = field(default_factory=list)  # (turn, their species_key, "protect" / "switch")
     say: Any = field(default=None, repr=False, compare=False)  # a callable for loud one-line notices (the agent's console)
 
     def loud(self, line: str) -> None:
@@ -583,6 +587,14 @@ class MatchMemory:
         text = " | ".join(lines)
         return text if len(text) <= limit else text[:limit - 1] + "…"
 
+    SELF_PROTECT = frozenset({"protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap", "obstruct", "kingsshield",
+                              "maxguard"})  # the Protects that stop a single-target hit (Wide Guard / Quick Guard do not)
+
+    def dodge_tally(self) -> tuple[int, int]:
+        """(dodges, targeted attacks) this match: the (turn, foe) pairs one of our single-target damaging moves aimed at
+        and how many of them that foe dodged (``observe_protocol``; dodge_adapt)."""
+        return len(self.dodges), len(self.targeted_attacks)
+
     def opp_tendencies(self) -> dict:
         """How this opponent has answered what the sheet said about each turn we recorded: Protects when we threatened
         a KO (x of y), switches out of a threatened KO, doubles into one of our slots, setups on a free turn."""
@@ -688,6 +700,9 @@ class MatchMemory:
         fainted_this_turn: dict[str, bool] = {"mine": False, "theirs": False}
         voluntary: list[int] = []
         protect_attempts = repeat_protects = 0
+        aimed: dict[tuple[int, str], str | None] = {}  # (turn, their species we aimed a single-target hit at) -> "switch" when it had left
+        left_before_moves: dict[str, str] = {}  # their board position ("p2a") -> the species that switched out of it this turn before any move
+        moved_this_turn = False  # a |move| line since the last |turn| marker (a switch before it is a switch action)
         for raw in log:
             parts = str(raw).split("|")
             if len(parts) >= 3 and parts[1] == "turn":
@@ -696,6 +711,8 @@ class MatchMemory:
                 except ValueError:
                     pass
                 fainted_this_turn = {"mine": False, "theirs": False}
+                left_before_moves = {}
+                moved_this_turn = False
                 continue
             if len(parts) < 3:
                 continue
@@ -743,6 +760,9 @@ class MatchMemory:
                     taunted.pop(occupant.get(where, ""), None)  # Taunt ends when its holder leaves the field
                     seeded.pop(occupant.get(where, ""), None)  # so do Leech Seed and Yawn
                     drowsy.pop(occupant.get(where, ""), None)
+                if not ours and kind == "switch" and turn >= 1 and not moved_this_turn and not fainted_this_turn["theirs"] \
+                        and "[from]" not in str(raw) and occupant.get(where, "").startswith("theirs:"):
+                    left_before_moves[where] = occupant[where].split(":", 1)[1]  # it dodges whatever we aimed at this position
                 occupant[where] = tag_side + ":" + species
                 if kind != "replace":  # Illusion breaking is not an entry: the Pokémon has been acting all along
                     unburden.discard(tag_side + ":" + species)  # a new stint: Unburden only counts items lost on the field
@@ -767,6 +787,16 @@ class MatchMemory:
             if kind == "move" and len(parts) > 4 and ":" in parts[4]:
                 target_nick = (parts[4].split(":")[0].rstrip("ab"), species_key(parts[4].split(":", 1)[1].strip()))
                 targets[tag_side].setdefault(turn, []).append((species, nick_to_species.get(target_nick, target_nick[1])))
+                if ours and turn >= 1 and target_nick[0] != my_side and len(parts) > 3:
+                    info = data.move_info(species_key(parts[3])) or {}
+                    if data.is_damaging(info) and info.get("target") not in ("allAdjacentFoes", "allAdjacent"):
+                        where = parts[4].split(":")[0].strip()
+                        if where in left_before_moves:  # the foe we aimed at switched out first: the hit met its replacement
+                            aimed[(turn, left_before_moves[where])] = "switch"
+                        else:
+                            aimed.setdefault((turn, nick_to_species.get(target_nick, target_nick[1])), None)
+            if kind == "move":
+                moved_this_turn = True
             if kind == "move" and len(parts) > 3 and not ours and species_key(parts[3]) in self.PROTECT_LIKE:
                 protect_attempts += 1
                 if moves_by_turn["theirs"].get(species, {}).get(turn - 1) in self.PROTECT_LIKE:
@@ -852,6 +882,16 @@ class MatchMemory:
         self.their_voluntary_switches = voluntary
         self.their_protect_attempts = protect_attempts
         self.their_repeat_protects = repeat_protects
+        # dodge_adapt: a foe we aimed at dodged when it switched out before the hit, or Protected that turn and the Protect
+        # did not fail (Protect moves first, at +4: our hit met it)
+        dodges: list[tuple[int, str, str]] = []
+        for (t, foe), how in aimed.items():
+            if how == "switch":
+                dodges.append((t, foe, "switch"))
+            elif moves_by_turn["theirs"].get(foe, {}).get(t) in self.SELF_PROTECT and t not in failed_protect["theirs"].get(foe, set()):
+                dodges.append((t, foe, "protect"))
+        self.targeted_attacks = sorted(aimed)
+        self.dodges = sorted(dodges)
         self.log_turn = turn
         self.taunted = taunted
         self.seeded = seeded

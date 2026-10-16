@@ -29,9 +29,11 @@ Run it (after keys are in ``.env``):
 from __future__ import annotations
 
 import atexit
+import hashlib
 import inspect
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -467,6 +469,7 @@ class PokemonAgent:
         self._breaker_open = False  # the next decision skips the model
         self._lineup_model: str | None = None  # who answered Team Preview (None: code)
         self._summarized = False
+        self._mix_seed_key: tuple[Any, Any] = (None, None)  # mix_play: (session id, our seat) of the decision in hand
 
     # -- end of match: one summary line -------------------------------------------------
 
@@ -568,6 +571,7 @@ class PokemonAgent:
             return self._lineup(first, state, obs, log)
         if first.action_id == "doubles_turn":
             self.memory.observe_battle(obs)
+            self._mix_seed_key = (context.session_id, getattr(context, "seat_position", None))
             return self._turn(first, state, obs, log)
 
         log.write("other", phase=state.phase, action_id=first.action_id, label=first.label)
@@ -721,6 +725,9 @@ class PokemonAgent:
                                         clock=obs.get("clock"), remaining_turns=remaining,
                                         system_extra=KNOWN_SETS_PREAMBLE + json.dumps(known_sets, ensure_ascii=False, default=str))
         forced = any(slot.get("force_switch") for slot in template.get("slots") or [])
+        mixed = self._mix_play(value, sheet, base, obs, meta, forced=forced) if float(self.params.get("mix_play", 0.0) or 0.0) > 0 else None
+        if mixed is not None:
+            value = base.build({"slot_0": sheet.candidates[mixed]["slot_0"], "slot_1": sheet.candidates[mixed]["slot_1"]})
         self.memory.record_turn(turn=obs.get("turn"), payload=_payload(value), model=info.get("model"), forced=forced,
                                 threatened=_threatened_by_us(sheet), doubled=list(getattr(sheet, "focus_threats", None) or []))
         summary = (answer or {}).get("reasoning_summary") or (sheet.candidates[0]["why"] if sheet.candidates else "Played the computed default turn.")
@@ -732,12 +739,76 @@ class PokemonAgent:
                 # the model proposed (the M1 review), on every path: the deploy's scorer path (E2) as well as the mixture
                 meta["summary_from_row"] = played
                 summary = sheet.candidates[played].get("why") or summary
+        if mixed is not None:  # the public summary describes the row that plays
+            meta["summary_from_row"] = mixed
+            summary = sheet.candidates[mixed].get("why") or summary
         log.write("turn", state_version=state.state_version, turn=obs.get("turn"), payload=_payload(value),
                   win_condition=(answer or {}).get("win_condition"), opponent_prediction=(answer or {}).get("opponent_prediction"),
                   resolution=meta, code_prediction=prediction, battle_roster=roster, turn_sheet=sheet.as_prompt(),
                   last_turns=payload["last_turns"], tendencies=payload["tendencies"], opponent_class=klass,
-                  wall_ms=self._wall_ms(), recheck_outcome=recheck_info.get("recheck_outcome"), **info)
+                  wall_ms=self._wall_ms(), recheck_outcome=recheck_info.get("recheck_outcome"), **info,
+                  **({"mixed_from": meta["mixed_from"], "mixed_to": meta["mixed_to"]} if mixed is not None else {}))
         return value, str(summary)
+
+    def _mix_play(self, value: Any, sheet: Any, base: Choice, obs: dict, meta: dict, *, forced: bool = False) -> int | None:
+        """mix_play: the row to play instead of the final play, or None (keep it). In a simultaneous-move game a
+        deterministic best play is exploitable by a reader (one that Protects or switches out exactly what our row 0
+        attacks), so with probability ``mix_play`` the play is drawn among the rows within ``mix_margin`` x max(row 0's
+        score, 1) of row 0 (capped at ``override_margin``: never a row E2 would send back), weights by score, the chosen
+        row included. Never a row the gate refuses anyway (our last Pokémon's lone Protect with nothing to wait for, a
+        Protect that locks an unlocked Choice item), never on a forced switch, and nothing when the final play is not a
+        listed row (an accepted override) or no other row is eligible. The draw is reproducible: a ``random.Random``
+        seeded by sha256 of (session id, turn, our seat), never Python's ``hash()``. Logged in ``meta["mix"]``, with
+        ``mixed_from`` / ``mixed_to`` when the play changes."""
+        p = float(self.params.get("mix_play", 0.0) or 0.0)
+        rows = list(getattr(sheet, "candidates", None) or [])
+        if p <= 0 or len(rows) < 2 or forced:
+            return None
+        built: list[Any] = []
+        for r in rows:
+            try:
+                built.append(base.build({"slot_0": r["slot_0"], "slot_1": r["slot_1"]}))
+            except (InvalidChoice, KeyError):
+                built.append(None)
+        chosen = next((i for i, b in enumerate(built) if b is not None and b == value), None)
+        if chosen is None:
+            meta["mix"] = {"skipped": "the play is not a listed row"}
+            return None
+        best = float(rows[0].get("score") or 0.0)
+        share = min(float(self.params.get("mix_margin", DEFAULTS["mix_margin"])), float(self.params.get("override_margin", 0.15)))
+        margin = max(share, 0.0) * max(best, 1.0)
+        refused = set(getattr(sheet, "choice_protect", None) or ())
+
+        def eligible(i: int) -> bool:
+            if i == chosen:
+                return True
+            r, b = rows[i], built[i]
+            if b is None or r.get("name") == "forced_switch" or float(r.get("score") or 0.0) < best - margin:
+                return False
+            if _protects_alone(b, sheet, self.memory) or (_protect_slots(b) & refused):
+                return False
+            return True
+
+        pool = [i for i in range(len(rows)) if eligible(i)]
+        session, seat = self._mix_seed_key
+        side = seat if seat is not None else next((str(k).split(":")[0] for k in (obs.get("team") or {}) if ":" in str(k)), None)
+        digest = hashlib.sha256(f"ace-trainer/mix_play|{session}|{obs.get('turn')}|{side}".encode()).digest()
+        rng = random.Random(int.from_bytes(digest[:8], "big"))
+        u = rng.random()
+        record: dict[str, Any] = {"p": p, "u": round(u, 4), "pool": pool, "margin": round(margin, 1), "chosen": chosen}
+        meta["mix"] = record
+        if u >= p or len(pool) < 2:
+            return None
+        weights = [max(float(rows[i].get("score") or 0.0), 0.0) for i in pool]
+        if sum(weights) <= 0:
+            weights = [1.0] * len(pool)
+        pick = rng.choices(pool, weights=weights, k=1)[0]
+        record["drawn"] = pick
+        if pick == chosen:
+            return None
+        meta["mixed_from"], meta["mixed_to"] = chosen, pick
+        self._say(f"[agent] mixed play: row {chosen} ({rows[chosen].get('score')}) -> row {pick} ({rows[pick].get('score')})")
+        return pick
 
     def _answer_rules_v2(self) -> bool:
         """answer_rules_v2 is on with the reply mixture (model audit R1): the configuration whose prompt says rows only."""
