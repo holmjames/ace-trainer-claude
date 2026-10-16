@@ -1,0 +1,524 @@
+{
+ "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 0,
+ "observation": {
+  "phase": "team_preview",
+  "battle_format": "gen9vgc2025regi",
+  "battle_tag": "battle-gen9vgc2025regi-1836",
+  "waiting_for_action": true,
+  "your_roster": [
+   {
+    "species": "fluttermane",
+    "name": "Flutter Mane",
+    "current_hp": 130,
+    "max_hp": 130,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "protosynthesis",
+    "item": "boosterenergy",
+    "types": [
+     "GHOST",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 55,
+     "def": 55,
+     "hp": 55,
+     "spa": 135,
+     "spd": 135,
+     "spe": 135
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "moonblast",
+     "shadowball",
+     "icywind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "gyarados",
+    "name": "Gyarados",
+    "current_hp": 202,
+    "max_hp": 202,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "intimidate",
+    "item": "sitrusberry",
+    "types": [
+     "WATER",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 79,
+     "hp": 95,
+     "spa": 60,
+     "spd": 100,
+     "spe": 81
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "waterfall",
+     "earthquake",
+     "taunt",
+     "protect"
+    ],
+    "fainted": false,
+    "active": true,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "garchomp",
+    "name": "Garchomp",
+    "current_hp": 184,
+    "max_hp": 184,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "roughskin",
+    "item": "focussash",
+    "types": [
+     "DRAGON",
+     "GROUND"
+    ],
+    "base_stats": {
+     "atk": 130,
+     "def": 95,
+     "hp": 108,
+     "spa": 80,
+     "spd": 85,
+     "spe": 102
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "earthquake",
+     "rockslide",
+     "ironhead",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "rillaboom",
+    "name": "Rillaboom",
+    "current_hp": 205,
+    "max_hp": 205,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "grassysurge",
+    "item": "assaultvest",
+    "types": [
+     "GRASS"
+    ],
+    "base_stats": {
+     "atk": 125,
+     "def": 90,
+     "hp": 100,
+     "spa": 60,
+     "spd": 70,
+     "spe": 85
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "fakeout",
+     "woodhammer",
+     "grassyglide",
+     "uturn"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "tornadus",
+    "name": "Tornadus",
+    "current_hp": 186,
+    "max_hp": 186,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "prankster",
+    "item": "mentalherb",
+    "types": [
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 70,
+     "hp": 79,
+     "spa": 125,
+     "spd": 80,
+     "spe": 111
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "bleakwindstorm",
+     "taunt",
+     "tailwind",
+     "protect"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "hatterene",
+    "name": "Hatterene",
+    "current_hp": 164,
+    "max_hp": 164,
+    "current_hp_fraction": 1.0,
+    "status": null,
+    "ability": "magicbounce",
+    "item": "safetygoggles",
+    "types": [
+     "PSYCHIC",
+     "FAIRY"
+    ],
+    "base_stats": {
+     "atk": 90,
+     "def": 95,
+     "hp": 57,
+     "spa": 136,
+     "spd": 103,
+     "spe": 29
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [
+     "trickroom",
+     "dazzlinggleam",
+     "psychic",
+     "mysticalfire"
+    ],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  ],
+  "opponent_roster": [
+   {
+    "species": "ironhands",
+    "name": "Iron Hands",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "unknown_item",
+    "types": [
+     "FIGHTING",
+     "ELECTRIC"
+    ],
+    "base_stats": {
+     "atk": 140,
+     "def": 108,
+     "hp": 154,
+     "spa": 50,
+     "spd": 68,
+     "spe": 50
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "incineroar",
+    "name": "Incineroar",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "FIRE",
+     "DARK"
+    ],
+    "base_stats": {
+     "atk": 115,
+     "def": 90,
+     "hp": 95,
+     "spa": 80,
+     "spd": 90,
+     "spe": 60
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "basculegion",
+    "name": "Basculegion",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "WATER",
+     "GHOST"
+    ],
+    "base_stats": {
+     "atk": 112,
+     "def": 65,
+     "hp": 120,
+     "spa": 80,
+     "spd": 75,
+     "spe": 78
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "ironbundle",
+    "name": "Iron Bundle",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": "quarkdrive",
+    "item": "unknown_item",
+    "types": [
+     "ICE",
+     "WATER"
+    ],
+    "base_stats": {
+     "atk": 80,
+     "def": 114,
+     "hp": 56,
+     "spa": 124,
+     "spd": 60,
+     "spe": 136
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "baxcalibur",
+    "name": "Baxcalibur",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "DRAGON",
+     "ICE"
+    ],
+    "base_stats": {
+     "atk": 145,
+     "def": 92,
+     "hp": 115,
+     "spa": 75,
+     "spd": 86,
+     "spe": 87
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   },
+   {
+    "species": "pelipper",
+    "name": "Pelipper",
+    "current_hp": 0,
+    "max_hp": 0,
+    "current_hp_fraction": 0,
+    "status": null,
+    "ability": null,
+    "item": "unknown_item",
+    "types": [
+     "WATER",
+     "FLYING"
+    ],
+    "base_stats": {
+     "atk": 50,
+     "def": 100,
+     "hp": 60,
+     "spa": 95,
+     "spd": 70,
+     "spe": 65
+    },
+    "boosts": {
+     "accuracy": 0,
+     "atk": 0,
+     "def": 0,
+     "evasion": 0,
+     "spa": 0,
+     "spd": 0,
+     "spe": 0
+    },
+    "moves": [],
+    "fainted": false,
+    "active": false,
+    "revealed": false,
+    "is_terastallized": false
+   }
+  ],
+  "clock": {
+   "decision_seconds_left": 85,
+   "bank_seconds_left": 420
+  }
+ },
+ "phase": "team_preview",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+  "state_version": 0,
+  "actions": [
+   {
+    "action_id": "select_lineup",
+    "label": "Choose 4 of 6 and designate 2 leads",
+    "input": {
+     "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+     "action": {
+      "type": "select_lineup",
+      "roster": [
+       "fluttermane",
+       "gyarados",
+       "garchomp",
+       "rillaboom",
+       "tornadus",
+       "hatterene"
+      ],
+      "bring_count": 4,
+      "lead_count": 2,
+      "instructions": "Choose exactly 4 species from `roster` to bring into battle, and which 2 of those 4 lead. Submit via play_action with action={'type': 'select_lineup', 'bring': [4 species from roster], 'leads': [2 of those 4 species]}."
+     },
+     "action_id": "select_lineup",
+     "state_version": 0
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}

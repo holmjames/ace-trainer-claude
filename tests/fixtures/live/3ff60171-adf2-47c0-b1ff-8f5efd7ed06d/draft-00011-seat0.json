@@ -1,0 +1,402 @@
+{
+ "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+ "game_type": "pokemon_vgc_doubles_draft",
+ "runtime_adapter": "pokemon",
+ "status": "in_progress",
+ "state_version": 11,
+ "observation": {
+  "phase": "draft",
+  "draft_complete": false,
+  "battle_format": "gen9vgc2025regi",
+  "current_seat": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+  "pick_number": 12,
+  "picks_remaining": 1,
+  "first_drafter": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+  "available_card_ids": [
+   "vgc-sableye",
+   "vgc-ting-lu",
+   "vgc-toxapex",
+   "vgc-wo-chien",
+   "vgc-lucario",
+   "vgc-hatterene",
+   "vgc-cresselia"
+  ],
+  "available_cards": [
+   {
+    "card_id": "vgc-sableye",
+    "species": "Sableye",
+    "item": "Mental Herb",
+    "ability": "Prankster",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Foul Play",
+     "Fake Out",
+     "Will-O-Wisp",
+     "Taunt"
+    ]
+   },
+   {
+    "card_id": "vgc-ting-lu",
+    "species": "Ting-Lu",
+    "item": "Leftovers",
+    "ability": "Vessel of Ruin",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "atk": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Ruination",
+     "Spikes",
+     "Earthquake",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-toxapex",
+    "species": "Toxapex",
+    "item": "Black Sludge",
+    "ability": "Regenerator",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Liquidation",
+     "Haze",
+     "Toxic",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-wo-chien",
+    "species": "Wo-Chien",
+    "item": "Sitrus Berry",
+    "ability": "Tablets of Ruin",
+    "nature": "Careful",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spa": 4,
+     "spd": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Leech Seed",
+     "Foul Play",
+     "Giga Drain",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-lucario",
+    "species": "Lucario",
+    "item": "Life Orb",
+    "ability": "Inner Focus",
+    "nature": "Jolly",
+    "level": 50,
+    "evs": {
+     "hp": 4,
+     "atk": 252,
+     "spe": 252
+    },
+    "ivs": {},
+    "moves": [
+     "Close Combat",
+     "Bullet Punch",
+     "Poison Jab",
+     "Protect"
+    ]
+   },
+   {
+    "card_id": "vgc-hatterene",
+    "species": "Hatterene",
+    "item": "Safety Goggles",
+    "ability": "Magic Bounce",
+    "nature": "Quiet",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "spa": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Trick Room",
+     "Dazzling Gleam",
+     "Psychic",
+     "Mystical Fire"
+    ]
+   },
+   {
+    "card_id": "vgc-cresselia",
+    "species": "Cresselia",
+    "item": "Sitrus Berry",
+    "ability": "Levitate",
+    "nature": "Bold",
+    "level": 50,
+    "evs": {
+     "hp": 252,
+     "def": 252,
+     "spd": 4
+    },
+    "ivs": {},
+    "moves": [
+     "Icy Wind",
+     "Moonblast",
+     "Helping Hand",
+     "Protect"
+    ]
+   }
+  ],
+  "rosters": {
+   "bc53420a-ec1d-4f8b-a77d-bfcc919b2629": [
+    {
+     "card_id": "vgc-flutter-mane",
+     "species": "Flutter Mane"
+    },
+    {
+     "card_id": "vgc-gyarados",
+     "species": "Gyarados"
+    },
+    {
+     "card_id": "vgc-garchomp",
+     "species": "Garchomp"
+    },
+    {
+     "card_id": "vgc-rillaboom",
+     "species": "Rillaboom"
+    },
+    {
+     "card_id": "vgc-tornadus",
+     "species": "Tornadus"
+    }
+   ],
+   "6a0f7abf-a88b-499d-92ba-2954594873c5": [
+    {
+     "card_id": "vgc-iron-hands",
+     "species": "Iron Hands"
+    },
+    {
+     "card_id": "vgc-incineroar",
+     "species": "Incineroar"
+    },
+    {
+     "card_id": "vgc-basculegion",
+     "species": "Basculegion"
+    },
+    {
+     "card_id": "vgc-iron-bundle",
+     "species": "Iron Bundle"
+    },
+    {
+     "card_id": "vgc-baxcalibur",
+     "species": "Baxcalibur"
+    },
+    {
+     "card_id": "vgc-pelipper",
+     "species": "Pelipper"
+    }
+   ]
+  },
+  "picks": [
+   {
+    "pick_number": 1,
+    "seat_id": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+    "card_id": "vgc-flutter-mane",
+    "species": "Flutter Mane",
+    "public_reason": "Drafted Flutter Mane.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 2,
+    "seat_id": "6a0f7abf-a88b-499d-92ba-2954594873c5",
+    "card_id": "vgc-iron-hands",
+    "species": "Iron Hands",
+    "public_reason": "Iron Hands: must pick: easy to play and strong (570 base stat total; Quark Drive; 52.3% win rate; vs the pool: 2HKOs 41, 2HKO'd by 13; 3 weaknesses; score 9.6)",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 3,
+    "seat_id": "6a0f7abf-a88b-499d-92ba-2954594873c5",
+    "card_id": "vgc-incineroar",
+    "species": "Incineroar",
+    "public_reason": "Incineroar: strongest available (530 base stat total; immune to Psychic; Intimidate; 50.2% win rate; vs the pool: 2HKOs 24, 2HKO'd by 19, vs their picks +0.7: Flare Blitz 103% into Flutter Mane (physical), takes 35%; team fit +5.0)",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 4,
+    "seat_id": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+    "card_id": "vgc-gyarados",
+    "species": "Gyarados",
+    "public_reason": "Drafted Gyarados.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 5,
+    "seat_id": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+    "card_id": "vgc-garchomp",
+    "species": "Garchomp",
+    "public_reason": "Drafted Garchomp.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 6,
+    "seat_id": "6a0f7abf-a88b-499d-92ba-2954594873c5",
+    "card_id": "vgc-basculegion",
+    "species": "Basculegion",
+    "public_reason": "Basculegion: strongest available (530 base stat total; immune to Normal/Fighting; Adaptability; 47.3% win rate; vs the pool: 2HKOs 40, 2HKO'd by 30, vs their picks +0.7: Wave Crash 109% into Garchomp (physical), takes 50%; team fit +0.9)",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 7,
+    "seat_id": "6a0f7abf-a88b-499d-92ba-2954594873c5",
+    "card_id": "vgc-iron-bundle",
+    "species": "Iron Bundle",
+    "public_reason": "Iron Bundle: strongest available (570 base stat total; Quark Drive; 50.4% win rate; vs the pool: 2HKOs 34, 2HKO'd by 36; 4 weaknesses, vs their picks +1.6: Freeze-Dry 158% into Garchomp (special), takes 0%; Freeze-Dry 127% into Gyarados (special), takes 0%; team fit +3.5)",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 8,
+    "seat_id": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+    "card_id": "vgc-rillaboom",
+    "species": "Rillaboom",
+    "public_reason": "Drafted Rillaboom.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 9,
+    "seat_id": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+    "card_id": "vgc-tornadus",
+    "species": "Tornadus",
+    "public_reason": "Drafted Tornadus.",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 10,
+    "seat_id": "6a0f7abf-a88b-499d-92ba-2954594873c5",
+    "card_id": "vgc-baxcalibur",
+    "species": "Baxcalibur",
+    "public_reason": "Baxcalibur: strongest available (600 base stat total; vs the pool: 2HKOs 38, 2HKO'd by 27; 5 weaknesses, vs their picks +1.6: Icicle Spear 141% into Flutter Mane (physical), takes 100%; Icicle Spear 124% into Rillaboom (physical), takes 0%; team fit +0.9)",
+    "auto": false,
+    "auto_reason": null
+   },
+   {
+    "pick_number": 11,
+    "seat_id": "6a0f7abf-a88b-499d-92ba-2954594873c5",
+    "card_id": "vgc-pelipper",
+    "species": "Pelipper",
+    "public_reason": "Pelipper: strongest available (440 base stat total; immune to Ground; Drizzle; 45.3% win rate; vs the pool: 2HKOs 25, 2HKO'd by 22; speed control (Tailwind / Icy Wind), which we lack, vs their picks +0.5; team fit +5.1)",
+    "auto": false,
+    "auto_reason": null
+   }
+  ],
+  "unused_card_ids": [
+   "vgc-sableye",
+   "vgc-ting-lu",
+   "vgc-toxapex",
+   "vgc-wo-chien",
+   "vgc-lucario",
+   "vgc-hatterene",
+   "vgc-cresselia"
+  ],
+  "decision_timeout_seconds": 15.0,
+  "decision_deadline_at": "2026-10-16T01:11:30.850126+00:00",
+  "battle_starting": false
+ },
+ "phase": "draft",
+ "is_terminal": false,
+ "is_current_actor": true,
+ "current_actor": {
+  "agent_id": "bc53420a-ec1d-4f8b-a77d-bfcc919b2629",
+  "position": 0
+ },
+ "legal_actions": {
+  "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+  "state_version": 11,
+  "actions": [
+   {
+    "action_id": "draft_pick:vgc-ting-lu",
+    "label": "Draft vgc-ting-lu",
+    "input": {
+     "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-ting-lu"
+     },
+     "action_id": "draft_pick:vgc-ting-lu",
+     "state_version": 11
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-toxapex",
+    "label": "Draft vgc-toxapex",
+    "input": {
+     "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-toxapex"
+     },
+     "action_id": "draft_pick:vgc-toxapex",
+     "state_version": 11
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-lucario",
+    "label": "Draft vgc-lucario",
+    "input": {
+     "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-lucario"
+     },
+     "action_id": "draft_pick:vgc-lucario",
+     "state_version": 11
+    }
+   },
+   {
+    "action_id": "draft_pick:vgc-hatterene",
+    "label": "Draft vgc-hatterene",
+    "input": {
+     "session_id": "3ff60171-adf2-47c0-b1ff-8f5efd7ed06d",
+     "action": {
+      "type": "draft_pick",
+      "card_id": "vgc-hatterene"
+     },
+     "action_id": "draft_pick:vgc-hatterene",
+     "state_version": 11
+    }
+   }
+  ]
+ },
+ "next_actions": [
+  {
+   "tool": "play_action",
+   "hint": "Pick one of legal_actions.actions and pass its `input`."
+  }
+ ],
+ "updated": true
+}
