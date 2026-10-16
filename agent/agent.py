@@ -689,7 +689,7 @@ class PokemonAgent:
 
         def build(answer: dict) -> Any:
             """E2: a row index, or a proposed joint action the code scores first."""
-            return self._resolve_turn_answer(answer, sheet, base, prediction, meta)
+            return self._resolve_turn_answer(answer, sheet, base, prediction, meta, template=template)
 
         choice = Choice(kind=base.kind, prompt=base.prompt, schema=_TURN_SCHEMA, build=build, fallback=fallback)
         known_sets = {"mine": self.memory.known_sets("mine", only=roster["ours"]["in_this_battle"]),
@@ -883,7 +883,8 @@ class PokemonAgent:
                 self._say(f"[agent] {meta['resolution']}")
         return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
 
-    def _resolve_turn_answer(self, answer: dict, sheet: Any, base: Choice, prediction: dict, meta: dict) -> Any:
+    def _resolve_turn_answer(self, answer: dict, sheet: Any, base: Choice, prediction: dict, meta: dict,
+                             template: dict | None = None) -> Any:
         """The constrained answer (E2). A row plays as the sheet listed it. An override is validated like any payload,
         scored with the same scorer as the rows (``override_value``), and rejected when its value trails the best
         row by more than ``override_margin`` of the top value, unless the model's opponent prediction matches the
@@ -955,17 +956,43 @@ class PokemonAgent:
                 cell = _reply_cell_beats_best(sheet, rows[row], rows[0]) if matches else False
                 meta.update({"row_value": value, "best_row_score": best, "margin": round(margin, 1), "prediction_matches_code": matches})
                 earlier = meta["resolution"] + "; " if meta.get("resolution") not in (None, "row") else ""
+                repeat = self._repeat_protects(rows[0], sheet, template) if float(self.params.get("gate_repeat_protect", 1.0) or 0.0) > 0 else []
+                if not cell and repeat and not self._repeat_protects(rows[row], sheet, template):
+                    slot, streak = repeat[0]
+                    meta["repeat_protect_gate"] = True
+                    meta["resolution"] = earlier + (f"row {row} stands: the best row {best:.1f} rests on a repeat Protect from slot {slot} "
+                                                    f"(works 1 in {3 ** streak}), so the gate does not send the model back to it")
+                    self._say(f"[agent] {meta['resolution']}")
+                    cell = True
                 if not cell:
                     meta["resolution"] = earlier + f"row {row} rejected: {value:.1f} trails the best row {best:.1f} by more than {margin:.1f}; row 0 plays"
                     meta["row_played"] = 0
                     self._say(f"[agent] {meta['resolution']}")
                     return base.build({"slot_0": rows[0]["slot_0"], "slot_1": rows[0]["slot_1"]})
-                meta["resolution"] = earlier + f"row {row} stands on the opponent read (the reply table rates it at least as well against the predicted column)"
+                if not meta.get("repeat_protect_gate"):
+                    meta["resolution"] = earlier + f"row {row} stands on the opponent read (the reply table rates it at least as well against the predicted column)"
         if rejected is not None:
             if meta["resolution"] == rejected:  # the margin passed row k (a row that stands on the read says so itself)
                 meta["resolution"] += f"; row {row} plays"
             self._say(f"[agent] override rejected ({meta['resolution']})")
         return base.build({"slot_0": rows[row]["slot_0"], "slot_1": rows[row]["slot_1"]})
+
+    def _repeat_protects(self, row: dict, sheet: Any, template: dict | None) -> list[tuple[int, int]]:
+        """(slot, streak) for each slot of ``row`` that Protects while its Pokémon is on a Protect streak (a repeat
+        Protect: 1 in 3, then 1 in 9). Empty without the server's template (no way to read the options)."""
+        if not template:
+            return []
+        facts = _SheetFacts(sheet, self.memory, template)
+        out: list[tuple[int, int]] = []
+        for number in (0, 1):
+            option = facts.option_by_index(number, (row.get(f"slot_{number}") or {}).get("option"))
+            if not option or option.get("type") != "move" or _move_key(option.get("move_id")) not in _PROTECT_MOVES:
+                continue
+            species = facts.ours.get(number)
+            streak = self.memory.protect_streak(species, number) if (self.memory is not None and species) else 0
+            if streak > 0:
+                out.append((number, streak))
+        return out
 
     def _opponent_class_view(self) -> dict:
         try:
