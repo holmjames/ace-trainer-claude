@@ -11,12 +11,17 @@ one summary line to logs/sim/results.jsonl; the end-of-run table shows wins per 
 live clock (sim/clock.py): a late Team Preview or battle decision becomes a random legal move, an empty bank forfeits,
 and every result line carries the clock events.
 
+Oracle hook (sim only, opt-in): a player with ``wants_opponent_view = True`` is shown the other seat's state for every
+decision the other seat makes, through its ``observe_opponent(state, context)``, before its own decision of the same
+step (``oracle_of``); agent/versions/reader.py reads our play that way. Other players never see it and play as before.
+
 Requires Node and ``npm install`` in sim/ (done once).
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import random
@@ -182,6 +187,37 @@ def seat_ids(game_id: str) -> dict[str, str]:
     return {side: str(uuid.uuid5(uuid.NAMESPACE_URL, f"ace-trainer-sim/{game_id}/{side}")) for side in ("p1", "p2")}
 
 
+def oracle_of(player):
+    """The oracle hook of a player that asks for it (sim-only, opt-in): its ``observe_opponent(state, context)`` when it
+    (or a wrapper's ``inner`` player) sets ``wants_opponent_view = True``, else None. Such a player is shown the other
+    seat's state for every decision the other seat makes (draft, Team Preview, every battle decision), before its own
+    decision of the same step: a practice opponent that reads our play (agent/versions/reader.py). Players without the
+    attribute are never shown anything and play exactly as before."""
+    for _ in range(4):  # through _Timed / RestartingPlayer style wrappers
+        if player is None:
+            return None
+        if getattr(player, "wants_opponent_view", False) is True:
+            hook = getattr(player, "observe_opponent", None)
+            return hook if callable(hook) else None
+        player = getattr(player, "inner", None)
+    return None
+
+
+def request_number(snap: dict, side: str) -> int:
+    """How many requests the engine has handed ``side`` so far (sim/bridge.js logs one battle-timer line per new
+    request): tells a seat's new request from the one it already answered, which stays in the snapshot until the turn
+    moves on. Oracle hook only."""
+    return sum(1 for line in (snap.get("logs") or {}).get(side) or [] if line.startswith("|inactive|Time left"))
+
+
+def _show(hook, state, context, game_id: str) -> None:
+    """Hand the other seat's state to an oracle hook; a failing hook costs nothing but a console line."""
+    try:
+        hook(state, context)
+    except Exception as exc:  # noqa: BLE001 — the reader's own fallback plays its turn without the view
+        print(f"   [{game_id}] oracle hook failed ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
+
+
 def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: dict[str, str], rng: random.Random, *, verbose: bool,
               fixed_rosters: dict[str, list[dict]] | None = None, clock: Clock | None = None) -> dict:
     """One match the way the live server runs it: draft (seat 0 is Showdown's p1), Team Preview over all six drafted
@@ -208,7 +244,12 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
                                       first_drafter=seats[first], current_seat=seats[side], version=version)
         if not state.legal_actions:
             raise RuntimeError("item clause left no legal cards")
+        other = "p2" if side == "p1" else "p1"
+        hook = oracle_of(players[other])
+        shown = copy.deepcopy(state) if hook else None  # what this seat sees, untouched by its own decision
         answer = players[side].choose_action(state, ctx[side])
+        if hook:
+            _show(hook, shown, ctx[side], game_id)
         decision = unwrap(answer)
         card_id = decision.action_id.split(":", 1)[1] if hasattr(decision, "action_id") else decision["card_id"]
         card = next(c for c in pool if c["card_id"] == card_id)
@@ -230,12 +271,22 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
     snap = reply["state"]
     choices: dict[str, str] = {}
     lineups: dict[str, list[int]] = {}
+    previews: dict[str, object] = {}  # oracle hook only: each seat's Team Preview state, as it saw it
     forfeit: str | None = None
     for side in ("p1", "p2"):
         state = translate.preview_state(game_id, snap, side, version=0, agent_id=seats[side],
                                         clock=clock.state(side, "team_preview") if clock else None)
         if state is None:
             raise RuntimeError(f"no Team Preview request for {side}")
+        hook = oracle_of(players[side])
+        if hook:  # the oracle hook: the other seat's Team Preview state first (built from the same snapshot)
+            other = "p2" if side == "p1" else "p1"
+            seen = previews.get(other) or translate.preview_state(game_id, snap, other, version=0, agent_id=seats[other],
+                                                                  clock=clock.state(other, "team_preview") if clock else None)
+            if seen is not None:
+                _show(hook, copy.deepcopy(seen), ctx[other], game_id)
+        if oracle_of(players["p2" if side == "p1" else "p1"]):
+            previews[side] = copy.deepcopy(state)
         decision, verdict = timed_decision(players[side], state, ctx[side], game_id, side, "team_preview", clock, rng, turn=0)
         if verdict == "forfeit":
             forfeit = side
@@ -251,6 +302,8 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
     # ---- battle (state_version counts each seat's decisions; Team Preview was 0)
     versions = {"p1": 1, "p2": 1}
     rejected = {"p1": 0, "p2": 0}
+    shown_request: dict[str, int | None] = {"p1": None, "p2": None}  # oracle hook: each seat's request last shown to its reader
+    decided_request: dict[str, int | None] = {"p1": None, "p2": None}  # ... and the one it last decided (a watched seat only)
     while forfeit is None and not snap["ended"] and snap["turn"] <= MAX_TURNS:
         progressed = False
         for side in ("p1", "p2"):
@@ -258,7 +311,26 @@ def play_game(bridge: Bridge, game_id: str, players: dict[str, object], names: d
                                            clock=clock.state(side, "moving") if clock else None)
             if state is None:
                 continue
+            other = "p2" if side == "p1" else "p1"
+            reads, watched_by = oracle_of(players[side]), oracle_of(players[other])  # oracle hooks (None for normal players)
+            if reads:
+                # this seat reads the other: the other seat's pending request (not yet decided, not yet shown) first,
+                # built from the same snapshot (a seat's choice does not change the other seat's request)
+                pending = request_number(snap, other)
+                if pending not in (shown_request[other], decided_request[other]):
+                    seen = translate.battle_state(game_id, snap, other, versions[other], agent_id=seats[other],
+                                                  clock=clock.state(other, "moving") if clock else None)
+                    if seen is not None:
+                        _show(reads, seen, ctx[other], game_id)
+                        shown_request[other] = pending
+            mine = request_number(snap, side) if watched_by else None
+            shown = copy.deepcopy(state) if watched_by and shown_request[side] != mine else None
             decision, verdict = timed_decision(players[side], state, ctx[side], game_id, side, "moving", clock, rng, turn=snap["turn"])
+            if watched_by:
+                decided_request[side] = mine
+            if shown is not None:  # the other seat reads this one and was not shown this request yet: shown now
+                _show(watched_by, shown, ctx[side], game_id)
+                shown_request[side] = mine
             if verdict == "forfeit":
                 forfeit = side
                 break
