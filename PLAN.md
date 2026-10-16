@@ -9,7 +9,7 @@ Dates as planned on Oct 6: plan written **Tue Oct 6, 2026**; code freeze **Tue O
 
 ## Final state at submission
 
-**What is deployed.** Commit `7313386` (deploy #8), the code that competes, plus documentation commits on top of
+**What is deployed.** Commit `b74574a` (deploy #9), the code that competes, plus documentation commits on top of
 it that change only `README.md` and `PLAN.md`. Commit IDs in the diary below predate a history cleanup on Oct 15
 (old notes reworded); the code did not change. The submitted version is the latest commit on the repository's
 default branch at the Submission Deadline. README.md ("This entry: the Pokémon agent") describes the agent in full.
@@ -76,6 +76,13 @@ plain weight)
   refused as an override.
 - `hp_power_first` 1: Eruption / Water Spout are credited at the HP their user likely has when it moves (after
   the hits of foes that move first); a KO counts as guaranteed only if it still lands after those hits.
+- `lone_foe_split` 1: with only one of theirs able to act, its single-target hit lands on one of our slots, not
+  both; its KO-before-we-move counts at each slot as often as it aims there.
+- `speed_end_stall` 1: a Protect is credited with the first strike it buys when Trick Room / their Tailwind ends
+  after this turn.
+- `gate_repeat_protect` 1: the row gate never forces a repeat Protect (1 in 3) over the model's listed row.
+- Off (tested Oct 16, not shipped): `foe_aim_split` (+9.7 vs a reader bot, -1.5 vs the others), `mix_play`,
+  `dodge_adapt`, `preview_speed_mode` (-5.3 vs the search-bot clone).
 - `override_margin` 0.15: the row gate (a lower row or an override plays only within 15 % of row 0, or an override
   whose opponent prediction matches the code's).
 - `recheck_v2` 1: the lethal recheck only where row 0 Protects or switches the slot, pointing the model to row 0.

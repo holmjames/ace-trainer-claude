@@ -66,7 +66,7 @@ published.
 
 **Submitted version:** the latest commit on this repository's default branch
 at the Submission Deadline; its full commit ID is entered on the tournament
-dashboard. The agent's code is that of commit `7313386`; the documentation
+dashboard. The agent's code is that of commit `b74574a`; the documentation
 commits on top of it change only `README.md` and `PLAN.md`. Every match log
 starts with a `config` line naming the commit that played it (see *Records*
 below).
@@ -299,8 +299,16 @@ The switches and weights that shape its play:
 - `hp_power_first` 1: Eruption / Water Spout are credited at the HP their
   user likely has when it moves, after the hits of foes that move first; a KO
   counts as guaranteed only if it still lands after those hits.
+- `lone_foe_split` 1: when only one of theirs can act this turn, its
+  single-target hit can land on one of our Pokémon, not both; its knockout
+  threat counts at each of our slots by how likely it is to aim there.
+- `speed_end_stall` 1: when Trick Room or their Tailwind ends after this turn
+  and a foe out-speeds our slot only because of it, a Protect for that slot is
+  credited with the attack it can make first next turn.
 
 *Model layer*
+- `gate_repeat_protect` 1: the row gate never sends the model back to a row 0
+  that rests on a repeat Protect (a Protect on a streak: 1 in 3, then 1 in 9).
 - `override_margin` 0.15: the row gate above.
 - `recheck_v2` 1: the lethal recheck as described above.
 - `prompt_v2` 1: the system prompt's Protect procedure treats DOUBLE-TARGET as
@@ -308,6 +316,12 @@ The switches and weights that shape its play:
   defines `opponent_prediction` in the code's words.
 - `prompt_kb` 1: the system prompt carries a battle reference of nine general
   mechanics facts (`prompts.KNOWLEDGE_BASE`).
+
+Present but off by default (tested, not shipped: they cost games against the
+other practice opponents): `foe_aim_split` (two foes' threats split by aim),
+`mix_play` / `mix_margin` (mixed play among near-equal rows), `dodge_adapt`
+(discount attacks into a proven dodger) and `preview_speed_mode` (Team Preview
+speed-plan check).
 
 *Off by default:* the reply mixture (`reply_mixture` 0, and `answer_rules_v2`,
 which acts only with it), `protect_prior_rows`, `draft_tier_adjust`,
@@ -379,7 +393,11 @@ None of this is imported by `python -m agent`:
   (an agent from another checkout in a child process), `human.py` (a terminal
   seat so a person can play the agent), `style_stats.py` (play-style statistics,
   such as switch and Protect rates, from a side's battle log) and `cards.json`
-  (the simulator's card pool).
+  (the simulator's card pool). Players that set `wants_opponent_view` are shown
+  the other seat's observations (simulator only), which the reader bot below uses.
+- `agent/versions/reader.py`: a practice opponent that predicts the code's top
+  play from the other seat's view and best-responds (Protect or switch the slot
+  it would hit). It reproduces the live opponents that read our play.
 - `agent/versions/`: players the simulator and the arena can seat:
   `code_only` (no model calls), `naive_battle` (the starter's smoke move each
   turn), `random_draft`, `draft_v1` (the older drafter and Team Preview),
