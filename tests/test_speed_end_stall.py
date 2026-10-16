@@ -57,8 +57,9 @@ def _with(obs: dict, *, fields: dict | None = None, their_side: dict | None = No
     return out
 
 
-def test_default_is_off():
-    assert tuning.DEFAULTS["speed_end_stall"] == 0.0
+def test_default_is_on():
+    """On by default since deploy #9 (Oct 16 A/B: 600 paired games, 1 vs 1 discordant; both live positions it changes improve)."""
+    assert tuning.DEFAULTS["speed_end_stall"] == 1.0
 
 
 def test_live_t5_off_is_the_live_rows(t5):
