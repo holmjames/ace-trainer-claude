@@ -583,6 +583,97 @@ def choose_leads_v2(model: PreviewModel, four: tuple[int, ...], their_leads: dic
     return best_pair, notes
 
 
+# -- one speed plan per four (``preview_speed_mode`` > 0) ------------------------------------------------------------
+#
+# Plain language: a four with a Trick Room setter wants slow Pokémon, because under its own Trick Room a fast one moves
+# last; and Trick Room does nothing against priority (Extreme Speed, Grassy Glide in their Grassy Terrain, Aqua Jet...),
+# which moves first in either order. Live, Oct 15 (f73663d8): Hatterene led with Trick Room next to Iron Hands, with
+# Baxcalibur (faster than four of their six) in the back, into Dragonite (Extreme Speed), Rillaboom (Grassy Surge +
+# Grassy Glide) and Urshifu-Rapid-Strike (Aqua Jet); priority KO'd Hatterene on turn 2 and, under our own Trick Room,
+# Baxcalibur moved last and was KO'd before its Icicle Spear. Neither the four-against-four model nor the 4-turn
+# simulation sees the bench's speed under a Trick Room that goes up later, so the four's value pays a small term
+# (log-odds in v2's value; the deep preview charges every plan of the four the same number, in Pokémon).
+
+SPEED_FAST_W = 0.3    # log-odds per brought Pokémon that outspeeds most of their six in a Trick Room four (or, mirrored,
+                      # stays slower than most of their six at double speed in a Tailwind four), while a bench Pokémon
+                      # without that mismatch could take its place
+SPEED_PRIORITY_W = 0.3  # log-odds per Pokémon of their six with a damaging priority move beyond the second, against a
+                        # Trick Room four (one or two priority users are normal and Trick Room plays around them; three
+                        # is a plan against it: five of the 29 live previews' sixes have three, none more, and
+                        # f73663d8 is the only one of those where our six held a Trick Room setter)
+PRIORITY_FREE = 2
+PRIORITY_IGNORED = {"fakeout", "firstimpression"}  # turn-1 tempo tools, priced by the Fake Out logic (lead veto, the sim)
+
+
+def priority_users(units: list, theirs: list[int]) -> list[tuple[str, str]]:
+    """(species, move name) for each of ``theirs`` with a damaging priority move that Trick Room does not reverse:
+    base priority > 0 (Fake Out and First Impression aside), or Grassy Glide when their six sets Grassy Terrain."""
+    grassy = any(units[j].terrain == "grassy" or any(m["id"] == "grassyterrain" for m in units[j].mon.moves) for j in theirs)
+    out = []
+    for j in theirs:
+        for m in units[j].mon.moves:
+            if m.get("category") not in ("Physical", "Special") or m["id"] in PRIORITY_IGNORED:
+                continue
+            if (m.get("priority") or 0) > 0 or (m["id"] == "grassyglide" and grassy):
+                out.append((units[j].species, str(m.get("name") or m["id"])))
+                break
+    return out
+
+
+def speed_plan(units: list, four: tuple[int, ...], ours: list[int], theirs: list[int], w: float) -> tuple[float, str | None]:
+    """The ``preview_speed_mode`` term for ``four`` (log-odds to subtract from its value, >= 0) and its one-line note.
+
+    Trick Room four (a Trick Room setter in it): ``SPEED_FAST_W`` per brought Pokémon (setters of either mode aside)
+    faster than more than half of their six, counting only as many as the bench has Pokémon that are not (no realistic
+    alternative, no charge), plus ``SPEED_PRIORITY_W`` per Pokémon of their six with damaging priority beyond the second
+    (``priority_users``; the note lists them all). Tailwind four
+    (a Tailwind setter, no Trick Room setter): ``SPEED_FAST_W`` per brought Pokémon slower than more than half of their
+    six even at double speed, likewise only as many as the bench can replace. Everything x ``w``; 0 = no term."""
+    if w <= 0 or not theirs:
+        return 0.0, None
+    spe = {k: units[k].mon.stat("spe") for k in ours + theirs}
+    half = len(theirs) / 2
+    name = lambda k: units[k].species  # noqa: E731
+
+    def fast(k: int) -> bool:  # it moves after most of their six under our own Trick Room
+        return sum(spe[k] > spe[j] for j in theirs) > half
+
+    def slow(k: int) -> bool:  # still behind most of their six under our own Tailwind
+        return sum(2 * spe[k] < spe[j] for j in theirs) > half
+
+    def setter(k: int) -> bool:
+        return bool(units[k].roles & {"trickroom", "tailwind"})
+
+    bench = [k for k in ours if k not in four]
+    trick = [k for k in four if "trickroom" in units[k].roles]
+    wind = [k for k in four if "tailwind" in units[k].roles]
+    if trick:
+        off = [k for k in four if not setter(k) and fast(k)]
+        n_off = min(len(off), len([k for k in bench if not fast(k)]))
+        prio = priority_users(units, theirs)
+        penalty = w * (SPEED_FAST_W * n_off + SPEED_PRIORITY_W * max(0, len(prio) - PRIORITY_FREE))
+        if penalty <= 0:
+            return 0.0, None
+        parts = [f"Trick Room plan ({'/'.join(name(k) for k in trick)})"]
+        if prio:
+            parts.append(f"vs {len(prio)} priority user{'s' if len(prio) != 1 else ''}: "
+                         + ", ".join(f"{s} ({m})" for s, m in prio))
+        if n_off:
+            parts.append(f"{', '.join(name(k) for k in off)} outspeed{'s' if len(off) == 1 else ''} most of their six "
+                         f"and move{'s' if len(off) == 1 else ''} late under our Trick Room"
+                         + (f" (the bench can replace {n_off})" if n_off < len(off) else ""))
+        return penalty, "speed plan: " + "; ".join(parts) + f" (-{penalty:.2f} log-odds)"
+    if wind:
+        off = [k for k in four if not setter(k) and slow(k)]
+        n_off = min(len(off), len([k for k in bench if not slow(k)]))
+        penalty = w * SPEED_FAST_W * n_off
+        if penalty <= 0:
+            return 0.0, None
+        return penalty, (f"speed plan: Tailwind plan ({'/'.join(name(k) for k in wind)}) with {', '.join(name(k) for k in off)}, "
+                         f"slower than most of their six even at double speed (-{penalty:.2f} log-odds)")
+    return 0.0, None
+
+
 def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, params: dict | None = None,
                  seed: int | None = None, sim_budget_s: float = 0.0) -> list[Candidate]:
     """Our best fours (first = the one we bring if the model does not answer) and their leads. ``seed`` (the match's
@@ -607,11 +698,20 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
         if sum(tq) > 0:
             q = [(1 - four_template) * a + four_template * b for a, b in zip(q, tq)]
     robust = float(P.get("lineup_v2_robust", 0.25))
+    speed_w = float(P.get("preview_speed_mode", 0.0))
+    speed_notes: dict[tuple, str] = {}
+    speed_pen: dict[tuple, float] = {}
     ranked = []
     for i, four in enumerate(our_fours):
         expected = sum(q[j] * payoff[i][j] for j in range(len(their_fours)))
         worst = min(payoff[i])
-        ranked.append(((1 - robust) * expected + robust * worst, expected, i))
+        value = (1 - robust) * expected + robust * worst
+        if speed_w:  # one speed plan per four: our value only (their predicted fours keep the game's payoff)
+            penalty, note = speed_plan(model.board.units, four, model.ours, model.theirs, speed_w)
+            value -= penalty
+            if note:
+                speed_notes[four], speed_pen[four] = note, penalty
+        ranked.append((value, expected, i))
     ranked.sort(key=lambda t: (-t[0], t[2]))
     eps = float(P.get("lineup_tiebreak_eps", 0.0))
     first = tiebreak([t[0] for t in ranked[:top]], eps, seed, "four") if ranked else 0
@@ -640,12 +740,15 @@ def shortlist_v2(mine: list[Profile], theirs: list[Profile], *, top: int = 3, pa
         sleep = model.sleep_note(four)
         if sleep:
             notes.append(sleep)
+        if four in speed_notes:
+            notes.append(speed_notes[four])
         out.append(Candidate([names[k] for k in four], [names[k] for k in best_pair], round(value, 3), notes))
     if sim_budget_s > 0 and out:
         try:
             left = sim_budget_s - (time.monotonic() - started) - SIM_RESERVE_S  # the budget covers the whole preview call
             deep, why = deep_candidates(model, our_fours, their_fours, payoff, our_mix, q, ranked, likely, likely_note, names,
-                                        P, seed, left, top, out[0], game_value)
+                                        P, seed, left, top, out[0], game_value, speed_notes=speed_notes,
+                                        speed_pen=speed_pen)
         except Exception as exc:  # noqa: BLE001 — a bug in the deep preview must not cost Team Preview: v2 answers
             log.warning("deep Team Preview failed (%s: %s); v2's lineup stands", type(exc).__name__, exc)
             deep, why = None, f"sim: failed ({type(exc).__name__}: {exc}); v2's lineup stands"
@@ -714,9 +817,12 @@ def their_side(model: PreviewModel, our_fours: list[tuple[int, ...]], their_four
 def deep_candidates(model: PreviewModel, our_fours: list[tuple[int, ...]], their_fours: list[tuple[int, ...]],
                     payoff: list[list[float]], our_mix: list[float], q: list[float], ranked: list[tuple], likely: list[tuple],
                     likely_note: str, names: dict[int, str], P: dict, seed: int | None, budget_s: float, top: int,
-                    v2_first: Candidate, game_value: float) -> tuple[list[Candidate] | None, str]:
+                    v2_first: Candidate, game_value: float, speed_notes: dict[tuple, str] | None = None,
+                    speed_pen: dict[tuple, float] | None = None) -> tuple[list[Candidate] | None, str]:
     """The deep preview's shortlist (best plan first, then the best plan of each next four), or None and the reason
-    v2's shortlist stands (the budget ran out before every plan had its first round)."""
+    v2's shortlist stands (the budget ran out before every plan had its first round). ``speed_notes``: the
+    ``preview_speed_mode`` note of each four it applies to; ``speed_pen``: its term (already in ``ranked``'s values),
+    which every plan of the four is charged in full, in Pokémon."""
     from . import preview_sim
 
     win = model.matchup.win_probability
@@ -730,6 +836,11 @@ def deep_candidates(model: PreviewModel, our_fours: list[tuple[int, ...]], their
     four_w = float(P.get("lineup_sim_four_w", 0.5))
     top_value = max(value for value, _, _ in ranked)
     four_value = {our_fours[i]: four_w * (value - top_value) for value, _, i in ranked if i in picked}
+    for four, penalty in (speed_pen or {}).items():
+        # preview_speed_mode: a few simulated turns see neither the bench's speed under a Trick Room that goes up later
+        # nor priority past the horizon, so the plan pays the whole term (log-odds read as Pokémon), not four_w of it
+        if four in four_value:
+            four_value[four] -= (1 - four_w) * penalty
     v2_four = our_fours[ranked[0][2]]
     v2_pair = tuple(k for k in v2_four if names[k] in v2_first.leads)
     search = preview_sim.Search(model.board.units, plans, their, seed=seed if seed is not None else 0, turns=turns,
@@ -771,6 +882,8 @@ def deep_candidates(model: PreviewModel, our_fours: list[tuple[int, ...]], their
         sleep = model.sleep_note(four)
         if sleep:
             notes.append(sleep)
+        if speed_notes and four in speed_notes:
+            notes.append(speed_notes[four])
         sim = {"expected": round(r.expected, 3), "worst": round(r.worst, 3), "worst_four": [names[k] for k in worst_four],
                "rollouts": r.plan.n, "turns": turns}
         return Candidate([names[k] for k in four], [names[k] for k in pair], round(r.score, 3), notes, sim)
@@ -886,6 +999,10 @@ def preview_table(my_cards: dict[str, dict], opp_cards: dict[str, dict], candida
         lines.append("Sleep: " + "; ".join(sleep))
     reasons = [n for n in best.notes if n.startswith(("v2:", "their likely leads", "opening vs", "lead veto", "no lead pair", "leads lose nothing", "coverage hole"))]
     lines.append("Predicted: " + " | ".join(reasons)[:600])
+    # preview_speed_mode: the speed-plan term, for each shortlisted four it charged (no such note with the key at 0)
+    speed_plans = [f"#{k} {n[len('speed plan: '):]}" for k, c in enumerate(candidates, 1) for n in c.notes if n.startswith("speed plan: ")]
+    if speed_plans:
+        lines.append(("Speed plan: " + " | ".join(speed_plans))[:500])
     simulated = [(k, c) for k, c in enumerate(candidates, 1) if c.sim]
     if simulated:  # the deep preview: each plan's simulated opening against their likely fours and leads
         turns = simulated[0][1].sim.get("turns", 4)
