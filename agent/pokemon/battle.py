@@ -1773,10 +1773,13 @@ def _foe_aim_split(sheet: "TurnSheet", ours: dict[int, "Mon"], theirs: dict[int,
     acting = [pos for pos in theirs if not sleep or sheet.foe_acts(pos) > 0]
     if len(acting) < 2:
         return
+    w = min(1.0, max(0.0, float(P.get("foe_aim_split", DEFAULTS["foe_aim_split"]) or 0.0)))
     for t in sheet.threats:
         aim = _foe_aim(t, ours, P) if t["position"] in acting else {}
         if aim:
-            sheet.foe_aim[t["position"]] = aim
+            # A weight under 1 pulls each aim back toward 1.0 (the hit counted at both slots): two foes can still
+            # double one slot, which independent aims undercount (the Oct 15 focus-fire loss, 469d78ff).
+            sheet.foe_aim[t["position"]] = aim if w >= 1.0 else {slot: 1.0 - w * (1.0 - share) for slot, share in aim.items()}
 
 
 def _lone_aim(sheet: "TurnSheet", position: int, hit: dict) -> float:

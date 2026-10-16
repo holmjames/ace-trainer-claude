@@ -122,3 +122,24 @@ def test_a_spread_ko_counts_in_full(t6, monkeypatch):
     assert battle._lone_aim(on, 2, blizzard) == 1.0
     assert 0.0 < _survival(on, 0) == _survival(off, 0) < 1.0
     assert _rows(on) == _rows(off)
+
+
+def test_a_partial_weight_pulls_each_aim_halfway_back_to_both_slots():
+    """foe_aim_split 0.5: an aim of 0.8 / 0.2 becomes 0.9 / 0.6 (1 - 0.5 x (1 - aim)); 1.0 keeps the full split."""
+    from agent.pokemon import battle as _b
+    full, half = {}, {}
+    for weight, out in ((1.0, full), (0.5, half)):
+        P = {**tuning.DEFAULTS, "foe_aim_split": weight}
+        sheet = _b.TurnSheet()
+        class _T(dict):
+            pass
+        sheet.threats = [{"position": 1, "species": "x", "hits": []}]
+        orig = _b._foe_aim
+        _b._foe_aim = lambda t, ours, P: {0: 0.8, 1: 0.2}
+        try:
+            _b._foe_aim_split(sheet, {}, {1: None, 2: None}, {**P, "foe_sleep": 0.0})
+        finally:
+            _b._foe_aim = orig
+        out.update(sheet.foe_aim.get(1, {}))
+    assert full == {0: 0.8, 1: 0.2}
+    assert half == pytest.approx({0: 0.9, 1: 0.6})
