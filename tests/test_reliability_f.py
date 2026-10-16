@@ -52,6 +52,10 @@ def _seats(folder: Path) -> list[int]:
 
 
 CASES = [(folder, seat) for folder in _sessions() for seat in _seats(folder)]
+# Known restart gaps, strict (the fix turns them into failures to remove). 37a1ee8a (added with lone_foe_split): Team
+# Preview shows their Urshifu as "Urshifu-*" (forme hidden), and a restart does not rebuild what the full replay learned
+# of it from the draft (its roster status, its card's Unseen Fist). Only a mid-match restart sees it; the code is as before.
+RESTART_GAPS = {"37a1ee8a": "a restart does not rebuild their Urshifu-* (forme hidden at Team Preview) as the draft taught it"}
 
 
 def _agent(log_dir: Path, name: str) -> PokemonAgent:
@@ -125,7 +129,9 @@ def _catalog_gaps(folder: Path, seat: int) -> set[str]:
 
 
 @pytest.mark.skipif(not CASES, reason="no live captures")
-@pytest.mark.parametrize("folder, seat", CASES, ids=[f"{f.name[:8]}/seat{s}" for f, s in CASES])
+@pytest.mark.parametrize("folder, seat", [pytest.param(f, s, marks=pytest.mark.xfail(reason=RESTART_GAPS[f.name[:8]], strict=True))
+                                          if f.name[:8] in RESTART_GAPS else (f, s) for f, s in CASES],
+                         ids=[f"{f.name[:8]}/seat{s}" for f, s in CASES])
 def test_a_fresh_agent_sees_the_same_sheet_as_a_full_replay(folder, seat, tmp_path, monkeypatch):
     """Every battle state of every live session: an agent restarted on that state builds the same turn sheet, roster
     and known sets as the agent that lived through the draft and Team Preview."""

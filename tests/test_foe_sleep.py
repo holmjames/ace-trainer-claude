@@ -14,8 +14,10 @@ MATCH = "c63f19be"
 @pytest.mark.parametrize("key", [0.0, 1.0])
 def test_t5_protect_from_the_awake_incineroar_stands(monkeypatch, key):
     """T5: Iron Hands fell asleep at the end of T4 (wake 0), but Incineroar is awake and its Knock Off KOs Torkoal
-    first: the Protect row stays on top either way, now quoting the foe that can actually move."""
+    first: the Protect row stays on top either way, now quoting the foe that can actually move. (Incineroar is then
+    their one acting Pokémon, which aims at Dragonite more: lone_foe_split, off here, tests/test_lone_foe_split.py.)"""
     monkeypatch.setitem(tuning.DEFAULTS, "foe_sleep", key)
+    monkeypatch.setitem(tuning.DEFAULTS, "lone_foe_split", 0.0)
     _, sheet, _, _ = _position(MATCH, 0, 5)
     assert sheet.foe_wake == {1: 0.0} and sheet.candidates[0]["name"] == "protect_threatened"
     assert ("incineroar's knockoff" if key else "ironhands's closecombat") in sheet.candidates[0]["why"]

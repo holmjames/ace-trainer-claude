@@ -712,6 +712,7 @@ class TurnSheet:
     turn: int | None = None  # the battle turn of this sheet (the reply mixture's priors depend on it)
     timers: dict = field(default_factory=dict)  # "trickroom", "tailwind" (ours) -> turns it still covers, this one counted (None: unknown)
     hp_first: dict = field(default_factory=dict)  # (our slot, option index) of an HP-scaling move -> the foes that hit its user first and its cases (hp_power_first)
+    lone_aim: dict = field(default_factory=dict)  # their ONE acting Pokémon: {"position", "aim": our slot -> how often its single-target hit lands there} (lone_foe_split)
     field: "FieldState | None" = None  # keep last: this name shadows dataclasses.field for anything declared after it
 
     def acts(self, slot: int) -> float:
@@ -1116,6 +1117,8 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
     sheet.turn = turn if isinstance(turn, int) else None
     _our_status(sheet, ours, obs)
     _their_status(sheet, theirs, obs)
+    if P.get("lone_foe_split", DEFAULTS["lone_foe_split"]):
+        _lone_foe_aim(sheet, ours, theirs, P)
     if P.get("hp_power_first", DEFAULTS["hp_power_first"]):
         _hp_power_first(sheet, slots, ours, theirs, fs, P)
     guard = bool(P.get("choice_protect_guard", DEFAULTS["choice_protect_guard"]))
@@ -1721,6 +1724,50 @@ def _option_move(me: "Mon", option: dict) -> dict:
                            "base_power": move.get("base_power") or option.get("base_power") or 0})
 
 
+def _foe_aim(threat: dict, ours: dict[int, "Mon"], P: dict) -> dict[int, float]:
+    """How often a foe aims a single-target hit at each of our slots (``hp_power_first``, ``lone_foe_split``): 0.8 at
+    the slot its best hit is worth most against (as ``threat_weight`` values a hit: the average roll capped at a KO, times
+    that Pokémon's HP and the accuracy, plus the KO bonus at its odds), 0.2 at the other, 0.5 each within 10%, as their
+    Fake Out and sleep moves are aimed; 1.0 at the only slot it can hit. Not Fake Out, whose flinch is ``flinch_risk``'s.
+    A spread hit reaches both of ours: the caller counts it in full."""
+    worth: dict[int, float] = {}
+    for h in threat["hits"]:
+        if h["move"] == "fakeout" or h["damage_pct_of_current_hp"][1] <= 0:
+            continue
+        mon = ours.get(h["into_slot"])
+        v = min(_avg(h["damage_pct_of_current_hp"]), 100.0) * (mon.hp_fraction if mon is not None else 1.0) \
+            * float(h.get("hit_chance", 1.0)) + P["ko_bonus_guaranteed"] * ko_probability(h, with_accuracy=True)
+        worth[h["into_slot"]] = max(worth.get(h["into_slot"], 0.0), v)
+    if len(worth) <= 1:
+        return {n: 1.0 for n in worth}
+    top = max(worth, key=worth.get)
+    rest = max(v for n, v in worth.items() if n != top)
+    return {n: (0.5 if worth[top] <= 1.1 * rest else (0.8 if n == top else 0.2)) for n in worth}
+
+
+def _lone_foe_aim(sheet: "TurnSheet", ours: dict[int, "Mon"], theirs: dict[int, "Mon"], P: dict) -> None:
+    """``lone_foe_split``: with ONE of theirs able to act this turn (a foe asleep with no chance to wake does not count,
+    as ``foe_sleep`` reads it), its single-target hit lands on one of our slots, not both: ``sheet.lone_aim`` keeps how
+    often it aims at each (``_foe_aim``), which ``survival_factor`` and the Protect / switch rows weight its KO by. Live,
+    Oct 15 (37a1ee8a) T10: Basculegion, their last, could KO Iron Hands or Arcanine first, so both slots were priced dead
+    and the double attack that KOs it scored 0; a second Protect in a row (1 in 3) played. With two acting, nothing."""
+    sleep = P.get("foe_sleep", DEFAULTS["foe_sleep"])
+    acting = [pos for pos in theirs if not sleep or sheet.foe_acts(pos) > 0]
+    threat = next((t for t in sheet.threats if len(acting) == 1 and t["position"] == acting[0]), None)
+    aim = _foe_aim(threat, ours, P) if threat is not None else {}
+    if aim:
+        sheet.lone_aim = {"position": threat["position"], "aim": aim}
+
+
+def _lone_aim(sheet: "TurnSheet", position: int, hit: dict) -> float:
+    """The share of the lone foe's hit that lands on ``hit["into_slot"]`` (``_lone_foe_aim``): 1.0 for a spread hit, for
+    any other foe and when there are two that act."""
+    lone = getattr(sheet, "lone_aim", None)
+    if not lone or lone["position"] != position or (data.move_info(hit["move"]) or {}).get("target") in SPREAD_TARGETS:
+        return 1.0
+    return lone["aim"].get(hit["into_slot"], 1.0)
+
+
 def _hp_first_hitters(sheet: "TurnSheet", ours: dict[int, "Mon"], number: int, my_priority: int, P: dict) -> list[dict]:
     """The foes whose attack lands on our slot ``number`` before its move of ``my_priority`` (higher priority, or the
     same and ahead in the speed order: Trick Room and Tailwind as the order has them): per foe, its strongest such hit
@@ -1738,18 +1785,7 @@ def _hp_first_hitters(sheet: "TurnSheet", ours: dict[int, "Mon"], number: int, m
         if not first:
             continue
         hit = max(first, key=lambda h: min(_avg(h["damage_pct_of_current_hp"]), 100.0) * float(h.get("hit_chance", 1.0)))
-        worth: dict[int, float] = {}
-        for h in hits:
-            mon = ours.get(h["into_slot"])
-            v = min(_avg(h["damage_pct_of_current_hp"]), 100.0) * (mon.hp_fraction if mon is not None else 1.0) \
-                * float(h.get("hit_chance", 1.0)) + P["ko_bonus_guaranteed"] * ko_probability(h, with_accuracy=True)
-            worth[h["into_slot"]] = max(worth.get(h["into_slot"], 0.0), v)
-        if (data.move_info(hit["move"]) or {}).get("target") in SPREAD_TARGETS or len(worth) == 1:
-            aim = 1.0
-        else:
-            top = max(worth, key=worth.get)
-            rest = max(v for n, v in worth.items() if n != top)
-            aim = 0.5 if worth[top] <= 1.1 * rest else (0.8 if number == top else 0.2)
+        aim = 1.0 if (data.move_info(hit["move"]) or {}).get("target") in SPREAD_TARGETS else _foe_aim(t, ours, P)[number]
         acts = sheet.foe_acts(pos) if P.get("foe_sleep", DEFAULTS["foe_sleep"]) else 1.0
         p = aim * acts * float(hit.get("hit_chance", 1.0))
         if p > 0:
@@ -2771,6 +2807,7 @@ def survival_factor(slot_number: int, sheet: "TurnSheet", my_priority: int, spee
             p_ko = ko_probability(hit, with_accuracy=True) * (1.0 if hit["ko"] == "guaranteed" else 2 * P["survival_possible"])
             if P.get("foe_sleep", DEFAULTS["foe_sleep"]):
                 p_ko *= sheet.foe_acts(pos)  # a sleeping (paralysed, frozen) foe KOs us first only if it gets to move
+            p_ko *= _lone_aim(sheet, pos, hit)  # their only acting Pokémon's single-target hit lands here as often as it aims here (lone_foe_split)
             if not we_first:
                 factor = min(factor, 1.0 - p_ko * (1.0 - p_partner))
     for focus in sheet.focus_threats:
@@ -3889,6 +3926,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             if hit["ko"] not in ("guaranteed", "possible"):
                 continue
             endangered_slot, other = hit["into_slot"], 1 - hit["into_slot"]
+            lands = foe_act * _lone_aim(sheet, threat["position"], hit)  # ... and, their only one acting, aims here (lone_foe_split)
             my_best = best[endangered_slot]
             my_prio = my_best[0].get("priority", 0) if my_best[0] else 0
             can_remove_first = (my_best[0] and my_best[1] and my_best[1].get("target") == threat["position"]
@@ -3923,7 +3961,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 if can_remove_first:
                     bonus *= flinch  # we'd KO it first, unless Fake Out stops us: Protect is insurance worth the flinch odds
                 bonus *= 1.0 - removed
-                bonus *= foe_act  # the threat lands only if it wakes (or is not fully paralysed / thaws)
+                bonus *= lands  # the threat lands only if it wakes (or is not fully paralysed / thaws)
                 add("protect_threatened", answers[0], answers[1],
                     f"{threat['species']}'s {hit['move']} can KO slot {endangered_slot} ({hit['damage_pct_of_current_hp']}%) {when}; Protect it, slot {other} attacks"
                     + (f" (slot {other} KOs {threat['species']} first {int(removed * 100)}% of the time)" if removed else "")
@@ -3937,7 +3975,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 base_score = solo_value(other) + P["switch_threatened_bonus"] + (P["protect_bonus_guaranteed"] if pierces_protect else 0) * ko_probability(hit) \
                     + (P["protect_bonus_guaranteed"] * (1 - 0.33 ** streak) if streak else 0) \
                     + P["protect_bonus_guaranteed"] * (1.0 - sheet.acts(endangered_slot))
-                base_score = solo_value(other) + (base_score - solo_value(other)) * foe_act
+                base_score = solo_value(other) + (base_score - solo_value(other)) * lands
                 base_score *= 1.0 - removed if removed else 1.0
                 _, species_any, preview_any, safe_any = safe_switch(slot, theirs, memory, sheet=sheet, allow_sleep=True)
                 if not safe_any and preview_any and preview_any.get("unsafe") == "sleep":
@@ -3999,6 +4037,7 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             me_e = ours.get(endangered_slot)
             streak = memory.protect_streak(me_e.species, endangered_slot) if me_e is not None else 0
             worst = max((ko_probability(h, with_accuracy=True) * (sheet.foe_acts(t["position"]) if P.get("foe_sleep", DEFAULTS["foe_sleep"]) else 1.0)
+                         * _lone_aim(sheet, t["position"], h)  # their only acting Pokémon aims here only so often (lone_foe_split)
                          for t in sheet.threats for h in t["hits"] if h["into_slot"] == endangered_slot), default=0.0)
             bonus = P["protect_bonus_guaranteed"] * worst * 0.33 ** streak * sheet.acts(endangered_slot)
             value = bonus + P["switch_weak_bonus"] + max(float(preview.get("score", 0.0) or 0.0), 0.0) * 0.25
