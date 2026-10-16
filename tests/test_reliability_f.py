@@ -55,7 +55,8 @@ CASES = [(folder, seat) for folder in _sessions() for seat in _seats(folder)]
 # Known restart gaps, strict (the fix turns them into failures to remove). 37a1ee8a (added with lone_foe_split): Team
 # Preview shows their Urshifu as "Urshifu-*" (forme hidden), and a restart does not rebuild what the full replay learned
 # of it from the draft (its roster status, its card's Unseen Fist). Only a mid-match restart sees it; the code is as before.
-RESTART_GAPS = {"37a1ee8a": "a restart does not rebuild their Urshifu-* (forme hidden at Team Preview) as the draft taught it"}
+URSHIFU_GAP = "a restart does not rebuild their Urshifu-* (forme hidden at Team Preview) as the draft taught it"
+RESTART_GAPS = {"37a1ee8a": URSHIFU_GAP, "f73663d8": URSHIFU_GAP}
 
 
 def _agent(log_dir: Path, name: str) -> PokemonAgent:

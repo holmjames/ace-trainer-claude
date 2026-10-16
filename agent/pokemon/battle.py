@@ -710,7 +710,7 @@ class TurnSheet:
     opp_team: dict = field(default_factory=dict)  # their species_key -> {"hp", "status", "fainted", "active"} from the observation
     choice_protect: set = field(default_factory=set)  # our slots whose Protect-like move would lock an unlocked Choice item (choice_protect_guard)
     turn: int | None = None  # the battle turn of this sheet (the reply mixture's priors depend on it)
-    timers: dict = field(default_factory=dict)  # "trickroom", "tailwind" (ours) -> turns it still covers, this one counted (None: unknown)
+    timers: dict = field(default_factory=dict)  # "trickroom", "tailwind" (ours), "their_tailwind" -> turns it still covers, this one counted (None: unknown)
     hp_first: dict = field(default_factory=dict)  # (our slot, option index) of an HP-scaling move -> the foes that hit its user first and its cases (hp_power_first)
     lone_aim: dict = field(default_factory=dict)  # their ONE acting Pokémon: {"position", "aim": our slot -> how often its single-target hit lands there} (lone_foe_split)
     foe_aim: dict = field(default_factory=dict)  # two or more of theirs acting: position -> our slot -> how often its single-target hit lands there (foe_aim_split)
@@ -840,7 +840,8 @@ def build_sheet(template: dict, obs: dict, memory: MatchMemory, params: dict | N
         sheet.timers["tailwind"] = turns_left(obs.get("side_conditions"), "tailwind", turn)
         sheet.notes.append("Our Tailwind is up (speed doubled)." + _left_text(sheet.timers["tailwind"]))
     if their_tailwind:
-        sheet.notes.append("Opponent's Tailwind is up (their speed doubled)." + _left_text(turns_left(obs.get("opponent_side_conditions"), "tailwind", turn)))
+        sheet.timers["their_tailwind"] = turns_left(obs.get("opponent_side_conditions"), "tailwind", turn)
+        sheet.notes.append("Opponent's Tailwind is up (their speed doubled)." + _left_text(sheet.timers["their_tailwind"]))
     # Our active Pokémon, one per slot.
     ours: dict[int, Mon] = {}
     for slot in slots:
@@ -3281,6 +3282,7 @@ def _switch_entry_cost(preview: dict, species: str, sheet: "TurnSheet", memory: 
 
 
 PROTECT_OPTIONS = ("protect", "detect", "spikyshield", "banefulbunker", "burningbulwark", "silktrap")
+PROTECT_PIERCING = ("feint", "hyperspacefury", "hyperspacehole", "phantomforce", "shadowforce")  # as rule 3 lists them (speed_end_stall)
 COVER_ROWS = {"protect_threatened", "switch_threatened", "protect_double_target", "protect_and_switch", "redirect_to_protect_partner"}
 
 
@@ -3326,6 +3328,11 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
             s1 = lone[1]
         if s0 is None or s1 is None:
             return
+        for n, answer in ((0, s0), (1, s1)):
+            if n in stall and protects(n, answer):
+                score += stall[n][0]  # speed_end_stall: this Protect buys the turn in which the slot moves first
+                credit += stall[n][0]
+                why += f"; {stall[n][1]}"
         cand = {"name": name, "slot_0": s0, "slot_1": s1, "why": why, "score": round(score, 1), **extra}
         for existing in candidates:
             if existing["slot_0"] == s0 and existing["slot_1"] == s1:
@@ -3339,6 +3346,15 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
 
     def slot_template(number: int) -> dict | None:
         return next((s for s in slots if s.get("slot", 0) == number), None)
+
+    stall: dict[int, tuple[float, str]] = {}  # speed_end_stall: our slot -> (what its Protect adds, why); filled below
+
+    def protects(number: int, answer: dict) -> bool:
+        """Does ``answer`` make slot ``number`` use its Protect (one of PROTECT_OPTIONS)?"""
+        options = (slot_template(number) or {}).get("options") or []
+        index = answer.get("option")
+        option = options[index] if isinstance(index, int) and 0 <= index < len(options) else {}
+        return option.get("type") == "move" and data.to_id(option.get("move_id")) in PROTECT_OPTIONS
 
     lone.update({n: pass_only(n) for n in (0, 1)})
 
@@ -3551,6 +3567,58 @@ def rank_candidates(slots: list[dict], ours: dict[int, "Mon"], theirs: dict[int,
                 best[n] = (safer[0], safer[1], safer[2] * survival_factor(n, sheet, safer[0].get("priority", 0) or 0, speed_rank, safer[1], P))
                 sheet.notes.append(f"TIE GUARD: {me.species} is our last Pokémon and {opt.get('move')} could knock it out with its own recoil "
                                    f"({cost[0]}-{cost[1]}% of its HP) while finishing their last Pokémon: a tie scores nothing, so {safer[0]['move']} instead.")
+
+    # speed_end_stall: Trick Room or THEIR Tailwind ends after this turn, and a foe's KO lands before one of our slots
+    # only because of it (by speed alone the slot moves first once it is gone). That slot's Protect buys a turn in which
+    # it moves first: each of its Protect rows (add) gains speed_end_stall x its best same-priority attack into that foe,
+    # at that Protect's odds (0.33 ** streak), the chance the slot acts, and the chance the partner has not taken the foe
+    # out first. Live, Oct 15 (f73663d8) T5: Trick Room's last turn, Dragonite's Scale Shot KO'd Baxcalibur (152, last
+    # under the room) before its Icicle Spear (261-409% into Dragonite) once we attacked.
+    stall_w = float(P.get("speed_end_stall", 0.0) or 0.0)
+
+    def ends_now(name: str) -> bool:
+        left = sheet.timers.get(name)
+        return left is not None and left <= 1
+
+    tr_ends = sheet.trick_room and ends_now("trickroom")
+    tw_ends = ends_now("their_tailwind")
+    if stall_w > 0 and (tr_ends or tw_ends) and not any((slot_template(n) or {}).get("force_switch") for n in (0, 1)):
+        effect = " and ".join(name for name, on in (("Trick Room", tr_ends), ("their Tailwind", tw_ends)) if on)
+        room_next = sheet.trick_room and not tr_ends
+        for n, me in sorted(ours.items()):
+            if sheet.acts(n) <= 0 or not any(protects(n, {"option": i}) for i in range(len((slot_template(n) or {}).get("options") or []))):
+                continue
+            my_next = me.stat("spe") / (2 if me.tailwind and ends_now("tailwind") else 1)
+            pick: tuple[float, str] | None = None
+            for threat in sheet.threats:
+                pos = threat["position"]
+                foe = theirs.get(pos)
+                if foe is None or sheet.foe_acts(pos) <= 0:
+                    continue
+                foe_next = foe.stat("spe") / (2 if foe.tailwind and tw_ends else 1)
+                if not (my_next < foe_next if room_next else my_next > foe_next):
+                    continue  # it still moves first next turn: the effect is not why it lands first
+                for hit in threat["hits"]:
+                    prio = hit.get("priority", 0) or 0
+                    if hit["into_slot"] != n or hit["ko"] not in ("guaranteed", "possible") or acts_before(n, pos, prio, prio):
+                        continue
+                    flags = (data.move_info(hit["move"]) or {}).get("flags") or []
+                    if (data.to_id(foe.ability) == "unseenfist" and "contact" in flags) or hit["move"] in PROTECT_PIERCING:
+                        continue  # a Protect does not stop it, so it buys nothing
+                    value = max((_expected(r, prio, P, weights.get(species_key(foe.species), 0.0))
+                                 for opt in by_slot.get(n, {}).get("options") or [] if not opt.get("fails") and (opt.get("priority", 0) or 0) == prio
+                                 for r in rows_into(opt, pos)), default=0.0)
+                    value *= 1.0 - partner_removes(1 - n, pos, prio)
+                    if value > 0 and (pick is None or value > pick[0]):
+                        pick = (value, foe.species)
+            if pick is None:
+                continue
+            streak = memory.protect_streak(me.species, n) if memory is not None else 0
+            reason = f"{effect} {'end' if tr_ends and tw_ends else 'ends'} after this turn: next turn {me.species} moves before {pick[1]}"
+            stall[n] = (stall_w * pick[0] * 0.33 ** streak * sheet.acts(n), reason)
+            sheet.stall_reasons.append(reason)
+            sheet.notes.append(f"{reason[0].upper()}{reason[1:]}, so a Protect from slot {n} now buys a turn in which it hits first"
+                               + (f" (a repeat Protect: it works 1 in {3 ** streak})." if streak else "."))
 
     # 0. Forced switches (a Pokémon fainted): bring in the best matchup; the other slot keeps its best action or passes.
     forced = [n for n in (0, 1) if (slot_template(n) or {}).get("force_switch")]
